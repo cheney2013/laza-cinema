@@ -419,6 +419,23 @@ export interface CharswapNodeData extends Record<string, unknown> {
   seed: number;
   seedMode: string;
   megapixels?: number;
+  /** "person" (换人, default): the whole person, clothes included. "head" (换头): the face, hair colour and bangs. */
+  swapMode?: 'person' | 'head' | 'reference';
+  /** "viggle" (default): a repainted frame of the clip, then Viggle. "h3": MiniMax-H3's own edit of the whole clip. */
+  swapEngine?: 'viggle' | 'h3';
+  /** H3 engine: the speed LoRA ("taomate3", default: 3 steps; "turbo8": 8 steps). */
+  h3Accel?: 'taomate3' | 'turbo8';
+  /** H3 engine: the size ("source", default: the clip's own; "small": 864 on the long edge, about 4x faster). */
+  h3Size?: 'source' | 'small';
+  swapPose?: 'auto' | 'follow' | 'upright';
+  /** Face mode: which second of the driving clip is repainted; unset = the middle. */
+  faceFrameSeconds?: number;
+  /** Face mode: the Qwen edit prompt for the repainted frame; empty = the default. */
+  facePrompt?: string;
+  /** Face mode: the repainted frame the last swap used as its reference. */
+  faceReferenceUrl?: string;
+  /** Face mode: the edit prompt the last swap used (written automatically when facePrompt is empty). */
+  facePromptUsed?: string;
   jobId?: string;
   error?: string;
 }

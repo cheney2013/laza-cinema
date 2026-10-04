@@ -73,6 +73,14 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
     """
     r = request or {}
     stages = 1
+    if job_type == "charswap" and r.get("engine") == "h3":
+        # The H3-native swap is an H3 edit render: its family, and the size and steps it is asked for
+        # (TaoMate is 3 steps, the standard LoRA 8; "small" is 864 on the long edge).
+        small = r.get("h3_size") == "small"
+        r = {"motion_preset": "ref2va", "length": 124,
+             "width": 864 if small else 1376, "height": 480 if small else 768,
+             "steps": 3 if r.get("h3_accel") == "taomate3" else 8}
+        job_type = "video_edit"
     if job_type in H3_TYPES:
         variant = r.get("unet_name") or r.get("motion_preset") or "default"
         family = f"h3:{variant}"

@@ -117,3 +117,17 @@ if __name__ == "__main__":
     test_i2va_empty_prompt()
     test_already_structured_prompt_preserved()
     print("All H3 Prompt Builder tests passed successfully!")
+
+
+def test_a_prompt_somebody_wrote_is_sent_as_written_in_every_mode():
+    text = "Replace only the girl in <Video 1> with the character in <Picture 1>. Preserve the camera and the background."
+    for mode in ("edit", "ref2va", "i2va", "fl2va", "t2va"):
+        assert build_smart_fallback_h3_prompt(
+            prompt=text, mode=mode, num_ref_images=1, num_ref_videos=1) == text, mode
+    assert build_smart_fallback_h3_prompt(prompt="  [edit] go on  ", mode="edit", num_ref_videos=1) == "[edit] go on"
+
+
+def test_a_blank_prompt_is_still_filled_in():
+    res = build_smart_fallback_h3_prompt(prompt="", mode="edit", num_ref_videos=1)
+    assert "subject_definitions" in res or "[video editing" in res
+

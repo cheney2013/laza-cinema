@@ -80,12 +80,12 @@ def build_smart_fallback_h3_prompt(
     if is_already_structured_h3_prompt(raw_prompt):
         return raw_prompt
 
-    custom_intent = ""
+    # A prompt somebody wrote is sent as written (2026-10-04): the prompts of every node are written by hand,
+    # and a plain instruction -- what the character-swap LoRA is trained on -- was folded into a six-section
+    # template it has never seen. Only a blank or placeholder prompt is still filled in below.
     if not is_generic_or_empty_prompt(raw_prompt):
-        # Clean mode prefix like "[edit] ..." if present
-        cleaned_intent = re.sub(r"^\[[a-z_]+\]\s*", "", raw_prompt).strip()
-        if cleaned_intent:
-            custom_intent = cleaned_intent
+        return raw_prompt
+    custom_intent = ""
 
     # Auto-detect mode if not explicitly provided
     active_mode = (mode or "").lower()

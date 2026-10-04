@@ -53,6 +53,8 @@ DEFAULT_H3_ACCEL = env_value("H3_ACCEL") or MACHINE_PROFILE.get("h3_accel") or _
 from h3_prompt_builder import build_smart_fallback_h3_prompt
 import accounts
 import artifact_pruner
+import face_crop
+import face_prompt
 from node_sizing import enforce_node_floors
 import take_history
 import bible
@@ -2595,6 +2597,8 @@ async def _collect_finished(job: dict) -> Optional[dict]:
     """A result already sitting in ComfyUI for a job that is about to be run again, if the job type has one."""
     if job.get("type") == "audio_refine":
         return await _audio_refine_result_from_comfy(job)
+    if job.get("type") == "charswap":
+        return await _charswap_result_from_comfy(job)
     return await _upscale_result_from_comfy(job)
 
 
@@ -3850,6 +3854,7 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
         lora_strength=req.lora_strength,
         base_model=req.base_model,
         ref_resolution=req.ref_resolution,
+        on_queued=_make_on_queued(job),
     )
 
     out_name = f"qwen21_{job['id']}.png"
@@ -8651,6 +8656,13 @@ class RenderPassRequest(BaseModel):
     background: str = "#000000"
 
 
+class CharswapTarget(BaseModel):
+    """One person to replace: a point on the frame (0-1 from the top left) and whose photo."""
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    image_url: str
+
+
 class CharswapRequest(BaseModel):
     """Character replacement through Viggle-Animate (the MiniMax-H3 ref2va finetune).
 
@@ -8675,10 +8687,547 @@ class CharswapRequest(BaseModel):
     sampler: str = "euler"
     # The conditioning canvas is 0.4-0.98 MP; the driving clip is scaled to this first.
     megapixels: float = 0.8
+    # "person" (换人): the whole person, clothes included, comes from the still.
+    # "head" (换头): the face, and the still's hair colour and bangs; the hair length and the clothes
+    # stay the clip's. In both a frame of the driving clip is repainted by Qwen and that frame becomes
+    # the reference, so the pose and light the model is shown are the clip's own (see
+    # CHARSWAP_FACE_PROMPT). There is no face-only mode: see docs/CHARSWAP.md.
+    # "reference": the picture is already the reference and goes to Viggle unchanged.
+    mode: str = "person"
+    # Which frame of the clip is repainted; negative = the frame whose face is
+    # largest and most frontal (found with MediaPipe), else the middle. A clip that opens on the
+    # back of the head gives Qwen no face to replace there.
+    face_frame_seconds: float = -1.0
+    # The whole Qwen edit prompt, <image 1> = the clip's frame, <image 2> = the photo.
+    # Name what is in the frame (who, clothes, setting), what must stay, and what the new hair is.
+    # Empty = written for you from what a vision model sees in the two pictures (face_prompt.py);
+    # if that fails, the generic CHARSWAP_FACE_PROMPT, which is the weaker choice (see its notes).
+    face_prompt: str = ""
+    # Person mode, several people in the clip: who is replaced. Each target is a point on the frame
+    # at face_frame_seconds (a negative time means the first frame) and the photo that person becomes;
+    # everyone not pointed at stays. Empty = the one person of character_image_url, as before.
+    targets: list[CharswapTarget] = Field(default_factory=list, max_length=4)
+    # "viggle": the swap described above (a repainted frame of the clip, then Viggle). "h3": MiniMax-H3's own
+    # edit of the whole clip with the photo as a reference and a six-section prompt (written from what the
+    # vision model sees unless face_prompt is given): slower, but it follows a pose that changes through the
+    # clip, which one reference frame cannot. Person mode only. docs/CHARSWAP.md has the measurements.
+    engine: str = "viggle"
+    # H3 engine: the speed LoRA ("taomate3": 3 steps, "turbo8": 8 steps) and the size ("source": the clip's own, at
+    # most 1376 on the long edge; "small": 864 on the long edge, about 4x faster).
+    h3_accel: str = "turbo8"
+    h3_size: str = "source"
+    # H3 engine, no points: the pose of a person put where an animal moved on four legs. "auto": upright when the clip's
+    # subject is an animal and the photo a person; "follow": leave it to the clip; "upright": always.
+    pose: str = "auto"
+
+
+# Measured 2026-10-04 on a 5 s clip (grey wool coat, rain-streaked window, camera over the
+# shoulder), same clip and swap seed throughout:
+#   - sunlit full-length photo as the reference: a different woman, the coat as triangular facets;
+#   - a repainted frame from a prompt that described the clip's frame (woman, grey wool coat,
+#     looking back over her shoulder, rain-streaked window) and the new hair (straight black hair
+#     with full see-through bangs ...) and named the coat and window in its keep-list, two Qwen
+#     seeds: the new face on all 124 frames and the coat held, both times, and again on a rerun;
+#   - a repainted frame from the generic prompt below, with and without cropping the photo to a
+#     bust and with the new hair spelled out (six tries): Qwen kept the clip's own bob and head
+#     turn, and the coat came out as camouflage every time.
+# Hair length matters in back views: a reference with hair tied back made the model paint a
+# long brown strand down the coat in the opening seconds, where the clip's woman is seen from
+# behind (it read as blood). Telling Qwen to keep the clip's hair length ("ends at the nape,
+# nothing hangs down the back") removed it.
+# Both kinds of reference looked right. A generic prompt cannot name what is in the clip, so the
+# caller can pass the whole prompt (`face_prompt`); the default is only a starting point.
+CHARSWAP_FACE_PROMPT = (
+    "Edit <image 1>, a frame from a video. Replace the face and hairstyle of the person in "
+    "<image 1> with the face and hairstyle of the person in <image 2>: copy the hair of "
+    "<image 2> completely, its length, its bangs and how it is worn, and keep none of the "
+    "original hair. Keep everything else in <image 1> exactly as it is: the clothes, the turn "
+    "of the shoulders and the angle of the head, the background, the lighting, the colours "
+    "and the framing."
+)
+
+
+# The generic default for "person" mode: the whole person, clothes included, comes from the photo.
+CHARSWAP_PERSON_PROMPT = (
+    "Edit <image 1>, a frame from a video. Replace the person in <image 1> with the person in "
+    "<image 2>: the same face, the same hair and the same clothes as in <image 2>. Nothing of the "
+    "original person may remain: not the face, not the hair, not the clothes. Keep everything else "
+    "in <image 1> exactly as it is: the turn of the body and the angle of the head, the "
+    "background, the lighting, the colours and the framing."
+)
+
+
+def charswap_face_prompt(override: str = "", mode: str = "head") -> str:
+    """The Qwen edit prompt: the caller's own when given, else the generic default for the mode."""
+    if override.strip():
+        return override.strip()
+    return CHARSWAP_PERSON_PROMPT if mode == "person" else CHARSWAP_FACE_PROMPT
+
+
+CHARSWAP_FACE_NEGATIVE = (
+    "changed clothes, clothes from image 2, background of image 2, changed pose, changed "
+    "background, changed light, extra people, blur, plastic skin, text, watermark"
+)
+
+
+def charswap_face_frame_seconds(requested: float, duration: float) -> float:
+    """The moment of the driving clip that is repainted: the requested one, else the middle,
+    kept inside the clip (a time at or past the end has no frame to cut)."""
+    last = max(0.0, duration - 0.05)
+    if requested < 0:
+        return min(duration / 2, last)
+    return min(requested, last)
+
+
+def charswap_inspect_report(survey: list[dict], duration: float, frames: int,
+                             photo_face_ratio: Optional[float]) -> dict:
+    """What a swap's inputs look like and what is likely to go wrong, from a face survey of the
+    clip (face_crop.survey_faces) and the photo's face width over its width (None = no face).
+
+    Only measurable things are reported: it cannot say whether the swap will succeed.
+    """
+    best = face_crop.pick_best(survey)
+    seen = [r for r in survey if r["face_ratio"] > 0]
+    frontal = [r for r in survey if r["score"] > 0]
+    warnings: list[str] = []
+    if not seen:
+        warnings.append("No face found in any sampled frame of the clip: face mode has nothing to "
+                        "repaint. Use person mode with a reference that matches the clip.")
+    elif not frontal:
+        warnings.append("The face is only ever seen in profile; face mode will repaint the least "
+                        "turned frame and the reference may not look like the new person.")
+    if seen:
+        first_face = min(r["t"] for r in seen)
+        if first_face >= 0.5:
+            warnings.append(
+                f"The first {first_face:.1f} s show no face (seen from behind). Tell the face prompt "
+                "to keep the clip's hair length, or a reference with tied-back hair gets painted "
+                "as a strand down the back of the coat.")
+        if max(r["face_ratio"] for r in seen) < 0.05:
+            warnings.append("The face is under 5% of the frame width everywhere: a small face is "
+                            "repainted badly. Crop or use a closer clip.")
+    if photo_face_ratio is None:
+        warnings.append("No face found in the photo.")
+    elif photo_face_ratio < face_crop.LARGE_FACE:
+        warnings.append(f"The face is {photo_face_ratio * 100:.0f}% of the photo's width; face mode "
+                        "crops it to a bust before repainting.")
+    if frames > 124:
+        warnings.append(f"{frames} frames: more than one pass holds (124), the swap runs in "
+                        "overlapping windows and a long clip is more likely to drift.")
+    return {"best_frame_seconds": best, "duration": round(duration, 3), "frames": frames,
+            "faces_seen": len(seen), "samples": len(survey), "photo_face_ratio": photo_face_ratio,
+            "warnings": warnings, "survey": survey}
+
+
+class CharswapInspectRequest(BaseModel):
+    video_url: str
+    character_image_url: str = ""
+
+
+@app.post("/charswap/inspect")
+async def charswap_inspect(req: CharswapInspectRequest):
+    """Look at a swap's two inputs before spending a minute of GPU on it: where the clip's best
+    face frame is, and what is likely to go wrong (see charswap_inspect_report)."""
+    video_path = await resolve_upload(req.video_url)
+    survey, duration, frames = await asyncio.to_thread(face_crop.survey_faces, video_path)
+    photo_ratio = None
+    if req.character_image_url:
+        photo_path = await resolve_upload(req.character_image_url)
+        box = await asyncio.to_thread(face_crop.face_box, photo_path)
+        if box is not None:
+            from PIL import Image
+            with Image.open(photo_path) as im:
+                photo_ratio = round(box[2] / im.width, 4)
+    return charswap_inspect_report(survey, duration, frames, photo_ratio)
+
+
+def _stop_if_cancelled(job: dict) -> None:
+    """Between a job's ComfyUI prompts. A cancel interrupts the prompt that is running; the stages
+    after it must not start. Raised as a ComfyUIError, which the job runner records as a cancel."""
+    if job.get("status") == "cancelled":
+        raise ComfyUIError("Job cancelled by user")
+
+
+async def _auto_face_prompt(frame_name: str, photo_path: Path, mode: str = "head",
+                            job: Optional[dict] = None) -> Optional[str]:
+    """The edit prompt written from what the Qwen3-VL encoder sees in the frame and in the photo;
+    None when it cannot be written (the caller falls back to the generic prompt)."""
+    try:
+        frame_in = await comfyui.upload_image((UPLOAD_DIR / frame_name).read_bytes(), frame_name)
+        photo_in = await comfyui.upload_image(photo_path.read_bytes(), photo_path.name)
+        queued = _make_on_queued(job) if job is not None else None
+        frame = face_prompt.parse_fields(
+            await comfyui.describe_image(frame_in, face_prompt.FRAME_ASK, on_queued=queued),
+            face_prompt.FRAME_FIELDS + ("view", "limbs", "other"))
+        if job is not None:
+            _stop_if_cancelled(job)
+        if mode == "person":
+            photo = face_prompt.parse_fields(
+                await comfyui.describe_image(photo_in, face_prompt.PERSON_PHOTO_ASK, max_length=260, on_queued=queued),
+                face_prompt.PERSON_PHOTO_FIELDS)
+            return face_prompt.compose_person_prompt(frame, photo)
+        photo = face_prompt.parse_fields(
+            await comfyui.describe_image(photo_in, face_prompt.PHOTO_ASK, on_queued=queued), face_prompt.PHOTO_FIELDS)
+        return face_prompt.compose_face_prompt(frame, photo)
+    except ComfyUIError:
+        if job is not None and job.get("status") == "cancelled":
+            raise                                 # the user stopped it: do not carry on without a prompt
+        logger.warning("Could not write the face prompt automatically", exc_info=True)
+        return None
+    except Exception as exc:                      # a vision step must never sink the swap
+        logger.warning("Could not write the face prompt automatically: %s", exc)
+        return None
+
+
+async def _charswap_face_reference(job: dict, req: CharswapRequest, video_path: Path,
+                                   duration: float, still_path: Path) -> tuple[str, float, str]:
+    """Repaint one frame of the clip with the still's person; return its upload URL, the time of the
+    frame and the prompt used.
+
+    The frame is the clip's most frontal large face unless the caller names a time. The still goes to
+    Qwen cropped to a bust-up (to about the waist for 换人, where the clothes must show) when its face
+    is small (face_crop): a face a few percent of a full-length photo is read badly. The prompt is the
+    caller's own, else written from what a vision model sees in the frame and the photo.
+    """
+    requested = req.face_frame_seconds
+    if requested < 0:
+        # A whole-person swap wants a pose the whole clip shares: look for the face in the middle half.
+        central = (0.25, 0.75) if req.mode == "person" else None
+        best = await asyncio.to_thread(face_crop.best_face_frame, video_path, 24, central)
+        requested = best if best is not None else -1.0
+    seconds = charswap_face_frame_seconds(requested, duration)
+    frame_name = f"charswap_face_src_{job['id']}.png"
+    await asyncio.to_thread(_extract_video_still, video_path, UPLOAD_DIR / frame_name, seconds)
+    _stop_if_cancelled(job)
+    job["batch_info"] = "CHARSWAP · FACE REFERENCE"
+    save_state()
+    face_url = req.character_image_url
+    crop_name = f"charswap_face_crop_{job['id']}.png"
+    if await asyncio.to_thread(face_crop.crop_to_bust, still_path, UPLOAD_DIR / crop_name, req.mode == "person"):
+        face_url = f"/uploads/{crop_name}"
+    prompt = req.face_prompt.strip()
+    if not prompt:
+        photo_path = (UPLOAD_DIR / crop_name) if face_url != req.character_image_url else still_path
+        prompt = await _auto_face_prompt(frame_name, photo_path, req.mode, job) or ""
+    prompt = charswap_face_prompt(prompt, req.mode)
+    _stop_if_cancelled(job)
+    painted = await _run_qwen_image_job(job, QwenImageRequest(
+        prompt=prompt,
+        negative_prompt=CHARSWAP_FACE_NEGATIVE,
+        reference_urls=[f"/uploads/{frame_name}", face_url],
+        seed=req.seed,
+    ))
+    _stop_if_cancelled(job)
+    return painted["url"], seconds, prompt
+
+
+async def _describe_target(frame_name: str, target: CharswapTarget, photo_path: Optional[Path], index: int,
+                            job: dict) -> dict:
+    """What a vision model sees at the pointed-at person of the frame and in their new photo. A step it
+    cannot do leaves its facts empty: the edit prompt then names the person by place alone."""
+    queued = _make_on_queued(job)
+    facts: dict = {"x": target.x, "wears": "", "view": "", "photo": {}}
+    try:
+        strip_name = f"charswap_target_{job['id']}_{index}.png"
+        if await asyncio.to_thread(face_crop.crop_around_point, UPLOAD_DIR / frame_name,
+                                   UPLOAD_DIR / strip_name, target.x, target.y):
+            strip_in = await comfyui.upload_image((UPLOAD_DIR / strip_name).read_bytes(), strip_name)
+            seen = face_prompt.parse_fields(
+                await comfyui.describe_image(strip_in, face_prompt.POINT_ASK, on_queued=queued),
+                face_prompt.POINT_FIELDS)
+            facts["wears"], facts["view"] = seen.get("wears", ""), seen.get("view", "")
+        _stop_if_cancelled(job)
+        if photo_path is not None:
+            photo_in = await comfyui.upload_image(photo_path.read_bytes(), photo_path.name)
+            facts["photo"] = face_prompt.parse_fields(
+                await comfyui.describe_image(photo_in, face_prompt.PERSON_PHOTO_ASK, max_length=260, on_queued=queued),
+                face_prompt.PERSON_PHOTO_FIELDS)
+    except ComfyUIError:
+        if job.get("status") == "cancelled":
+            raise
+        logger.warning("Could not describe target %d", index, exc_info=True)
+    except Exception as exc:
+        logger.warning("Could not describe target %d: %s", index, exc)
+    return facts
+
+
+async def _charswap_people_reference(job: dict, req: CharswapRequest, video_path: Path,
+                                     duration: float) -> tuple[str, float, str]:
+    """The reference for a clip with several people, of whom the user pointed at some: one frame of the
+    clip, repainted by Qwen so that each pointed-at person becomes their photo's person and everyone else
+    stays. <image 1> is the frame, <image 2...> the photos in the order of `req.targets`.
+
+    The frame is exactly the one the user pointed on (face_frame_seconds, the first frame when negative):
+    a point means something only on its own frame.
+    """
+    seconds = charswap_face_frame_seconds(max(req.face_frame_seconds, 0.0), duration)
+    frame_name = f"charswap_face_src_{job['id']}.png"
+    await asyncio.to_thread(_extract_video_still, video_path, UPLOAD_DIR / frame_name, seconds)
+    _stop_if_cancelled(job)
+    job["batch_info"] = "CHARSWAP · PEOPLE REFERENCE"
+    save_state()
+    photo_urls: list[str] = []
+    facts: list[dict] = []
+    for i, target in enumerate(req.targets):
+        photo_path = await resolve_upload(target.image_url)
+        url = target.image_url
+        crop_name = f"charswap_face_crop_{job['id']}_{i}.png"
+        if await asyncio.to_thread(face_crop.crop_to_bust, photo_path, UPLOAD_DIR / crop_name, True):
+            url, photo_path = f"/uploads/{crop_name}", UPLOAD_DIR / crop_name
+        photo_urls.append(url)
+        if not req.face_prompt.strip():
+            facts.append(await _describe_target(frame_name, target, photo_path, i, job))
+    prompt = req.face_prompt.strip() or face_prompt.compose_people_prompt(facts)
+    _stop_if_cancelled(job)
+    painted = await _run_qwen_image_job(job, QwenImageRequest(
+        prompt=prompt,
+        negative_prompt=CHARSWAP_FACE_NEGATIVE,
+        reference_urls=[f"/uploads/{frame_name}", *photo_urls],
+        seed=req.seed,
+    ))
+    _stop_if_cancelled(job)
+    return painted["url"], seconds, prompt
+
+
+H3_ENGINE_MAX_FRAMES = 226      # 17k+5: 9.4 s at 24 fps, one render window; a longer clip is a chain of windows
+# The H3 engine's own weights: the official ref2va base and the Character-Swap LoRA that is trained on the plain
+# instruction of face_prompt.compose_h3_swap_instruction. Both are required: with the six-section prompts and the
+# stock bases the clip's camera and setting came back changed (docs/CHARSWAP.md).
+H3_SWAP_LORA = "h3/h3_character_swap_pro4500_1000.safetensors"
+H3_SWAP_LORA_URL = "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA"
+H3_SWAP_PRESET = "ref2va"
+# The frame of the clip the vision model is asked about, as a fraction of its length: the middle one.
+H3_PROMPT_FRACTION = 0.5
+
+
+def charswap_h3_length(frames: int) -> int:
+    """The frames an H3 edit renders for a clip of `frames` frames at 24 fps: the largest 5 + 17k that
+    the clip supplies (a longer request than the clip has mosaics, like Viggle's)."""
+    n = int(frames)
+    while n > 5 and (n - 5) % 17:
+        n -= 1
+    return n
+
+
+def charswap_h3_size(width: int, height: int, small: bool) -> tuple[int, int]:
+    """The render size of the H3 engine: the clip's own aspect, a long edge of 1376 (864 when `small`)
+    that is never above the clip's own, both edges on the 32 px grid."""
+    long_edge = max(width, height)
+    target = min(864 if small else 1376, long_edge)
+    scale = target / long_edge
+    w = max(32, round(width * scale / 32) * 32)
+    h = max(32, round(height * scale / 32) * 32)
+    return w, h
+
+
+async def _charswap_h3_targets(job: dict, req: CharswapRequest, video_path: Path, duration: float) -> list[dict]:
+    """Who the H3 swap replaces, one dict per person in the order of the pictures, for the instruction
+    (face_prompt.compose_h3_swap_instruction). Without points: the vision model names the main person of the clip's middle
+    frame. With points: each pointed-at person is named by place and clothes at the frame the points were made on, as for
+    the Viggle engine. A step the model cannot do leaves the person unnamed and the instruction says "the main performer"
+    or names the place alone."""
+    queued = _make_on_queued(job)
+    try:
+        if req.targets:
+            pointed = f"charswap_face_src_{job['id']}.png"
+            await asyncio.to_thread(_extract_video_still, video_path, UPLOAD_DIR / pointed,
+                                    charswap_face_frame_seconds(max(req.face_frame_seconds, 0.0), duration))
+            _stop_if_cancelled(job)
+            people = []
+            for i, target in enumerate(req.targets):
+                facts = await _describe_target(pointed, target, None, i, job)
+                people.append({"x": target.x, "wears": facts.get("wears", "")})
+            return people
+        name = f"charswap_h3_frame_{job['id']}.png"
+        await asyncio.to_thread(_extract_video_still, video_path, UPLOAD_DIR / name,
+                                charswap_face_frame_seconds(duration * H3_PROMPT_FRACTION, duration))
+        _stop_if_cancelled(job)
+        uploaded = await comfyui.upload_image((UPLOAD_DIR / name).read_bytes(), name)
+        who = face_prompt.parse_who(
+            await comfyui.describe_image(uploaded, face_prompt.H3_WHO_ASK, max_length=120, on_queued=queued))
+        return [{"who": who}]
+    except ComfyUIError:
+        if job.get("status") == "cancelled":
+            raise
+        logger.warning("Could not describe who the H3 swap replaces", exc_info=True)
+    except Exception as exc:                      # a vision step must never sink the swap
+        logger.warning("Could not describe who the H3 swap replaces: %s", exc)
+    return [{"x": t.x} for t in req.targets] or [{}]
+
+
+async def _charswap_h3_pose(job: dict, req: CharswapRequest, video_path: Path, duration: float,
+                            who: str) -> Optional[tuple[str, str]]:
+    """The upright-walking clause and the start/end stance sentence (face_prompt.compose_upright_pose) when a person
+    replaces an animal, else None. "auto" asks the vision model what the clip's subject and the photo are; a step it
+    cannot do leaves the pose to the clip (None) for "auto" and the clause without a stance for "upright"."""
+    if req.pose == "follow":
+        return None
+    queued = _make_on_queued(job)
+
+    async def ask(path: Path, question: str, length: int = 40) -> str:
+        _stop_if_cancelled(job)
+        uploaded = await comfyui.upload_image(path.read_bytes(), path.name)
+        return await comfyui.describe_image(uploaded, question, max_length=length, on_queued=queued)
+
+    try:
+        mid = UPLOAD_DIR / f"charswap_h3_frame_{job['id']}.png"           # written by _charswap_h3_targets
+        if req.pose == "auto":
+            photo = await resolve_upload(req.character_image_url)
+            if face_prompt.parse_kind(await ask(mid, face_prompt.H3_KIND_ASK)) != "animal":
+                return None
+            if face_prompt.parse_kind(await ask(photo, face_prompt.H3_KIND_ASK)) != "person":
+                return None
+        stances = []
+        for name, at in (("first", 0.1), ("last", max(0.0, duration - 0.15))):
+            frame = UPLOAD_DIR / f"charswap_h3_{name}_{job['id']}.png"
+            await asyncio.to_thread(_extract_video_still, video_path, frame, at)
+            stances.append(face_prompt.parse_facing(await ask(frame, face_prompt.H3_FACING_ASK, 60)))
+        return face_prompt.compose_upright_pose(who, stances[0], stances[1])
+    except ComfyUIError:
+        if job.get("status") == "cancelled":
+            raise
+        logger.warning("Could not read the pose of the H3 swap", exc_info=True)
+    except Exception as exc:
+        logger.warning("Could not read the pose of the H3 swap: %s", exc)
+    return face_prompt.compose_upright_pose(who, ("", False), ("", False)) if req.pose == "upright" else None
+
+
+def _h3_swap_lora_missing() -> bool:
+    """True when the ComfyUI install is known and the Character-Swap LoRA is not in its loras folder."""
+    root = Path(COMFYUI_OUTPUT_DIR).parent if COMFYUI_OUTPUT_DIR else None
+    loras = root / "models" / "loras" if root else None
+    return bool(loras and loras.is_dir() and not (loras / H3_SWAP_LORA).is_file())
+
+
+async def _run_charswap_h3(job: dict, req: CharswapRequest) -> dict:
+    """The H3-native swap: the clip is <Video 1>, the picture <Picture 1>, and H3's own edit render with the
+    Character-Swap LoRA does the rest under one plain instruction (the caller's, else "Replace only <who> in <Video 1>
+    with the character in <Picture 1>. ..." with <who> named by the vision model)."""
+    if req.mode != "person":
+        raise ValueError("the H3 engine swaps the whole person: use mode \"person\"")
+    if req.h3_accel not in ("taomate3", "turbo8"):
+        raise ValueError(f'h3_accel must be "taomate3" or "turbo8", got {req.h3_accel!r}')
+    if req.h3_size not in ("source", "small"):
+        raise ValueError(f'h3_size must be "source" or "small", got {req.h3_size!r}')
+    if req.pose not in ("auto", "follow", "upright"):
+        raise ValueError(f'pose must be "auto", "follow" or "upright", got {req.pose!r}')
+    if _h3_swap_lora_missing():
+        raise ValueError(f"the H3 engine needs the Character-Swap LoRA {H3_SWAP_LORA} in ComfyUI's models/loras "
+                         f"(from {H3_SWAP_LORA_URL}); it is not there")
+    video_path = await resolve_upload(req.video_url)
+    geometry = _probe_video_geometry(video_path)
+    if not geometry:
+        raise ValueError("could not read the driving clip's size and length")
+    fps = _probe_fps(video_path) or 24.0
+    frames = int(geometry[2] * 24.0 / fps)
+    length = charswap_h3_length(frames)
+    if length < 22:
+        raise ValueError(f"the clip is too short for the H3 engine ({frames} frames at 24 fps)")
+    # A longer clip is rendered as a chain of windows, each one continuing the last from the latent it saved (the
+    # video job's chunked continuation); the clip is cut to each window as <Video 1>.
+    chunk_frames = H3_ENGINE_MAX_FRAMES if length > H3_ENGINE_MAX_FRAMES else 0
+    width, height = charswap_h3_size(geometry[0], geometry[1], req.h3_size == "small")
+
+    # One person per render. The LoRA swapped two people at once only half-way (the second person's face and hair but
+    # not the outfit, 2026-10-04, the same instruction that swapped one person completely), so each pointed-at person
+    # is a render of their own and each render takes the last one's clip as <Video 1>.
+    passes: list[tuple[str, str]] = []                     # (the instruction, the picture) of each render
+    typed = req.face_prompt.strip()
+    if typed and len(req.targets) > 1:
+        raise ValueError("a hand-written prompt names one person: point at one person, or leave the prompt empty "
+                         "and each pointed-at person is swapped in a render of their own")
+    if typed:
+        passes.append((typed, req.targets[0].image_url if req.targets else req.character_image_url))
+    else:
+        job["batch_info"] = "CHARSWAP · H3 PROMPT"
+        save_state()
+        people = await _charswap_h3_targets(job, req, video_path, geometry[2] / fps)
+        if req.targets:
+            places = face_prompt._places([t.x for t in req.targets])
+            for target, person, place in zip(req.targets, people, places):
+                passes.append((face_prompt.compose_h3_swap_instruction([{**person, "place": place}]), target.image_url))
+        else:
+            pose = await _charswap_h3_pose(job, req, video_path, geometry[2] / fps, people[0].get("who", ""))
+            passes.append((face_prompt.compose_h3_swap_instruction(people, pose), req.character_image_url))
+    _stop_if_cancelled(job)
+
+    source, rendered = req.video_url, {}
+    for i, (prompt, picture) in enumerate(passes, start=1):
+        _stop_if_cancelled(job)
+        job["charswap_recovery"] = None
+        if i == len(passes) and not chunk_frames:
+            # What a restart needs to collect the finished render instead of describing and rendering again: only
+            # the prompt id the H3 job records itself, and only for the last render (the clip of an earlier one is
+            # not the result, so a restart in the middle of several starts again).
+            job["charswap_recovery"] = {"engine": "h3", "result": {
+                "mode": "h3", "face_frame_seconds": -1.0, "face_prompt": "\n\n".join(p for p, _ in passes)}}
+        job["batch_info"] = "CHARSWAP · H3" + (f" {i}/{len(passes)}" if len(passes) > 1 else "")
+        save_state()
+        rendered = await _run_video_job(job, VideoRequest(
+            prompt=prompt, raw_prompt=True, mode="edit",
+            ref_video_urls=[source], ref_image_urls=[picture],
+            audio_strategy="copy_source", width=width, height=height, length=length,
+            seed=req.seed, motion_preset=H3_SWAP_PRESET, accel_lora=req.h3_accel, chunk_frames=chunk_frames,
+            style_loras=[{"name": H3_SWAP_LORA, "strength": 1.0}], fps=24))
+        source = rendered["url"]
+    return {**rendered, "mode": "h3", "face_frame_seconds": -1.0, "face_prompt": "\n\n".join(p for p, _ in passes)}
+
+
+async def _charswap_result_from_comfy(job: dict) -> Optional[dict]:
+    """The result of a swap whose Viggle prompt ComfyUI already finished, or None.
+
+    A backend restart puts a running swap back in the queue, and run again from the start it describes,
+    repaints and renders the whole clip a second time (the Qwen and Viggle graphs are new prompts, so
+    ComfyUI's cache does not answer them). When the restart came after the Viggle prompt was queued, the
+    render is taken from ComfyUI's history instead, like an upscale's (_upscale_result_from_comfy).
+    """
+    recovery = job.get("charswap_recovery")
+    if job.get("type") != "charswap" or not isinstance(recovery, dict):
+        return None
+    if recovery.get("engine") == "h3":
+        # The H3 render is ComfyUI's file as it is: the result is its name and the fields recorded before.
+        try:
+            state, outputs = await comfyui.prompt_state(job.get("prompt_id") or "")
+            files, _latent = comfyui.output_files(outputs) if state == "success" else ([], None)
+            video = next((f for f in files if str(f.get("filename", "")).lower().endswith(".mp4")), None)
+            if not video:
+                return None
+            sub = f"{video['subfolder']}/" if video.get("subfolder") else ""
+            return {**(recovery.get("result") or {}), "url": f"/comfy_output/{sub}{video['filename']}",
+                    "filename": video["filename"], "comfy_filename": video["filename"], "recovered": True}
+        except Exception:  # noqa: BLE001 -- anything unexpected falls back to running it again
+            logger.warning("Could not collect swap job %s from ComfyUI", job.get("id"), exc_info=True)
+            return None
+    prompt_id, result = recovery.get("viggle_prompt_id"), recovery.get("result")
+    if not prompt_id or not isinstance(result, dict) or not result.get("filename"):
+        return None
+    try:
+        state, outputs = await comfyui.prompt_state(prompt_id)
+        if state != "success":
+            return None
+        files, _latent = comfyui.output_files(outputs)
+        video = next((f for f in files if str(f.get("filename", "")).lower().endswith(".mp4")), None)
+        if not video:
+            return None
+        mp4 = await comfyui.get_video_bytes(video["filename"], video.get("subfolder") or "", "output")
+        (UPLOAD_DIR / result["filename"]).write_bytes(mp4)
+        logger.info("Swap job %s: collected the finished ComfyUI render %s instead of running it again",
+                    job.get("id"), video["filename"])
+        return result
+    except Exception:  # noqa: BLE001 -- anything unexpected falls back to running it again
+        logger.warning("Could not collect swap job %s from ComfyUI", job.get("id"), exc_info=True)
+        return None
 
 
 async def _run_charswap_job(job: dict, req: CharswapRequest) -> dict:
     require_node("charswap")
+    job.pop("charswap_recovery", None)      # a run from the start has nothing of an earlier run to collect
+    if req.engine not in ("viggle", "h3"):
+        raise ValueError(f'engine must be "viggle" or "h3", got {req.engine!r}')
+    if req.engine == "h3":
+        return await _run_charswap_h3(job, req)
+    if req.targets and req.mode != "person":
+        raise ValueError(f'targets only work in person mode, got mode {req.mode!r}')
     job_id = job["id"]
     video_path = await resolve_upload(req.video_url)
     ref_path = await resolve_upload(req.character_image_url)
@@ -8695,6 +9244,25 @@ async def _run_charswap_job(job: dict, req: CharswapRequest) -> dict:
     if geometry:
         megapixels = min(megapixels, geometry[0] * geometry[1] / 1e6)
 
+    if req.mode not in ("person", "head", "reference"):
+        raise ValueError(f'mode must be "person", "head" or "reference", got {req.mode!r}')
+    # Person and head make their reference from a repainted frame of the clip: the photo itself is never
+    # fed to Viggle (a reference that does not match the clip gives a stranger and a coat of facets).
+    # Only "reference" hands the caller's picture over untouched.
+    duration = (geometry[2] / fps) if geometry else length / 24.0
+    if req.mode == "reference":
+        # The caller made the reference themselves (two people, a pose the repaint cannot hold):
+        # it goes to Viggle as it is.
+        reference_url, face_seconds, face_prompt_used = req.character_image_url, -1.0, ""
+    elif req.targets:
+        reference_url, face_seconds, face_prompt_used = await _charswap_people_reference(
+            job, req, video_path, duration)
+    else:
+        reference_url, face_seconds, face_prompt_used = await _charswap_face_reference(
+            job, req, video_path, duration, ref_path)
+    ref_path = await resolve_upload(reference_url)
+    _stop_if_cancelled(job)
+
     comfy_video = await comfyui.upload_video(video_path.read_bytes(), video_path.name)
     comfy_ref = await comfyui.upload_image(ref_path.read_bytes(), ref_path.name)
 
@@ -8705,6 +9273,19 @@ async def _run_charswap_job(job: dict, req: CharswapRequest) -> dict:
     # and its text encoder (~15 GB) it fills 64 GB of RAM and Windows pages; a run on
     # 2026-09-21 sat at step 0 for 7 min. Unload before, and again after so the next
     # H3 job does not meet Viggle. ComfyUI applies /free between prompts.
+    # What a restart needs to collect the finished render instead of running the whole job again
+    # (_charswap_result_from_comfy): the result's own fields, and the id of the Viggle prompt itself
+    # (job["prompt_id"] is also the Qwen and description prompts before it).
+    result = {"url": f"/uploads/charswap_{job_id}.mp4", "filename": f"charswap_{job_id}.mp4", "mode": req.mode,
+              "reference": {"url": reference_url, "source_url": req.character_image_url},
+              "face_frame_seconds": face_seconds, "face_prompt": face_prompt_used}
+    recovery = job["charswap_recovery"] = {"result": result, "viggle_prompt_id": None}
+    queued = _make_on_queued(job)
+
+    def viggle_queued(prompt_id):
+        recovery["viggle_prompt_id"] = prompt_id
+        queued(prompt_id)
+
     await comfyui.free_memory(unload_models=True, free_memory=True)
     try:
         mp4 = await comfyui.charswap_viggle(
@@ -8712,15 +9293,13 @@ async def _run_charswap_job(job: dict, req: CharswapRequest) -> dict:
             length=length, seed=req.seed,
             sampler=req.sampler, megapixels=megapixels,
             keep_audio=_has_audio_stream(video_path),
-            on_queued=_make_on_queued(job),
+            on_queued=viggle_queued,
         )
     finally:
         await comfyui.free_memory(unload_models=True, free_memory=True)
 
-    out_name = f"charswap_{job_id}.mp4"
-    (UPLOAD_DIR / out_name).write_bytes(mp4)
-    return {"url": f"/uploads/{out_name}", "filename": out_name,
-            "reference": {"url": req.character_image_url}}
+    (UPLOAD_DIR / result["filename"]).write_bytes(mp4)
+    return result
 
 
 @app.post("/charswap")

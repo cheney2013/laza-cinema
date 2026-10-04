@@ -267,7 +267,7 @@ class CanvasMcpProtocolTests(unittest.IsolatedAsyncioTestCase):
              "transcribe_media", "get_media_transcription", "extract_audio",
              "get_media_frames", "add_media_still", "render_gaussian_view", "redo_audio",
              "upscale_chain", "upscale_chain_status", "cancel_upscale_chain", "cleanup_canvas",
-             "canvas_progress"},
+             "canvas_progress", "inspect_charswap_inputs"},
         )
 
 
@@ -322,3 +322,276 @@ class FinishedJobTests(unittest.TestCase):
         self.assertEqual(saved[0]["status"], "error")
         self.assertIsNone(saved[0]["jobId"])
         self.assertFalse(out["cancelled"])
+
+
+class CharswapRunTests(unittest.TestCase):
+    """run_canvas_node on a charswap node returned a KeyError('steps') *after* the job was
+    submitted and the node saved: the reply read payload["steps"], which a Viggle swap
+    has no use for. The caller saw an error for a job that was running."""
+
+    def test_run_reports_the_job_it_started(self):
+        import canvas_mcp_server as m
+        canvas = {
+            "nodes": [
+                {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
+                {"id": "swap", "type": "charswap", "data": {"seed": 7, "megapixels": 0.5}},
+            ],
+            "edges": [
+                {"source": "clip", "target": "swap", "targetHandle": "in-video"},
+                {"source": "who", "target": "swap", "targetHandle": "in-character"},
+            ],
+        }
+        sent = []
+
+        def fake_request(method, path, **kw):
+            sent.append((method, path, kw["json"]))
+            return {"job_id": "j9", "status": "queued"}
+
+        with unittest.mock.patch.object(m, "_request", side_effect=fake_request),                 unittest.mock.patch.object(m, "_save_node_data", return_value=12):
+            out = m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][2])
+        self.assertEqual(out["job_id"], "j9")
+        self.assertEqual(out["seed"], 7)
+        self.assertEqual(out["megapixels"], 0.5)
+        self.assertEqual(sent[0][1], "/charswap")
+        self.assertEqual(sent[0][2]["character_image_url"], "/uploads/b.png")
+        self.assertEqual(sent[0][2]["mode"], "person")
+        self.assertLess(sent[0][2]["face_frame_seconds"], 0)
+
+    def test_face_mode_and_frame_time_reach_the_backend(self):
+        import canvas_mcp_server as m
+        canvas = {
+            "nodes": [
+                {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
+                {"id": "swap", "type": "charswap",
+                 "data": {"swapMode": "head", "faceFrameSeconds": 3.5,
+                          "facePrompt": "Edit <image 1>: give her the hair of <image 2>."}},
+            ],
+            "edges": [
+                {"source": "clip", "target": "swap", "targetHandle": "in-video"},
+                {"source": "who", "target": "swap", "targetHandle": "in-character"},
+            ],
+        }
+        sent = []
+
+        def fake_request(method, path, **kw):
+            sent.append(kw["json"])
+            return {"job_id": "j9", "status": "queued"}
+
+        with unittest.mock.patch.object(m, "_request", side_effect=fake_request), \
+                unittest.mock.patch.object(m, "_save_node_data", return_value=12):
+            out = m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][2])
+        self.assertEqual(sent[0]["mode"], "head")
+        self.assertEqual(sent[0]["face_frame_seconds"], 3.5)
+        self.assertEqual(sent[0]["face_prompt"], "Edit <image 1>: give her the hair of <image 2>.")
+        self.assertEqual(out["mode"], "head")
+
+    def test_each_swap_mode_reaches_the_backend(self):
+        import canvas_mcp_server as m
+        for node_mode, sent_mode in (('head', 'head'), ('reference', 'reference'), ('person', 'person'), (None, 'person'), ('face', 'person'), ('x', 'person')):
+            canvas = {
+                "nodes": [
+                    {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                    {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
+                    {"id": "swap", "type": "charswap", "data": {"swapMode": node_mode}},
+                ],
+                "edges": [
+                    {"source": "clip", "target": "swap", "targetHandle": "in-video"},
+                    {"source": "who", "target": "swap", "targetHandle": "in-character"},
+                ],
+            }
+            sent = []
+            with unittest.mock.patch.object(m, "_request", side_effect=lambda *a, **kw: sent.append(kw["json"]) or {"job_id": "j"}), \
+                    unittest.mock.patch.object(m, "_save_node_data", return_value=1):
+                m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][2])
+            self.assertEqual(sent[0]["mode"], sent_mode, node_mode)
+
+    def _two_people_canvas(self, node_data, photos=("/uploads/p1.png", "/uploads/p2.png")):
+        nodes = [{"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                 {"id": "swap", "type": "charswap", "data": node_data}]
+        edges = [{"source": "clip", "target": "swap", "targetHandle": "in-video"}]
+        for i, url in enumerate(photos):
+            nodes.append({"id": f"who{i}", "type": "image", "data": {"url": url}})
+            edges.append({"source": f"who{i}", "target": "swap", "targetHandle": "in-character"})
+        return {"nodes": nodes, "edges": edges}
+
+    def _run_swap(self, canvas):
+        import canvas_mcp_server as m
+        sent = []
+        with unittest.mock.patch.object(m, "_request", side_effect=lambda *a, **kw: sent.append(kw["json"]) or {"job_id": "j"}),                 unittest.mock.patch.object(m, "_save_node_data", return_value=1):
+            m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][1])
+        return sent[0]
+
+    def test_pointed_people_are_paired_with_the_photos_in_wired_order(self):
+        sent = self._run_swap(self._two_people_canvas({
+            "faceFrameSeconds": 1.5,
+            "swapTargets": [{"x": 0.3, "y": 0.5}, {"x": 0.7, "y": 0.4}]}))
+        self.assertEqual(sent["targets"], [
+            {"x": 0.3, "y": 0.5, "image_url": "/uploads/p1.png"},
+            {"x": 0.7, "y": 0.4, "image_url": "/uploads/p2.png"}])
+        self.assertEqual(sent["character_image_url"], "/uploads/p1.png")
+        self.assertEqual(sent["face_frame_seconds"], 1.5)
+
+    def test_points_pin_the_frame_to_the_start_when_no_time_is_set(self):
+        sent = self._run_swap(self._two_people_canvas({"swapTargets": [{"x": 0.3, "y": 0.5}]}, photos=("/uploads/p1.png",)))
+        self.assertEqual(sent["face_frame_seconds"], 0.0)
+        self.assertEqual(len(sent["targets"]), 1)
+
+    def test_one_photo_and_no_points_sends_no_targets(self):
+        sent = self._run_swap(self._two_people_canvas({}, photos=("/uploads/p1.png",)))
+        self.assertNotIn("targets", sent)
+
+    def test_several_photos_without_points_are_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            self._run_swap(self._two_people_canvas({}))
+        self.assertIn("no person is pointed at", str(caught.exception))
+
+    def test_more_photos_than_points_leave_the_extra_photos_out(self):
+        sent = self._run_swap(self._two_people_canvas({"swapTargets": [{"x": 0.5, "y": 0.5}]}))
+        self.assertEqual([t["image_url"] for t in sent["targets"]], ["/uploads/p1.png"])
+
+    def test_points_off_the_frame_are_dropped(self):
+        sent = self._run_swap(self._two_people_canvas(
+            {"swapTargets": [{"x": 1.4, "y": 0.5}, {"x": 0.5, "y": 0.5}]}, photos=("/uploads/p1.png",)))
+        self.assertEqual(sent["targets"], [{"x": 0.5, "y": 0.5, "image_url": "/uploads/p1.png"}])
+
+    def test_head_and_reference_modes_take_one_picture_and_no_points(self):
+        for mode in ("head", "reference"):
+            with self.assertRaises(ValueError):
+                self._run_swap(self._two_people_canvas({"swapMode": mode}))
+            sent = self._run_swap(self._two_people_canvas(
+                {"swapMode": mode, "swapTargets": [{"x": 0.5, "y": 0.5}]}, photos=("/uploads/p1.png",)))
+            self.assertNotIn("targets", sent, mode)
+
+    def test_inspect_sends_both_inputs_and_returns_the_report(self):
+        import canvas_mcp_server as m
+        canvas = {
+            "nodes": [
+                {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
+                {"id": "swap", "type": "charswap", "data": {"swapMode": "head"}},
+            ],
+            "edges": [
+                {"source": "clip", "target": "swap", "targetHandle": "in-video"},
+                {"source": "who", "target": "swap", "targetHandle": "in-character"},
+            ],
+        }
+        sent = []
+
+        def fake_request(method, path, **kw):
+            sent.append((method, path, kw["json"]))
+            return {"best_frame_seconds": 3.2, "warnings": ["x"], "survey": []}
+
+        with unittest.mock.patch.object(m, "_resolve_project", return_value={"id": "p1", "name": "P"}), \
+                unittest.mock.patch.object(m, "_canvas", return_value=canvas), \
+                unittest.mock.patch.object(m, "_request", side_effect=fake_request):
+            out = m.inspect_charswap_inputs("p1", "swap")
+        self.assertEqual(sent, [("POST", "/charswap/inspect",
+                                 {"video_url": "/uploads/a.mp4", "character_image_url": "/uploads/b.png"})])
+        self.assertEqual(out["best_frame_seconds"], 3.2)
+        self.assertEqual(out["mode"], "head")
+
+    def test_inspect_refuses_a_node_that_is_not_a_swap(self):
+        import canvas_mcp_server as m
+        canvas = {"nodes": [{"id": "n", "type": "video", "data": {}}], "edges": []}
+        with unittest.mock.patch.object(m, "_resolve_project", return_value={"id": "p1", "name": "P"}), \
+                unittest.mock.patch.object(m, "_canvas", return_value=canvas):
+            with self.assertRaises(ValueError):
+                m.inspect_charswap_inputs("p1", "n")
+
+
+class VideoEditSpeedLoraTests(unittest.TestCase):
+    """The edit node's speed LoRA reaches the backend. It did not: a TaoMate test queued with
+    accelLora 'taomate3' went out with no accel_lora, and the backend took its steps from the default
+    8-step LoRA, so the run was the one it was meant to be compared with (2026-10-04)."""
+
+    def _sent(self, node_data):
+        import canvas_mcp_server as m
+        canvas = {
+            "nodes": [
+                {"id": "clip", "type": "video", "data": {"generatedUrl": "/comfy_output/a.mp4"}},
+                {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
+                {"id": "edit", "type": "videoEdit", "data": {"prompt": "p", **node_data}},
+            ],
+            "edges": [
+                {"source": "clip", "target": "edit", "targetHandle": "in-video"},
+                {"source": "who", "target": "edit", "targetHandle": "in-character"},
+            ],
+        }
+        sent = []
+        with unittest.mock.patch.object(m, "_request", side_effect=lambda *a, **kw: sent.append(kw["json"]) or {"job_id": "j"}),                 unittest.mock.patch.object(m, "_save_node_data", return_value=1):
+            m._run_video_edit_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][2])
+        return sent[0]
+
+    def test_taomate_reaches_the_backend(self):
+        self.assertEqual(self._sent({"accelLora": "taomate3"})["accel_lora"], "taomate3")
+
+    def test_no_choice_leaves_the_backend_default(self):
+        self.assertNotIn("accel_lora", self._sent({}))
+
+    def test_a_raw_prompt_and_style_loras_reach_the_backend(self):
+        sent = self._sent({"rawPrompt": True, "styleLoras": ["h3/swap.safetensors"], "styleLoraStrengths": {"h3/swap.safetensors": 0.8}})
+        self.assertIs(sent["raw_prompt"], True)
+        self.assertEqual(sent["style_loras"], [{"name": "h3/swap.safetensors", "strength": 0.8}])
+        plain = self._sent({})
+        self.assertNotIn("raw_prompt", plain)
+
+    def test_a_depth_clip_reaches_the_backend_as_the_control_video(self):
+        sent = self._sent({"controlVideoUrl": "/comfy_output/depth.mp4", "controlStrength": 0.6})
+        self.assertEqual((sent["control_video_url"], sent["control_strength"]), ("/comfy_output/depth.mp4", 0.6))
+        self.assertNotIn("control_video_url", self._sent({}))
+
+
+class CharswapEngineTests(unittest.TestCase):
+    """The swap node's H3 engine: the options reach the backend, and what the engine cannot do is refused."""
+
+    def _sent(self, node_data, photos=("/uploads/p1.png",)):
+        import canvas_mcp_server as m
+        nodes = [{"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
+                 {"id": "swap", "type": "charswap", "data": node_data}]
+        edges = [{"source": "clip", "target": "swap", "targetHandle": "in-video"}]
+        for i, url in enumerate(photos):
+            nodes.append({"id": f"who{i}", "type": "image", "data": {"url": url}})
+            edges.append({"source": f"who{i}", "target": "swap", "targetHandle": "in-character"})
+        canvas = {"nodes": nodes, "edges": edges}
+        sent = []
+        with unittest.mock.patch.object(m, "_request", side_effect=lambda *a, **kw: sent.append(kw["json"]) or {"job_id": "j"}),                 unittest.mock.patch.object(m, "_save_node_data", return_value=1):
+            out = m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, nodes[1])
+        return sent[0], out
+
+    def test_the_h3_engine_defaults_to_eight_steps_at_the_clips_size(self):
+        sent, out = self._sent({"swapEngine": "h3"})
+        self.assertEqual((sent["engine"], sent["h3_accel"], sent["h3_size"], sent["mode"]), ("h3", "turbo8", "source", "person"))
+        self.assertEqual(sent["pose"], "auto")
+        self.assertEqual(out["engine"], "h3")
+
+    def test_the_options_combine(self):
+        for accel, size in (("turbo8", "small"), ("taomate3", "small"), ("turbo8", "source")):
+            sent, _ = self._sent({"swapEngine": "h3", "h3Accel": accel, "h3Size": size})
+            self.assertEqual((sent["h3_accel"], sent["h3_size"]), (accel, size))
+
+    def test_viggle_is_the_default_and_sends_no_h3_fields(self):
+        for data in ({}, {"swapEngine": "viggle"}, {"swapEngine": "x"}):
+            sent, out = self._sent(data)
+            self.assertNotIn("engine", sent)
+            self.assertEqual(out["engine"], "viggle")
+
+    def test_what_the_h3_engine_cannot_do_is_refused(self):
+        refused = (({"swapEngine": "h3", "swapMode": "head"}, ("/uploads/p1.png",)),
+                   ({"swapEngine": "h3", "swapMode": "reference"}, ("/uploads/p1.png",)),
+                   ({"swapEngine": "h3"}, ("/uploads/p1.png", "/uploads/p2.png")),
+                   ({"swapEngine": "h3", "h3Accel": "fast"}, ("/uploads/p1.png",)),
+                   ({"swapEngine": "h3", "h3Size": "huge"}, ("/uploads/p1.png",)))
+        for data, photos in refused:
+            with self.assertRaises(ValueError, msg=str(data)):
+                self._sent(data, photos)
+
+    def test_the_h3_engine_takes_the_pointed_people_like_the_other_engine(self):
+        sent, _ = self._sent({"swapEngine": "h3", "faceFrameSeconds": 0.5,
+                              "swapTargets": [{"x": 0.3, "y": 0.5}, {"x": 0.7, "y": 0.5}]},
+                             ("/uploads/p1.png", "/uploads/p2.png"))
+        self.assertEqual(sent["engine"], "h3")
+        self.assertEqual([t["image_url"] for t in sent["targets"]], ["/uploads/p1.png", "/uploads/p2.png"])
+        self.assertEqual(sent["face_frame_seconds"], 0.5)
+

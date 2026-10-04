@@ -75,3 +75,56 @@ class CancelPromptTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromptIdReportedTest(unittest.TestCase):
+    """A job can only cancel the prompt it knows the id of. The image and the description prompts a
+    swap makes before its video prompt used to stay unknown to the job, so a cancel could not stop them."""
+
+    def test_an_image_workflow_reports_its_prompt_before_waiting_for_it(self):
+        order = []
+        client = comfyui_client.ComfyUIClient("http://comfy")
+
+        async def queue_prompt(workflow, live_preview=True):
+            return "p1"
+
+        async def wait(prompt_id, timeout=0, expect_images=True):
+            order.append(("wait", prompt_id))
+            return [{"filename": "a.png"}]
+
+        async def image_bytes(*args, **kwargs):
+            return b"png"
+
+        with mock.patch.object(client, "queue_prompt", queue_prompt), \
+                mock.patch.object(client, "wait_for_result", wait), \
+                mock.patch.object(client, "get_image_bytes", image_bytes):
+            out = asyncio.run(client._run_image_workflow({}, on_queued=lambda pid: order.append(("queued", pid))))
+        self.assertEqual(out, b"png")
+        self.assertEqual(order, [("queued", "p1"), ("wait", "p1")])
+
+    def test_a_description_reports_its_prompt_and_returns_the_text(self):
+        order = []
+
+        class History(_FakeComfy):
+            def handler(self, request):
+                if request.method == "GET" and request.url.path == "/history/p7":
+                    return httpx.Response(200, json={"p7": {"outputs": {"4": {"text": ["a woman in a coat"]}}}})
+                return super().handler(request)
+
+        async def go(client):
+            async def queue_prompt(workflow, live_preview=True):
+                return "p7"
+
+            async def wait(prompt_id, timeout=0, expect_images=True):
+                order.append(("wait", prompt_id))
+
+            async def no_free(unet):
+                return None
+
+            with mock.patch.object(client, "queue_prompt", queue_prompt), \
+                    mock.patch.object(client, "wait_for_result", wait), \
+                    mock.patch.object(client, "_free_unless_last_used", no_free):
+                return await client.describe_image("x.png", "ask", on_queued=lambda pid: order.append(("queued", pid)))
+
+        self.assertEqual(_run(History(), go), "a woman in a coat")
+        self.assertEqual(order, [("queued", "p7"), ("wait", "p7")])

@@ -356,6 +356,21 @@ export interface CharswapRequest {
   sampler?: string;
   scheduler?: string;
   megapixels?: number;
+  /** "person" (换人): the whole person. "head" (换头): the face, hair colour and bangs. A frame of the clip is repainted first.
+   *  "reference": the picture is already the reference and goes to Viggle as it is. */
+  mode?: 'person' | 'head' | 'reference';
+  /** Person mode with several people in the clip: who to replace (a point on the frame at face_frame_seconds, 0-1
+   *  from the top left) and with whose photo. Everyone not pointed at stays. */
+  targets?: { x: number; y: number; image_url: string }[];
+  /** "viggle" (default) or "h3": MiniMax-H3's own edit of the whole clip, person mode only. */
+  engine?: 'viggle' | 'h3';
+  h3_accel?: 'taomate3' | 'turbo8';
+  h3_size?: 'source' | 'small';
+  pose?: 'auto' | 'follow' | 'upright';
+  /** Face mode: the second to repaint; negative = the middle of the clip. */
+  face_frame_seconds?: number;
+  /** Face mode: the whole Qwen edit prompt (<image 1> = the clip's frame, <image 2> = the photo); empty = the default. */
+  face_prompt?: string;
 }
 
 export interface ReangleRequest {

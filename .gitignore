@@ -127,3 +127,6 @@ backend/workspaces/content_archive.db
 
 # Per-machine MCP client config (holds local absolute paths)
 .agents/mcp_config.json
+
+# App runtime state
+.runtime/

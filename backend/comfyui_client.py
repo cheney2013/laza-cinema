@@ -1119,9 +1119,13 @@ class ComfyUIClient:
             else:
                 on_queued(prompt_id)
 
-    async def _run_image_workflow(self, workflow: dict, timeout: int = 1800, return_info: bool = False):
-        """Queue a workflow, wait, and return the first output image's info dict or raw bytes."""
+    async def _run_image_workflow(self, workflow: dict, timeout: int = 1800, return_info: bool = False,
+                                  on_queued=None):
+        """Queue a workflow, wait, and return the first output image's info dict or raw bytes.
+
+        `on_queued(prompt_id)` lets the job record the prompt, so cancelling the job can interrupt it."""
         prompt_id = await self.queue_prompt(workflow)
+        await self._notify_queued(on_queued, prompt_id)
         images = await self.wait_for_result(prompt_id, timeout=timeout)
         if not images:
             raise ComfyUIError("No output images produced")
@@ -1358,6 +1362,7 @@ class ComfyUIClient:
         lora_strength: float = 1.0,
         base_model: str = "qwen21",
         ref_resolution: int = wb.QWEN_IMAGE_21_REF_RESOLUTION,
+        on_queued=None,
     ):
         """Qwen-Image-2.1, text-to-image or edit. See build_qwen_image_21_workflow.
 
@@ -1381,7 +1386,24 @@ class ComfyUIClient:
             base_model=base_model,
             ref_resolution=ref_resolution,
         )
-        return await self._run_image_workflow(workflow, return_info=return_info)
+        return await self._run_image_workflow(workflow, return_info=return_info, on_queued=on_queued)
+
+    async def describe_image(self, image_filename: str, ask: str, max_length: int = 220, on_queued=None) -> str:
+        """What the Qwen3-VL text encoder says about one input image (build_image_description_workflow)."""
+        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET)   # keeps H3 out of the way, as the edit does
+        prompt_id = await self.queue_prompt(
+            wb.build_image_description_workflow(image_filename, ask, max_length), live_preview=False)
+        await self._notify_queued(on_queued, prompt_id)
+        await self.wait_for_result(prompt_id, timeout=300, expect_images=False)
+        async with _http(timeout=30) as client:
+            r = await client.get(f"{self.base_url}/history/{prompt_id}")
+            if r.status_code != 200:
+                raise ComfyUIError("Failed to fetch history")
+        for node_output in r.json().get(prompt_id, {}).get("outputs", {}).values():
+            text = node_output.get("text")
+            if text:
+                return (text[0] if isinstance(text, list) else str(text)).strip()
+        raise ComfyUIError("The image description produced no text")
 
     async def upscale_image_esrgan(
         self,

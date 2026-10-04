@@ -2283,6 +2283,19 @@ def _run_video_edit_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         # queued between segments does not swap 20 GB of weights both ways
         # (2026-09-22).
         "motion_preset": data.get("motionPreset") or "singularity",
+        # The speed LoRA of the edit, like a segment's: 'turbo8' (the backend default), 'taomate3' or 'none';
+        # the backend sets the steps from it, so the node's "steps" does not choose it.
+        **({"accel_lora": data["accelLora"]} if data.get("accelLora") else {}),
+        # A per-frame depth clip of the source (a depthVideo node's result) drives the geometry of every frame through
+        # the Fun ControlNet, beside the source as <Video 1>: the pose follows the clip, the look comes from the pictures.
+        **({"control_video_url": data["controlVideoUrl"],
+            "control_strength": float(data.get("controlStrength") or 1.0)} if data.get("controlVideoUrl") else {}),
+        # Send the prompt exactly as written: a plain instruction ("Replace only ... in <Video 1> with ... <Picture 1>"),
+        # which a LoRA trained on such prompts needs, is otherwise wrapped into the structured template.
+        **({"raw_prompt": True} if data.get("rawPrompt") else {}),
+        # Style LoRAs of the edit (the node's multi-select, stacked in order), strength per LoRA from styleLoraStrengths.
+        **({"style_loras": [{"name": n, "strength": float((data.get("styleLoraStrengths") or {}).get(n, 1.0))}
+                            for n in data["styleLoras"] if isinstance(n, str)]} if data.get("styleLoras") else {}),
         "fps": 24,
     }
     # editWindowEnabled: edit only reshotStartSeconds..+reshotDurationSeconds of the
@@ -2799,6 +2812,75 @@ def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
             "url": result["url"], "revision": revision, "route": "sharp"}
 
 
+def _charswap_inputs(canvas: dict[str, Any], node_id: str, handle: str, what: str) -> list[str]:
+    """The file URLs wired into one of a charswap node's ports, in edge order (at least one)."""
+    sources = _incoming_nodes(canvas, node_id, handle)
+    if not sources:
+        raise ValueError(f"Charswap node {node_id} needs a {what} on {handle}, has none.")
+    urls = []
+    for source in sources:
+        url = _node_url(source)
+        if not url:
+            raise ValueError(f"Charswap node {node_id}: {what} {source.get('id')} has no file yet.")
+        urls.append(url)
+    return urls
+
+
+def _charswap_input(canvas: dict[str, Any], node_id: str, handle: str, what: str) -> str:
+    """The file URL wired into one of a charswap node's ports, which must hold exactly one."""
+    urls = _charswap_inputs(canvas, node_id, handle, what)
+    if len(urls) != 1:
+        raise ValueError(f"Charswap node {node_id} needs exactly one {what} on "
+                         f"{handle}, has {len(urls)}.")
+    return urls[0]
+
+
+def _charswap_targets(data: dict[str, Any], photos: list[str]) -> list[dict[str, Any]]:
+    """The people a person-mode swap replaces: point i of the node (swapTargets, 0-1 on the frame at
+    faceFrameSeconds) with photo i, in the order the photos are wired. Several photos with no points
+    have no way to say who is who, so that is refused; more photos than points leaves the extras out."""
+    points = [p for p in (data.get("swapTargets") or [])
+              if isinstance(p, dict) and all(isinstance(p.get(k), (int, float)) and 0 <= p[k] <= 1 for k in ("x", "y"))][:4]
+    if not points:
+        if len(photos) > 1:
+            raise ValueError(f"{len(photos)} photos are wired in but no person is pointed at: set swapTargets "
+                             "(points on the frame at faceFrameSeconds, one per photo) or wire one photo.")
+        return []
+    return [{"x": float(p["x"]), "y": float(p["y"]), "image_url": photos[i]}
+            for i, p in enumerate(points[:len(photos)])]
+
+
+@_tool
+def inspect_charswap_inputs(project: str, node_id: str, scene: str = "") -> dict[str, Any]:
+    """Look at a 换人 · Viggle node's two inputs before running it (about 10 s, no GPU render).
+
+    Returns where the clip's best face frame is (best_frame_seconds: largest and most frontal
+    face, what face mode repaints when no time is set), how big the face in the photo is, and
+    `warnings` for what is likely to go wrong: a clip that opens on the back of a head, no face
+    at all, a face too small, a photo face that will be cropped, a clip longer than one pass.
+    `survey` has the per-frame face size and head turn. It cannot say whether the swap will
+    succeed; it only reports what can be measured. swapMode is person (换人: the whole person,
+    clothes included) or head (换头: the face, hair colour and bangs; the clip's hair length and
+    clothes stay). There is no face-only mode, see docs/CHARSWAP.md. Leave facePrompt and
+    faceFrameSeconds empty and the backend picks the frame and has a vision model write the
+    prompt (the one used is saved on the node as facePromptUsed). To control it yourself, read
+    the frame (get_media_frames) and the photo and write facePrompt: who is in the frame, what
+    they wear and where, what must stay, what the new hair is and that its length matches the
+    clip's. docs/CHARSWAP.md has the measured recipe.
+    """
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    node = _find_node(canvas["nodes"], node_id)
+    if node.get("type") != "charswap":
+        raise ValueError(f"{node_id} is a {node.get('type')} node, not a charswap node.")
+    report = _request("POST", "/charswap/inspect", json={
+        "video_url": _charswap_input(canvas, node_id, "in-video", "driving clip"),
+        "character_image_url": _charswap_inputs(canvas, node_id, "in-character", "reference still")[0],
+    }, project_id=resolved["id"])
+    return {"project_id": resolved["id"], "node_id": node_id,
+            "mode": (node.get("data") or {}).get("swapMode") or "person", **report}
+
+
 def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                          node: dict[str, Any]) -> dict[str, Any]:
     """Start a 换人 · Viggle node the way the studio does.
@@ -2814,24 +2896,43 @@ def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         return {"project_id": resolved["id"], "node_id": node_id,
                 "job_id": data["jobId"], "status": "already_generating"}
 
-    def one(handle: str, what: str) -> str:
-        sources = _incoming_nodes(canvas, node_id, handle)
-        if len(sources) != 1:
-            raise ValueError(f"Charswap node {node_id} needs exactly one {what} on "
-                             f"{handle}, has {len(sources)}.")
-        url = _node_url(sources[0])
-        if not url:
-            raise ValueError(f"Charswap node {node_id}: {what} {sources[0].get('id')} "
-                             "has no file yet.")
-        return url
+    photos = _charswap_inputs(canvas, node_id, "in-character", "reference still")
+    mode = data.get("swapMode") if data.get("swapMode") in ("head", "reference") else "person"
+    targets = _charswap_targets(data, photos) if mode == "person" else []
+    if mode != "person" and len(photos) > 1:
+        raise ValueError(f"Charswap node {node_id}: {mode} mode takes exactly one picture on in-character, "
+                         f"has {len(photos)}.")
+    frame_seconds = float(data.get("faceFrameSeconds") if data.get("faceFrameSeconds") is not None else -1)
+    h3 = data.get("swapEngine") == "h3"
+    if h3:
+        # MiniMax-H3's own edit instead of Viggle (with the Character-Swap LoRA): the whole person; the standard 8-step
+        # speed LoRA at the clip's own size unless the node says otherwise (TaoMate adds people that are not in the clip
+        # when the swap LoRA is on; docs/CHARSWAP.md has the timings).
+        accel, size = data.get("h3Accel") or "turbo8", data.get("h3Size") or "source"
+        if mode != "person":
+            raise ValueError(f"Charswap node {node_id}: the H3 engine swaps the whole person: swapMode person.")
+        pose = data.get("swapPose") or "auto"
+        if pose not in ("auto", "follow", "upright"):
+            raise ValueError(f"Charswap node {node_id}: swapPose is auto, follow or upright, got {pose!r}.")
+        if accel not in ("taomate3", "turbo8") or size not in ("source", "small"):
+            raise ValueError(f"Charswap node {node_id}: h3Accel is taomate3 or turbo8 and h3Size source or small, "
+                             f"got {accel!r} and {size!r}.")
 
     payload = {
-        "video_url": one("in-video", "driving clip"),
-        "character_image_url": one("in-character", "reference still"),
+        "video_url": _charswap_input(canvas, node_id, "in-video", "driving clip"),
+        "character_image_url": photos[0],
         # 0 lets the backend read the clip's own frame count; a cap above it mosaics.
         "length": int(data.get("length") or 0),
         "seed": int(data.get("seed") if data.get("seed") is not None else 95051),
         "megapixels": float(data.get("megapixels") or 0.8),
+        # person and head repaint one frame of the clip with the photo's person and use that as the
+        # reference (negative seconds = the clip's most frontal face); reference sends the picture
+        # to Viggle as it is. With targets the frame is the one the points were made on.
+        "mode": mode,
+        "face_prompt": str(data.get("facePrompt") or ""),
+        "face_frame_seconds": max(frame_seconds, 0.0) if targets else frame_seconds,
+        **({"targets": targets} if targets else {}),
+        **({"engine": "h3", "h3_accel": accel, "h3_size": size, "pose": pose} if h3 else {}),
     }
     submitted = _request("POST", "/charswap", json=payload, project_id=resolved["id"])
     revision = _save_node_data(resolved["id"], node_id, {
@@ -2840,7 +2941,8 @@ def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     return {
         "project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
         "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
-        "revision": revision, "steps": payload["steps"], "seed": payload["seed"],
+        "revision": revision, "megapixels": payload["megapixels"], "seed": payload["seed"],
+        "mode": payload["mode"], "engine": payload.get("engine", "viggle"),
     }
 
 

@@ -2758,6 +2758,22 @@ def build_esrgan_upscale_workflow(
     return wf
 
 
+def build_image_description_workflow(image_filename: str, ask: str, max_length: int = 220) -> dict:
+    """A vision model's text about one picture, from the text encoder Qwen-Image 2.1 loads anyway
+    (QWEN_IMAGE_21_CLIP, a Qwen3-VL) through ComfyUI's TextGenerate. Greedy decoding, so the same
+    picture and question give the same words. Measured 2026-10-04: about 5 s, and no model beyond
+    the one the Qwen edit needs (+160 MiB once it is loaded)."""
+    return {
+        "td:1": {"class_type": "CLIPLoader",
+                 "inputs": {"clip_name": QWEN_IMAGE_21_CLIP, "type": "qwen_image", "device": "default"}},
+        "td:2": {"class_type": "LoadImage", "inputs": {"image": image_filename}},
+        "td:3": {"class_type": "TextGenerate",
+                 "inputs": {"clip": ["td:1", 0], "prompt": ask, "image": ["td:2", 0],
+                            "max_length": max_length, "sampling_mode": "off", "thinking": False}},
+        "td:4": {"class_type": "PreviewAny", "inputs": {"source": ["td:3", 0]}},
+    }
+
+
 def build_esrgan_image_workflow(
     image_filename: str,
     model_name: str = "RealESRGAN_x2.pth",
