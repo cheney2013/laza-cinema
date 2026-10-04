@@ -66,6 +66,24 @@ ComfyUI is not on 127.0.0.1:8188/8189.
 Everything else the backend uses is ComfyUI core (MiniMax H3,
 Gaussian splat, audio, video nodes).
 
+### Qwen-Image turbo (生成图片 node, on by default)
+
+The 生成图片 node runs Qwen-Image-2.1 with the Viggle distilled LoRA (7 steps, 2–4x faster, same look on
+plates, edits and sheets; Qwen Research License, non-commercial). It needs two things that are not in this
+repository:
+
+1. `models/loras/Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors` (1.36 GB) from
+   `huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo`.
+2. Their node file `comfyui/viggle_turbo.py` from the same repo, as `custom_nodes/ComfyUI-Viggle-Turbo/viggle_turbo.py`
+   with an `__init__.py` of `from .viggle_turbo import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS`
+   (and `__all__` of the same two). It adds `ViggleTurboLora` (applies the LoRA unmerged, as diffusers does; the stock
+   loaders merge it and lose part of the update) and `ViggleTurboSigmas`. Restart ComfyUI after copying.
+
+Without either, the backend does not fail: it logs a warning and runs the plain 25-step graph, and the finished
+job (and the node's `speedUsed`) says `base`. 换机位 (AnyAngle) and the anime base always run 25 steps. The
+character-swap face edits are pinned to 25 steps in `main.py`. Measurements are in the Claude memory note
+`project_qwen_viggle_turbo_lora`.
+
 ### Local patches (`patches/`)
 
 Apply after cloning, from inside each package: `git apply <file>.patch`.

@@ -278,6 +278,30 @@ class ComfyUIClient:
         if not known:
             raise RuntimeError(f"ComfyUI has no node {class_type}. {hint}")
 
+    async def qwen_turbo_ready(self) -> bool:
+        """Whether ComfyUI has the Viggle turbo nodes and the LoRA file (wb.QWEN_TURBO_LORA).
+
+        Only a yes is remembered, so installing the nodes later takes effect without a
+        backend restart. Any failure to ask counts as no.
+        """
+        if getattr(self, "_qwen_turbo_ok", False):
+            return True
+        self._ensure_active_url()
+        try:
+            async with _http(timeout=10) as client:
+                info = {}
+                for cls in ("ViggleTurboLora", "ViggleTurboSigmas"):
+                    r = await client.get(f"{self.base_url}/object_info/{cls}")
+                    info[cls] = (r.json() or {}).get(cls) if r.status_code == 200 else None
+            lora = info["ViggleTurboLora"]
+            files = (lora or {}).get("input", {}).get("required", {}).get("lora_name", [[]])[0]
+            ok = bool(lora) and bool(info["ViggleTurboSigmas"]) and wb.QWEN_TURBO_LORA in files
+        except Exception as e:
+            logger.warning("could not check for the Qwen turbo nodes: %s", e)
+            return False
+        self._qwen_turbo_ok = ok
+        return ok
+
     async def upload_image(self, image_bytes: bytes, filename: str) -> str:
         """Upload image to ComfyUI input folder, return filename."""
         async with _http(timeout=30) as client:
@@ -1362,6 +1386,8 @@ class ComfyUIClient:
         lora_strength: float = 1.0,
         base_model: str = "qwen21",
         ref_resolution: int = wb.QWEN_IMAGE_21_REF_RESOLUTION,
+        turbo: bool = False,
+        info: Optional[dict] = None,
         on_queued=None,
     ):
         """Qwen-Image-2.1, text-to-image or edit. See build_qwen_image_21_workflow.
@@ -1369,7 +1395,18 @@ class ComfyUIClient:
         reference_filenames are ComfyUI input names in `<image N>` order; with any
         of them the canvas follows reference 1's aspect ratio and width/height are
         ignored.
+
+        turbo=True asks for the distilled LoRA path (7 steps). If ComfyUI lacks the
+        nodes or the LoRA file, or the call is one the LoRA is not made for (another
+        LoRA, another base model), the render runs on the plain 25-step graph instead
+        and says so in the log. `info`, when given, gets `turbo` set to what actually ran.
         """
+        if turbo and (lora_name or (base_model or "qwen21") != "qwen21"):
+            turbo = False
+        if turbo and not await self.qwen_turbo_ready():
+            logger.warning("Qwen turbo requested but ComfyUI has no ViggleTurbo nodes or %s; "
+                           "rendering with the base model", wb.QWEN_TURBO_LORA)
+            turbo = False
         await self._free_unless_last_used(wb.qwen_image_21_unet(base_model))
         workflow = wb.build_qwen_image_21_workflow(
             prompt=prompt,
@@ -1385,7 +1422,10 @@ class ComfyUIClient:
             lora_strength=lora_strength,
             base_model=base_model,
             ref_resolution=ref_resolution,
+            turbo=turbo,
         )
+        if info is not None:
+            info["turbo"] = turbo
         return await self._run_image_workflow(workflow, return_info=return_info, on_queued=on_queued)
 
     async def describe_image(self, image_filename: str, ask: str, max_length: int = 220, on_queued=None) -> str:

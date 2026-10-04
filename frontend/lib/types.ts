@@ -271,6 +271,13 @@ export interface QwenImageNodeData extends SizedNodeData {
   seedMode?: 'fixed' | 'random';
   /** Re-shoot <image 1> at the camera of the coarse view in <image 2> (QI2.1_AnyAngle LoRA). */
   anyAngle?: boolean;
+  /**
+   * 'turbo' (the default when unset): Viggle distilled LoRA, 7 steps, no cfg or negative prompt.
+   * 'base': the 25-step graph at `steps` / `cfg`.换机位 and the anime base always run 'base'.
+   */
+  speed?: 'turbo' | 'base';
+  /** Which graph produced the picture on display, as the backend reports it. */
+  speedUsed?: 'turbo' | 'base';
   generatedUrl: string | null;
   status: 'idle' | 'generating' | 'done' | 'error';
   error?: string;

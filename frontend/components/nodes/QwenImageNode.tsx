@@ -62,7 +62,16 @@ const BASE_MODELS = [
   { id: 'qwen21', label: 'Qwen 2.1', title: 'qwen_image_2.1_int8_convrot。官方原版（INT8，比 bf16 小一半），写实照片与改图都用它。' },
   { id: 'noctAnime', label: 'Noct 动漫', title: 'NoctQA_V1_int8_convrot。Qwen 2.1 的动漫合并底模（无审查，仅限非商用）。cfg 固定 3，提示词以 An anime illustration of… 开头。' },
 ] as const;
-const ANIME_NEGATIVE = 'low quality, low resolution, blurry, jpeg artifacts, washed-out colors, sloppy lines, messy line art, extra fingers, missing fingers, badly drawn hands, deformed anatomy, 3d render, photograph, photorealistic';
+/**
+ * Speed modes. Turbo is the Viggle distilled LoRA (backend/workflow_builders.py QWEN_TURBO_*): 7 steps,
+ * 2-4x faster, measured 2026-10-05 to look the same on plates, edits and sheets. 6 steps was dropped
+ * (it garbled headline text twice in twelve tries); 25 steps stays as 原生.
+ */
+const SPEEDS = [
+  { id: 'turbo', label: '加速 · 7 步', title: 'Viggle 蒸馏 LoRA，7 步，比原生快 2 到 4 倍，画质在出板、改图、定妆板上看不出差别。' },
+  { id: 'base', label: '原生 · 25 步', title: '不挂 LoRA，原生 25 步，按步数和反向提示词出图。' },
+] as const;
+const ANIME_NEGATIVE ='low quality, low resolution, blurry, jpeg artifacts, washed-out colors, sloppy lines, messy line art, extra fingers, missing fingers, badly drawn hands, deformed anatomy, 3d render, photograph, photorealistic';
 
 /**
  * Qwen-Image-2.1: a still, from text alone or edited against up to ten references.
@@ -94,6 +103,9 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
 
   const [prompt, setPrompt] = useSyncedText((data.prompt as string) || '');
   const baseModel = (data.baseModel as string) || 'qwen21';
+  // Turbo is the default. 换机位 (its own LoRA) and the anime base run the 25-step graph, as the backend does.
+  const speed = data.speed === 'base' ? 'base' : 'turbo';
+  const turboActive = speed === 'turbo' && baseModel === 'qwen21' && !data.anyAngle;
   const [negative, setNegative] = useSyncedText((data.negativePrompt as string) || '');
 
   const jobResult = useJobResult(data.jobId as string | undefined);
@@ -103,7 +115,9 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
       // The backend moves the seed off any seed a reference was made with; record
       // the one that actually ran so the node's seed matches the picture.
       const usedSeed = typeof jobResult.seed === 'number' ? { seed: jobResult.seed as number } : {};
-      updateNodeData(id, { status: 'done', generatedUrl: jobResult.url as string, jobId: undefined, ...usedSeed });
+      // Which graph actually ran: the backend falls back to 25 steps when ComfyUI lacks the turbo nodes.
+      const usedSpeed = jobResult.speed === 'turbo' || jobResult.speed === 'base' ? { speedUsed: jobResult.speed as 'turbo' | 'base' } : {};
+      updateNodeData(id, { status: 'done', generatedUrl: jobResult.url as string, jobId: undefined, ...usedSeed, ...usedSpeed });
     } else if (jobResult.status === 'error') {
       updateNodeData(id, { status: 'error', error: (jobResult.error as string) || t('生成失败'), jobId: undefined });
     } else if (jobResult.status === 'cancelled') {
@@ -131,13 +145,14 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
         cfg: data.anyAngle || baseModel === 'noctAnime' ? 3.0 : typeof data.cfg === 'number' ? (data.cfg as number) : 1.0,
         seed: effectiveSeed,
         base_model: baseModel,
+        speed,
         ...(data.anyAngle ? { lora_name: ANY_ANGLE_LORA, lora_strength: 1.0 } : {}),
       });
       updateNodeData(id, { jobId: job_id });
     } catch (error: any) {
       updateNodeData(id, { status: 'error', error: error?.message || t('提交失败'), jobId: undefined });
     }
-  }, [ready, busy, data, baseModel, refs, size, id, updateNodeData]);
+  }, [ready, busy, data, baseModel, speed, refs, size, id, updateNodeData]);
 
   const cancel = useCallback(async () => {
     cancelledRef.current = true;
@@ -225,6 +240,38 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
               )}
             </div>
 
+            <div className="space-y-1">
+              <span className="text-zinc-400">{t('速度')}</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {SPEEDS.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    title={t(s.title)}
+                    onClick={() => updateNodeData(id, { speed: s.id })}
+                    className={`nodrag py-1 px-1.5 text-[10px] rounded-lg border transition-colors cursor-pointer ${speed === s.id
+                        ? 'bg-white/20 border-white/40 text-white font-semibold shadow-xs'
+                        : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                      }`}
+                  >
+                    {t(s.label)}
+                  </button>
+                ))}
+              </div>
+              <span className="block text-[9px] leading-relaxed text-zinc-500">
+                {turboActive
+                  ? t('加速：蒸馏 LoRA，7 步，不用 cfg 和反向提示词（下面的步数、反向提示词不生效）。整栏密集小字（多栏正文、片尾署名）两种都写不清。')
+                  : speed === 'turbo'
+                    ? t('换机位和动漫底模自己跑原生 25 步，加速不生效。')
+                    : t('原生 25 步，按下面的步数和反向提示词。')}
+              </span>
+              {data.generatedUrl && data.speedUsed && data.speedUsed !== speed && (
+                <span className="block text-[9px] text-amber-300">
+                  {t('当前这张是用「{mode}」出的，不是现在选的。', { mode: data.speedUsed === 'turbo' ? t('加速 · 7 步') : t('原生 · 25 步') })}
+                </span>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <label className="space-y-1">
                 <span className="text-zinc-400">{t('画幅（只在没有参考图时生效）')}</span>
@@ -246,11 +293,13 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
                   type="number"
                   min={4}
                   max={60}
-                  value={(data.steps as number) || 25}
+                  disabled={turboActive}
+                  title={turboActive ? t('加速模式固定 7 步') : undefined}
+                  value={turboActive ? 7 : (data.steps as number) || 25}
                   onChange={(e) => updateNodeData(id, { steps: Math.max(4, Math.min(60, Number(e.target.value) || 25)) })}
                   onFocus={() => window.dispatchEvent(new Event('inputFocused'))}
                   onBlur={() => window.dispatchEvent(new Event('inputBlurred'))}
-                  className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200"
+                  className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200 disabled:opacity-40"
                 />
               </label>
             </div>

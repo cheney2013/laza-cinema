@@ -797,6 +797,8 @@ export const api = {
     lora_name?: string;
     lora_strength?: number;
     base_model?: string;
+    /** 'turbo' (backend default): 7-step distilled LoRA; steps, cfg and negative_prompt are ignored. */
+    speed?: 'turbo' | 'base';
   }) =>
     request<{ job_id: string; status: string }>('/generate-qwen-image', {
       method: 'POST',

@@ -306,10 +306,15 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # baseModel: "qwen21" (default) or "noctAnime" (Noct Q Anime, a merged
         # anime checkpoint on the same graph; runs at cfg 3, prompt starts
         # "An anime illustration of...").
+        # speed: "turbo" (default) runs the Viggle distilled LoRA, 7 steps, 2-4x
+        # faster with the same look on plates, edits and sheets; steps, cfg and
+        # negativePrompt are then ignored. "base" is the 25-step graph. Dense small
+        # print (several columns of body text, credit blocks) is the one place both
+        # write badly; headlines and short lines are fine on turbo.
         "label": "生成图片",
         "defaults": {"prompt": "", "negativePrompt": "", "generatedUrl": None,
                      "status": "idle", "width": 1376, "height": 768, "steps": 25,
-                     "cfg": 1.0, "seed": 81000, "seedMode": "fixed"},
+                     "cfg": 1.0, "seed": 81000, "seedMode": "fixed", "speed": "turbo"},
         "inputs": ["in-ref"],
         "outputs": ["out-image"],
     },
@@ -2755,6 +2760,9 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         "base_model": str(data.get("baseModel") or "qwen21"),
         # references are worked at about refResolution^2 pixels; 0 keeps the first one at its own size
         "ref_resolution": int(data.get("refResolution") if data.get("refResolution") is not None else 1024),
+        # "turbo" (default): the Viggle distilled LoRA, 7 steps; "base": the 25-step graph at steps/cfg.
+        # The backend runs base by itself for anyAngle and noctAnime and when ComfyUI lacks the nodes.
+        "speed": "base" if data.get("speed") == "base" else "turbo",
     }
     if payload["base_model"] == "noctAnime":
         payload["cfg"] = 3.0  # the checkpoint's own workflow; same as QwenImageNode.tsx
@@ -2769,10 +2777,14 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     revision = _save_node_data(resolved["id"], node_id, {
         "status": "generating", "jobId": submitted["job_id"], "error": None,
     }, canvas)
+    turbo_planned = (payload["speed"] == "turbo" and payload["base_model"] == "qwen21"
+                     and not payload.get("lora_name"))
     result = {"project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
               "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
               "revision": revision, "input_counts": {"references": len(refs)},
-              "route": "any_angle" if data.get("anyAngle") else "edit" if refs else "text_to_image"}
+              "route": "any_angle" if data.get("anyAngle") else "edit" if refs else "text_to_image",
+              # what was asked for; the finished job's `speed` is what actually ran
+              "speed_requested": "turbo (7 steps, no cfg/negative)" if turbo_planned else "base (25 steps)"}
     if prompt_synced:
         result["prompt_synced_from"] = prompt_synced
     return result
@@ -4623,6 +4635,9 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
         # the UI only writes one when it watched the job itself, so runs started
         # here used to leave takes[0] pointing at some earlier clip's prompt.
         served_url = result.get("url")
+        # A qwenImage turbo run took 7 steps whatever the node's `steps` field says (it only
+        # applies to the 25-step path); the take must record what produced the picture.
+        ran_steps = 7 if result.get("speed") == "turbo" else data.get("steps")
         take = {
             "id": job_id,
             "createdAt": int(time.time() * 1000),
@@ -4632,7 +4647,7 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "width": data.get("width"),
             "height": data.get("height"),
             "length": data.get("length"),
-            "steps": data.get("steps"),
+            "steps": ran_steps,
             "motionPreset": data.get("motionPreset") or DEFAULT_MOTION_PRESET,
             "url": served_url,
         }
@@ -4648,7 +4663,8 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "compiledPromptMode": result.get("mode"),
             "promptWasModified": result.get("prompt_was_modified"),
             "submittedResources": result.get("submitted_resources"),
-            "generatedSteps": data.get("steps"),
+            "generatedSteps": ran_steps,
+            "speed": result.get("speed"),
         }
         take["outputs"] = {k: v for k, v in outputs.items() if v is not None}
         takes = [take] + [t for t in (data.get("takes") or [])
@@ -4677,11 +4693,14 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "continueTail": result.get("continue_tail"),
             # set by a trim: which frames of the source were kept
             **({"trimPlan": result["trim"]} if result.get("trim") else {}),
+            # qwenImage: which graph ran ("turbo" 7 steps / "base" 25 steps)
+            **({"speedUsed": result["speed"]} if result.get("speed") else {}),
             "takes": takes[:MAX_TAKES],
             "pendingTake": None,
         }, canvas)
         return {"project_id": resolved["id"], "node_id": node_id, "job_id": job_id,
                 "status": "done", "url": result.get("url"),
+                **({"speed": result["speed"]} if result.get("speed") else {}),
                 **({"edit_window": result["edit_window"], "seams": result.get("seams")}
                    if result.get("edit_window") else {}),
                 **({"continue_tail": result["continue_tail"]} if result.get("continue_tail") else {}),

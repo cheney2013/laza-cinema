@@ -822,6 +822,17 @@ def _qwen_image_21_unet_loader(unet_name: str) -> dict:
 #: bit-identical output, because that size is already on the 32 grid.
 QWEN_IMAGE_21_REF_RESOLUTION = 1024
 
+#: Viggle turbo: a few-step distilled LoRA for Qwen-Image-2.1 (Qwen Research License,
+#: non-commercial). Measured 2026-10-04/05 on the 5090: 2-4x faster than the 25-step
+#: base, same picture quality on plates, edits and sheets; 7 steps rather than the
+#: card's 6 because 6 garbled headline text twice in 12 tries and 7 did not.
+#: Needs the `ViggleTurboLora` / `ViggleTurboSigmas` custom nodes (tools/comfyui_setup/README.md);
+#: the stock LoRA loaders merge it into the weights, which drops part of the update.
+QWEN_TURBO_LORA = "Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
+#: Raw (unshifted) nodes of the 7-step schedule; ViggleTurboSigmas applies the resolution shift.
+QWEN_TURBO_NODES = "1.0, 0.9583, 0.9167, 0.875, 0.75, 0.5, 0.25"
+QWEN_TURBO_STEPS = 7
+
 
 def sampler_seeds_in_png(data: bytes) -> set[int]:
     """Seeds of every sampler in the ComfyUI graph embedded in a PNG, else empty."""
@@ -871,6 +882,7 @@ def build_qwen_image_21_workflow(
     lora_name: str = "",
     lora_strength: float = 1.0,
     base_model: str = "qwen21",
+    turbo: bool = False,
 ) -> dict:
     """Qwen-Image-2.1: text-to-image, or edit against up to 10 reference images.
 
@@ -900,10 +912,20 @@ def build_qwen_image_21_workflow(
     VAE encode of reference 1 (the references are spliced in as a sequence), so
     a lower denoise is not img2img here -- measured 2026-09-20, it decodes to
     noise texture, not to a lightly-edited picture.
+
+    turbo=True swaps the sampler for the distilled LoRA path: unmerged
+    `ViggleTurboLora`, `BasicGuider`, `ViggleTurboSigmas` and QWEN_TURBO_STEPS
+    steps; `steps`, `cfg` and `negative_prompt` do not apply (the card says no CFG and
+    no negative). It cannot be stacked with `lora_name` (AnyAngle was never tested
+    with it) and needs the plain Qwen 2.1 base.
     """
     refs = list(reference_filenames or [])
     if len(refs) > 10:
         raise ValueError(f"Qwen-Image-2.1 takes at most 10 reference images, got {len(refs)}")
+    if turbo and lora_name:
+        raise ValueError("turbo cannot be combined with another LoRA (lora_name)")
+    if turbo and (base_model or "qwen21") != "qwen21":
+        raise ValueError(f"turbo is made for the qwen21 base model, not {base_model!r}")
 
     encoder_inputs = {
         "clip": ["qi:2", 0],
@@ -959,6 +981,27 @@ def build_qwen_image_21_workflow(
     else:
         workflow["qi:5"] = {"class_type": "EmptyLatentImage",
                             "inputs": {"width": width, "height": height, "batch_size": 1}}
+
+    if turbo:
+        latent = workflow["qi:6"]["inputs"]["latent_image"]
+        unet = workflow["qi:6"]["inputs"]["model"]  # the cache node when there are references
+        workflow["qi:lora"] = {"class_type": "ViggleTurboLora",
+                               "inputs": {"model": ["qi:1", 0], "lora_name": QWEN_TURBO_LORA,
+                                          "strength": 1.0}}
+        if refs:
+            workflow["qi:cache"]["inputs"]["model"] = ["qi:lora", 0]
+        else:
+            unet = ["qi:lora", 0]
+        workflow["qi:guider"] = {"class_type": "BasicGuider",
+                                 "inputs": {"model": unet, "conditioning": ["qi:4", 0]}}
+        workflow["qi:noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
+        workflow["qi:sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}}
+        workflow["qi:sigmas"] = {"class_type": "ViggleTurboSigmas",
+                                 "inputs": {"latent": latent, "nodes": QWEN_TURBO_NODES}}
+        workflow["qi:6"] = {"class_type": "SamplerCustomAdvanced",
+                            "inputs": {"noise": ["qi:noise", 0], "guider": ["qi:guider", 0],
+                                       "sampler": ["qi:sampler", 0], "sigmas": ["qi:sigmas", 0],
+                                       "latent_image": latent}}
 
     return workflow
 

@@ -28,7 +28,7 @@ from pathlib import Path
 from collections import deque
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable, Awaitable, Literal
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -3825,6 +3825,11 @@ class QwenImageRequest(BaseModel):
     # ref_resolution x ref_resolution pixels (1024 = about 1 MP, what the model is tuned for); 0 keeps
     # reference 1 at its own size, so a 2752x1536 source comes out 2752x1536.
     ref_resolution: int = Field(1024, ge=0, le=4096)
+    # "turbo": the Viggle distilled LoRA, 7 steps, no CFG, no negative prompt (steps, cfg and
+    # negative_prompt are then ignored). "base": the plain graph at `steps` / `cfg`. Turbo only
+    # applies to the qwen21 base without another LoRA; anything else runs as "base", and so does a
+    # ComfyUI without the turbo nodes. The result says which one ran.
+    speed: Literal["turbo", "base"] = "turbo"
 
 
 async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
@@ -3841,6 +3846,7 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
         comfy_refs.append(await comfyui.upload_image(ref_bytes[-1], path.name))
 
     seed = wb.seed_clear_of_references(resolve_seed(req.seed), ref_bytes)
+    ran: dict = {}
     img_bytes = await comfyui.generate_qwen_image_21(
         prompt=req.prompt,
         reference_filenames=comfy_refs,
@@ -3854,12 +3860,15 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
         lora_strength=req.lora_strength,
         base_model=req.base_model,
         ref_resolution=req.ref_resolution,
+        turbo=req.speed == "turbo",
+        info=ran,
         on_queued=_make_on_queued(job),
     )
 
     out_name = f"qwen21_{job['id']}.png"
     (UPLOAD_DIR / out_name).write_bytes(img_bytes)
-    return {"url": f"/uploads/{out_name}", "seed": seed}
+    return {"url": f"/uploads/{out_name}", "seed": seed,
+            "speed": "turbo" if ran.get("turbo") else "base"}
 
 
 @app.post("/generate-qwen-image")
@@ -8916,6 +8925,7 @@ async def _charswap_face_reference(job: dict, req: CharswapRequest, video_path: 
         negative_prompt=CHARSWAP_FACE_NEGATIVE,
         reference_urls=[f"/uploads/{frame_name}", face_url],
         seed=req.seed,
+        speed="base",  # identity edits with a negative prompt: the turbo LoRA is weaker there and takes none
     ))
     _stop_if_cancelled(job)
     return painted["url"], seconds, prompt
@@ -8984,6 +8994,7 @@ async def _charswap_people_reference(job: dict, req: CharswapRequest, video_path
         negative_prompt=CHARSWAP_FACE_NEGATIVE,
         reference_urls=[f"/uploads/{frame_name}", *photo_urls],
         seed=req.seed,
+        speed="base",  # identity edits with a negative prompt: the turbo LoRA is weaker there and takes none
     ))
     _stop_if_cancelled(job)
     return painted["url"], seconds, prompt
