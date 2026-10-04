@@ -265,7 +265,7 @@ export function solveNodeSize(spec: NodeSizeSpec, width?: number) {
   layout effect 里量出抽屉高，由 `useAutoFitNode` 从保留高度里扣一次；功能区实测值只在对应同一组行时
   才采用，行一变就先用按类型的估算，免得含抽屉的旧值把 minH 抬高、写进保存尺寸。
 
-- **有媒体时打开设置，画面隐藏并暂停**（2026-10-04 义哥定）：画面块标 `data-node-media`，`useNodeSizing`
+- **有媒体时打开设置，画面隐藏并暂停**（2026-10-04定）：画面块标 `data-node-media`，`useNodeSizing`
   见到 `settings` 行在场就给 spec 置 `mediaHidden`——方程去掉媒体项，节点 = 功能区（含抽屉）+ 内容；
   `NodeShell` 带 `data-media-hidden`，CSS 隐藏画面块、对其中的 video/audio 调 pause()，播放器也收
   `paused`。关上设置，方程把媒体高度加回来。

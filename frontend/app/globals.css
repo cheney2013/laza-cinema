@@ -130,7 +130,7 @@ body {
 .react-flow__node { contain: layout style; }
 /* No backdrop-filter inside the canvas. Every blurred element is its own render
    surface that must re-read and re-blur what is behind it on each pan/zoom frame;
-   TLOU scene 3 (114 nodes) carried 393 of them -- card shells, 263 media icon
+   a large scene (114 nodes) carried 393 of them -- card shells, 263 media icon
    buttons -- and cards showed up as empty boxes with edges and minimap missing
    until raster caught up (2026-09-23). The shells are 85-92% opaque over a
    near-black dot grid, so the blur was not visible anyway. Floating panels
@@ -269,7 +269,7 @@ body {
 /* In focus mode the receded edges are scenery: they take no hover, click or
    delete button, so only the lit wiring answers the pointer. */
 /* Named parts, never `*`: a universal descendant under .focus-active made every
-   select/deselect restyle the whole canvas (54 ms vs 2 ms on TLOU scene 3). The
+   select/deselect restyle the whole canvas (54 ms vs 2 ms on a large scene). The
    rest of the edge inherits pointer-events. */
 .react-flow.focus-active .react-flow__edge:not(.edge-highlight-connected),
 .react-flow.focus-active .react-flow__edge:not(.edge-highlight-connected) .react-flow__edge-interaction {
@@ -432,7 +432,7 @@ body {
 /* --- 设置面板：标题栏下方的正常排版，打开时撑高节点 -------------------
    所有节点同一个规则：面板是 data-chrome-row="settings" 的一行，useNodeSizing 按实例
    实测它的高度计入节点高，打开时节点往下长、画面整体下移，关上时缩回。以前是挂在节点
-   下沿的绝对定位浮层，不占高度，盖住下面的画面和相邻节点（义哥 2026-09-29 要统一撑高）。
+   下沿的绝对定位浮层，不占高度，盖住下面的画面和相邻节点（2026-09-29 要统一撑高）。
    设置很长时面板自己滚，节点不至于长到一屏放不下。没有媒体时由 NodeShell 临时加高（见其顶部）。
    不许被 flex 压缩 —— 量到的高度要是它自己的高度，否则加高要好几轮才追上。 */
 .node-shell-drawer {
@@ -728,7 +728,7 @@ video::-internal-media-controls-picture-in-picture-button {
    pointer as the node itself. It sits at z 30, over the cards' own media bars
    (z 20); the ports (z 50) and the alias/bible tags (raised to 31) stay above it. A plate, not `visibility: hidden` on the content: hiding is
    inherited, so crossing the threshold restyled every element inside every card
-   (53 ms on TLOU scene 3); one pseudo-element per card costs ~3 ms. */
+   (53 ms on a large scene); one pseudo-element per card costs ~3 ms. */
 .canvas-lod .node-shell::after {
   content: '';
   position: absolute;

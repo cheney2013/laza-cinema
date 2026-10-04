@@ -58,7 +58,7 @@ function DeletableEdge({
     setIsHovered(false);
   }, []);
   // No delete button while anything is being dragged (a pan, a node, a wire):
-  // it popped up under the moving pointer and looked like a threat (Yige, 2026-09-23).
+  // it popped up under the moving pointer and looked like a threat (2026-09-23).
   useEffect(() => {
     if (!isHovered) return;
     const onDown = (e: PointerEvent) => {

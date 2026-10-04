@@ -3,7 +3,7 @@
 Vendored rather than installed as a Blender add-on: all this file is, is the
 recorded motion, and the previs renderer samples it directly.  The data is
 CC0 -- see LICENSE_DATA.md in that repository.  Real recorded handheld beats
-the sum of sines this project was using (Yige, 2026-09-12).
+the sum of sines this project was using (2026-09-12).
 """
 
 SHAKE_LIST = {

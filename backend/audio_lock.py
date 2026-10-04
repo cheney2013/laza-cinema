@@ -166,7 +166,7 @@ def locked_lines_in_prompt(prompt: str, locks: List[LockSpec]) -> List[str]:
     """Locked speech that the prompt also has the model say.
 
     A `<d>` line the model is asked to speak is generated wherever it likes,
-    outside the locked stretch, so the line comes out twice (tested: Tommy's line
+    outside the locked stretch, so the line comes out twice (tested: Ben's line
     repeated from 5.37 s after a lock ending at 5.25 s). Write only the lines that
     are NOT locked as `<d>`.
     """

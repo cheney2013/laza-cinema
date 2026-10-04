@@ -134,7 +134,7 @@ def build_prompt(req: SheetRequest) -> str:
         "\nnon_diegetic_music:\nN/A\n"
     )
 
-#: The house sheet layout (义哥, 2026-09-22): full-body front, full-body back,
+#: The house sheet layout (2026-09-22): full-body front, full-body back,
 #: waist-up front. The waist-up panel is written as a crop line -- "from the
 #: waist up" alone came back cut at the thighs on one sheet and at the chest on
 #: the next.

@@ -470,7 +470,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
   }, [connectedImageNodes]);
 
   // Only an image wired to the first-frame port (in-image) is a first frame
-  // (Yige, 2026-09-24): inferring one from "some image that is not a reference"
+  // (2026-09-24): inferring one from "some image that is not a reference"
   // turned a character sheet into the first frame when voice clips on image nodes
   // were wired with the image handle, and the frame size followed the sheet.
   const isFirstFrameActive = connectedImageNodes.some((n) => n.targetHandle === 'in-image');
@@ -1468,7 +1468,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                 <span>{t('镜头时长 (17k+5 网格)')}</span>
                 {/* The frame count is the thing that lands, but nobody thinks in
                     frames -- and a length typed in from outside the four presets
-                    used to show only a number (Yige, 2026-09-09). */}
+                    used to show only a number (2026-09-09). */}
                 <span className="font-mono text-zinc-200">{currentLength}  {t('帧 ·')} {(currentLength / 24).toFixed(2)}s</span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
@@ -1487,7 +1487,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               </div>
               {/* Fine adjustment. The four presets are the common lengths, but a
                   shot that needs 12 seconds had nowhere to go except the MCP or
-                  a hand-typed number (Yige, 2026-09-09). The arrows walk the
+                  a hand-typed number (2026-09-09). The arrows walk the
                   17k+5 grid one step (0.71s) at a time; the box snaps whatever
                   is typed to the nearest legal length. */}
               <div className="mt-1.5 flex items-center gap-1.5 nodrag">

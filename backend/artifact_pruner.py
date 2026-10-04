@@ -6,9 +6,9 @@ cut-room timeline.json. Undo history lives only in the frontend's memory
 one Ctrl+Z away from being live again — which is why deletion is now something
 the user asks for in the asset library, not something that happens on its own.
 
-Only files ai-cinima itself produced are ever considered. The ComfyUI output
-directory is shared with other projects -- harry potter's hp_* renders live there,
-as do manual ComfyUI-UI runs -- and "not referenced by an ai-cinima canvas" says
+Only files this studio itself produced are ever considered. The ComfyUI output
+directory is shared with other projects -- other projects' renders live there,
+as do manual ComfyUI-UI runs -- and "not referenced by a studio canvas" says
 nothing about those. Unknown ownership means do not touch.
 """
 from __future__ import annotations

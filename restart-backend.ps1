@@ -23,7 +23,7 @@ if (-not $comfyUrl -and (Test-Path -LiteralPath (Join-Path $root '.env'))) {
 if (-not $comfyUrl) { $comfyUrl = 'http://127.0.0.1:8188' }
 
 # Running ComfyUI jobs survive a backend restart: the job record is recovered
-# and the node picks the result up when it finishes (confirmed by Yige
+# and the node picks the result up when it finishes (confirmed by the owner
 # 2026-09-18). So a busy queue is reported, not a reason to refuse. -Force is
 # kept so existing callers still work.
 $comfyUrls = @($comfyUrl.TrimEnd('/'), 'http://127.0.0.1:8188', 'http://127.0.0.1:8189') | Select-Object -Unique

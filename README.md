@@ -94,6 +94,23 @@ How an agent should work with it (the server also states this in its own instruc
 - The order of edges into a node is its `<Picture N>` numbering. `get_node_catalog` lists the node types and their fields.
 - Without a token the server accepts every request; only run it that way on a machine nobody else can reach. Details: [docs/DEPLOY.md](docs/DEPLOY.md) section 8 (Chinese).
 
+## Skills and reference an agent needs
+
+To write video prompts or break down scenes, an agent needs two things. **The skill is not bundled in this repository.**
+
+| What | Where it comes from | Used for |
+|---|---|---|
+| `h3-prompt-writing` skill | **Official, by MiniMax**: [MiniMax-AI/MiniMax-H3 › skills/h3-prompt-writing](https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing) | the MiniMax H3 prompt format (field names, section order, timing notation) |
+| Enhanced specification | By WarmBloodAban, published with the Singularity weights: [Minimax-h3_Singularity on Hugging Face](https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/tree/main) (Apache-2.0 on the model page). A copy is kept in [docs/](docs/MiniMax_H3_Singularity_Prompt_Writing_Specification_Enhanced_EN.md). It is **not** an official MiniMax document | the writing rules: reference roles, action chains, camera, lighting, acting, failure modes, checklist |
+
+Install the official skill with the [skills CLI](https://github.com/vercel-labs/skills); it goes into the agent's skills folder (for Claude Code, `~/.claude/skills/`):
+
+```bash
+npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing
+```
+
+[`CLAUDE.md`](CLAUDE.md) says when each is required (every H3 prompt: skill plus the whole specification) and holds the rest of the working rules; [`AGENTS.md`](AGENTS.md) covers working with several agents.
+
 ## Repository layout
 
 ```

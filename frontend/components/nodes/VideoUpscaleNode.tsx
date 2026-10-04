@@ -178,7 +178,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
   // needs those frames at HD to move the seam, and nobody should have to remember
   // to tick a box per shot. Same rule as the MCP's _run_upscale_locked.
   // Always on: a chained shot is enhanced with its overlap, not a user choice
-  // (Yige, 2026-09-29: show it, do not let it be changed).
+  // (2026-09-29: show it, do not let it be changed).
   const overlapOn = true;
   // Which references a latent refine sees -- the MCP's rule: an explicit
   // upscaleRefs wins; otherwise images wired to in-ref-image, else the source
@@ -953,7 +953,7 @@ function SettingsPanel({
   inline?: boolean;
 }) {
   // Always on: a chained shot is enhanced with its overlap, not a user choice
-  // (Yige, 2026-09-29: show it, do not let it be changed).
+  // (2026-09-29: show it, do not let it be changed).
   const latentDisabled = useLatentUpscaleDisabled();
   const overlapOn = true;
   const refsMode = String(data.upscaleRefs || (wiredRefCount ? 'wired' : 'inherit')).toLowerCase();

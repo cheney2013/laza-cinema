@@ -2118,7 +2118,7 @@ def _run_video_edit_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     gives furniture its real form and `singularity` renders the light a room
     actually has, and 2026-09-07 showed you cannot have both from one pass. So
     the fused master is generated first and then edited under singularity, which
-    is what this call is for (Yige).
+    is what this call is for.
 
     The shape follows the studio's own edit request exactly: source clip on
     "in-video" into ref_video_urls, POST /generate-video-edit. Unlike the studio
@@ -2281,7 +2281,7 @@ def _run_video_edit_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         "seed": int(data.get("seed") if data.get("seed") is not None else 81000),
         # Edits default to the checkpoint the segments render with, so an edit
         # queued between segments does not swap 20 GB of weights both ways
-        # (义哥 2026-09-22).
+        # (2026-09-22).
         "motion_preset": data.get("motionPreset") or "singularity",
         "fps": 24,
     }
@@ -3147,7 +3147,7 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
                 "video_url": video_url, "latent_filename": latent}).get("context_frames") or 0)
         except Exception:
             overlap = 0
-    # Always on for a chained shot (Yige, 2026-09-29: shown, not a choice).
+    # Always on for a chained shot (2026-09-29: shown, not a choice).
     # Without the untrimmed file only the latent refine can keep the overlap.
     with_overlap = bool(overlap > 0 and (untrimmed or latent))
     if with_overlap and untrimmed:
@@ -3182,7 +3182,7 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
         "latent_filename": latent if method == "h3_latent" else None,
         "scale_by": scale_by,
         # Whole clip in one span unless the node asks for chunking (data.chunkFrames,
-        # a multiple of 17). The refine is not batched over time (2026-09-06, Yige).
+        # a multiple of 17). The refine is not batched over time (2026-09-06).
         "temporal_chunk": int(data.get("chunkFrames") or 0),
         # Verbatim sigma list for the refine pass ("0.6, 0" is the default: one step). A very dark shot may
         # need a lower start or more steps; blank keeps the default.
@@ -3192,7 +3192,7 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
         "spatial_tile": int(data.get("spatialTile") or 0),
     }
     # A chained clip refined on its own invents its own fine detail, so the join to
-    # the previous chain's upscale shows (Yige, 2026-09-16: chain 3 -> 4). An image
+    # the previous chain's upscale shows (2026-09-16: chain 3 -> 4). An image
     # wired to in-first-frame -- the previous upscale's frame that this clip's latent
     # frame 0 continues from -- is mounted as the frame-0 guide.
     anchors = _incoming_nodes(canvas, node_id, "in-first-frame")
@@ -3205,14 +3205,14 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
     # for texture, not composition. By default the clip's OWN references come
     # along, read back from what was actually submitted for it, so a refine sees
     # the same character sheets, plates and prop boards the generation saw and
-    # sharpens toward them instead of inventing its own detail (Yige, 2026-09-20:
+    # sharpens toward them instead of inventing its own detail (2026-09-20:
     # visibly better on a phone screen full of small text).
     #
     # They are not free: "max" means a 2048px short edge each, so three boards add
     # millions of conditioning pixels to a single refine step. data.upscaleRefs
     # picks the trade-off:
     #   "inherit" (default) the source clip's references as it is wired NOW
-    #                      (Yige 2026-09-29: a board fixed and rewired after the
+    #                      (2026-09-29: a board fixed and rewired after the
     #                      render must reach the refine); only a source with
     #                      nothing wired falls back to what it was submitted with
     #   "wired"            only the images wired to in-ref-image
@@ -3303,7 +3303,7 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
 
 
 # ---- One click HD for a whole chain ---------------------------------------------
-# Yige, 2026-10-01: making HD meant creating and starting a 视频增强 node per shot. The
+# 2026-10-01: making HD meant creating and starting a 视频增强 node per shot. The
 # order matters (each shot is enhanced on the previous shot's HD, mounted over its
 # overlap) and the job queue is not first-in-first-out, so submitting every shot at
 # once would anchor most of them on nothing. This submits one shot, waits until its
@@ -3854,7 +3854,7 @@ def _adopt_locked(resolved: dict[str, Any], node_id: str, url: str, label: str |
 #
 # Twin of frontend/lib/stageLayout.ts. Keep the two rules identical: columns by
 # role (decided from node type and wiring, never label text), rows by the
-# segment lanes a node reaches downstream. Yige approved this rule on 2026-09-05
+# segment lanes a node reaches downstream. The rule was approved on 2026-09-05
 # ("按你的画布排序规则做"); the studio's tidy button runs the TS copy, agents run
 # this one after they add nodes.
 
@@ -4733,7 +4733,7 @@ if __name__ == "__main__":
         # A client that gives up before the proactor finishes accepting leaves
         # WinError 64 ("network name no longer available") in asyncio's log with a
         # full traceback, twice per drop. Only that connection is affected, so it
-        # goes out as a one-line warning (2026-09-19, Yige).
+        # goes out as a one-line warning (2026-09-19).
         import logging
 
         class _DroppedClient(logging.Filter):

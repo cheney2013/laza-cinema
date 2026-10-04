@@ -94,6 +94,23 @@ python tools\check_install.py
 - ノードにつながるエッジの順序が、そのまま `<Picture N>` の番号です。`get_node_catalog` でノードの種類とフィールドが分かります。
 - トークンを設定しないとサーバーはすべてのリクエストを受け付けます。他の人が到達できないマシンでのみそうしてください。詳細は [docs/DEPLOY.md](docs/DEPLOY.md) の第 8 節（中国語）にあります。
 
+## エージェントに必要なスキルと参考資料
+
+動画プロンプトを書いたりシーンを分解したりする前に、エージェントには 2 つのものが必要です。**スキルはこのリポジトリには含まれていません。**
+
+| 内容 | 入手先 | 用途 |
+|---|---|---|
+| `h3-prompt-writing` スキル | **MiniMax 公式**：[MiniMax-AI/MiniMax-H3 › skills/h3-prompt-writing](https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing) | MiniMax H3 プロンプトの書式（フィールド名、セクション順、時間表記） |
+| Enhanced 仕様書 | 作者は WarmBloodAban で、Singularity の重みと一緒に公開されています：[Hugging Face の Minimax-h3_Singularity](https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/tree/main)（モデルページには Apache-2.0 と表示）。コピーを [docs/](docs/MiniMax_H3_Singularity_Prompt_Writing_Specification_Enhanced_EN.md) にも置いています。MiniMax の**公式文書ではありません** | 書き方のルール：参照画像の役割、アクションの連鎖、カメラ、照明、演技、失敗パターン、チェックリスト |
+
+公式スキルは [skills CLI](https://github.com/vercel-labs/skills) でインストールします。エージェントのスキルフォルダ（Claude Code では `~/.claude/skills/`）に入ります。
+
+```bash
+npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing
+```
+
+それぞれがいつ必須になるか（H3 プロンプトごとに、スキルと仕様書の全文）は [`CLAUDE.md`](CLAUDE.md) に書かれており、その他の作業ルールもそこにあります。複数のエージェントで作業する場合は [`AGENTS.md`](AGENTS.md) を参照してください。
+
 ## リポジトリ構成
 
 ```

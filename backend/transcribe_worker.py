@@ -27,7 +27,7 @@ SPEAKER_WINDOW_S = 1.5
 SPEAKER_HOP_S = 0.5
 # Voice (cosine) distance plus SPEAKER_PITCH_WEIGHT per octave of pitch difference.
 # Tuned on two tests with known speakers, scored on whether each change of
-# speaker between neighbouring lines was found: the TLOU Joel/Sarah scene and an
+# speaker between neighbouring lines was found: a two-person dialogue scene and an
 # 18-line synthetic back-and-forth. 1.05 / 0.3 sits in the middle of a plateau
 # (0.95-1.2 all score the same, two speakers found) and scores 26/30 + 40/42,
 # against 26/30 + 38/42 without pitch.
@@ -145,8 +145,8 @@ def run_model(path: str, model_name: str, language, device: str, vocals=None):
     """Transcribe path; returns (segments, info, the audio file they came from).
 
     The mix is tried first, as it is: on clean dialogue that is the best result,
-    and taking the voice out first loses words there (TLOU Joel phone line,
-    2026-09-22: "Tommy, I... Tommy," dropped). Only when the pass shows the
+    and taking the voice out first loses words there (a phone line,
+    2026-09-22: "Ben, I... Ben," dropped). Only when the pass shows the
     music-under-dialogue failure -- a subtitle-site credit, the style prompt
     echoed back, or nothing heard -- is the voice separated (`vocals()` writes it
     and returns its path, or None) and the file tried again: with VAD and the

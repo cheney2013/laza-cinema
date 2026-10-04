@@ -8,7 +8,7 @@ import { useStore } from '@/lib/store';
  * A global guard for media on the canvas, mounted once by InfiniteCanvas.
  * Three rules:
  *
- * 1. One thing plays at a time (Yige, 2026-09-15). When a media element starts,
+ * 1. One thing plays at a time (2026-09-15). When a media element starts,
  *    every other playing element is paused -- except those in the same group:
  *    the tracks of one node (compare A/B) and the two
  *    sides of a preview modal play in lock-step and count as one video. A group

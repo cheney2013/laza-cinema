@@ -155,8 +155,8 @@ class InShotTimecodes(unittest.TestCase):
 class Speakers(unittest.TestCase):
     """Speaker ids against speaking order and the <Audio N> that voices them."""
 
-    DETAIL = ("Tommy, <Subject 2> (S1) says: <d>[English]What happened?</d> "
-              "Joel, <Subject 1> (S2) says: <d>[English]Yes.</d>")
+    DETAIL = ("Ben, <Subject 2> (S1) says: <d>[English]What happened?</d> "
+              "Mark, <Subject 1> (S2) says: <d>[English]Yes.</d>")
 
     def lint(self, defs, detail=DETAIL):
         r = chk.Report()

@@ -232,7 +232,7 @@ function ChainPreviewNode({ id, data, selected }: NodeProps) {
 
   // The chain plays as one MSE stream, which the preview modal cannot take, so
   // its fullscreen view gets the modal's keys instead: D/F step one frame,
-  // space plays and pauses (Yige, 2026-09-15: every enlarged view steps frames).
+  // space plays and pauses (2026-09-15: every enlarged view steps frames).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const player = playerRef.current;

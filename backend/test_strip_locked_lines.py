@@ -12,20 +12,20 @@ def lock(text):
 
 class StripLockedLinesTest(unittest.TestCase):
     def test_cuts_the_clause_that_speaks_the_locked_line(self):
-        prompt = ("Joel's dark shape appears outside the glass; her breath goes out and <Subject 1> (S1), breathless, "
-                  "says: <d>[English] There you are.</d> Beat three: Joel crashes in.")
+        prompt = ("Mark's dark shape appears outside the glass; her breath goes out and <Subject 1> (S1), breathless, "
+                  "says: <d>[English] There you are.</d> Beat three: Mark crashes in.")
         out, removed = al.strip_locked_lines(prompt, [lock("There you are.")])
         self.assertNotIn("<d>", out)
-        self.assertIn("Joel's dark shape appears outside the glass", out)
-        self.assertIn("Beat three: Joel crashes in.", out)
+        self.assertIn("Mark's dark shape appears outside the glass", out)
+        self.assertIn("Beat three: Mark crashes in.", out)
         self.assertEqual(len(removed), 1)
         self.assertIn("There you are.", removed[0])
         self.assertEqual(al.locked_lines_in_prompt(out, [lock("There you are.")]), [])
 
     def test_keeps_the_lines_that_are_not_locked(self):
-        prompt = ("She speaks: <d>[English] There you are.</d> Then Joel, hard: <d>[English] Sarah. Are you okay?</d>")
+        prompt = ("She speaks: <d>[English] There you are.</d> Then Mark, hard: <d>[English] Anna. Are you okay?</d>")
         out, removed = al.strip_locked_lines(prompt, [lock("There you are.")])
-        self.assertIn("<d>[English] Sarah. Are you okay?</d>", out)
+        self.assertIn("<d>[English] Anna. Are you okay?</d>", out)
         self.assertEqual(len(removed), 1)
 
     def test_no_locked_line_in_the_prompt_changes_nothing(self):

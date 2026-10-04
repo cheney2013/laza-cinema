@@ -18,8 +18,8 @@ describe('resolveChain', () => {
   });
 
   it('carries on from an uploaded clip or an edit by its pictures, as the canvas server does', () => {
-    assert.deepEqual(resolveChain({ type: 'image', url: '/uploads/tlou_c23a_bc709d65.mp4' }, '', 0),
-      { motion_context_video: '/uploads/tlou_c23a_bc709d65.mp4' });
+    assert.deepEqual(resolveChain({ type: 'image', url: '/uploads/clip_c23a_bc709d65.mp4' }, '', 0),
+      { motion_context_video: '/uploads/clip_c23a_bc709d65.mp4' });
     assert.deepEqual(resolveChain({ type: 'videoEdit', generatedUrl: '/comfy_output/H3_EditWindow_aa.mp4' }, '', 0),
       { motion_context_video: '/comfy_output/H3_EditWindow_aa.mp4' });
     // a rendered clip with a latent still prefers the latent

@@ -553,7 +553,7 @@ def ack_message(message_id: str) -> dict[str, Any]:
 
 
 #: "Seen, nothing to add" marks, for the human's console only. The No-ACK rule
-#: forbids writing "ok" to the bus, so the only way to tell Yige that a message
+#: forbids writing "ok" to the bus, so the only way to tell the human that a message
 #: was read and needs no reply was a message -- exactly what the rule forbids.
 #: This is the side channel: a per-message, per-agent mark in a file the console
 #: renders as avatar + tick. It is not a message, no agent reads it, and it

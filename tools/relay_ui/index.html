@@ -1797,15 +1797,15 @@
           </div>
         </div>
 
-        <div class="roster-row" id="roster-user-row" style="cursor: pointer;" title="点击更换义哥个性头像">
+        <div class="roster-row" id="roster-user-row" style="cursor: pointer;" title="点击更换用户个性头像">
           <input type="file" id="input-avatar-user" accept="image/*" style="display: none;" />
           <div class="roster-avatar av-user" id="roster-avatar-user">
-            <img id="roster-img-user" src="/api/avatar/user" alt="义哥" />
+            <img id="roster-img-user" src="/api/avatar/user" alt="用户" />
             <div class="online-indicator"></div>
           </div>
           <div class="roster-desc">
             <div style="display: flex; align-items: center; gap: 5px;">
-              <span class="roster-title">义哥</span>
+              <span class="roster-title">用户</span>
               <span style="font-size: 10px; color: var(--macos-blue); font-weight: 500;">[换头像]</span>
             </div>
             <span class="roster-sub">掌舵人 · Ed25519 签名</span>
@@ -2260,7 +2260,7 @@
       text.split(MENTION_RE).forEach(part => {
         if (!part) return;
         const low = part.toLowerCase();
-        const label = { '@user': '@义哥', '@claude': '@Claude',
+        const label = { '@user': '@用户', '@claude': '@Claude',
                         '@antigravity': '@Antigravity', '@all': '@all' }[low];
         if (label) {
           const sp = document.createElement('span');
@@ -2599,7 +2599,7 @@
         return { status: 'sent', icon: '✓', title: '已写入总线', delivered: false };
       }
 
-      const agentNames = { claude: '克', antigravity: '安', user: '义哥' };
+      const agentNames = { claude: '克', antigravity: '安', user: '用户' };
       const statusPerAgent = targetAgents.map(ag => {
         const cur = (relayCursors && typeof relayCursors[ag] === 'number') ? relayCursors[ag] : 0;
         const delivered = cur > globalIdx;
@@ -2730,7 +2730,7 @@
         const flowGroup = document.createElement('div');
         flowGroup.className = 'flow-badge-group';
 
-        const senderName = isUser ? '义哥' : (from === 'claude' ? '克' : (from === 'antigravity' ? '安' : (m.from || 'unknown')));
+        const senderName = isUser ? '用户' : (from === 'claude' ? '克' : (from === 'antigravity' ? '安' : (m.from || 'unknown')));
         const senderChip = document.createElement('span');
         senderChip.className = `macos-chip ${from === 'claude' ? 'chip-claude' : from === 'antigravity' ? 'chip-antigravity' : isUser ? 'chip-user' : 'chip-other'}`;
         senderChip.textContent = senderName;
@@ -2746,7 +2746,7 @@
         let tText = '@all';
         if (to === 'claude') { tClass = 'pill-to-claude'; tText = '@克'; }
         else if (to === 'antigravity') { tClass = 'pill-to-antigravity'; tText = '@安'; }
-        else if (to === 'user') { tClass = 'pill-to-user'; tText = '@义哥'; }
+        else if (to === 'user') { tClass = 'pill-to-user'; tText = '@用户'; }
         targetPill.className = 'target-pill ' + tClass;
         targetPill.textContent = tText;
         flowGroup.appendChild(targetPill);
@@ -2756,7 +2756,7 @@
         const tagsRight = document.createElement('div');
         tagsRight.className = 'card-meta-tags';
 
-        // 遵从义哥指导：正常经门禁认证的消息零噪音呈现，仅在遭遇伪造未签名时才显式告警
+        // 遵从用户指导：正常经门禁认证的消息零噪音呈现，仅在遭遇伪造未签名时才显式告警
         if (isUser && m.verified === false) {
           const vTag = document.createElement('span');
           vTag.className = 'tag-unverified';
@@ -4277,7 +4277,7 @@
         }
       });
     }
-    // 义哥个性头像上传与裁剪接入
+    // 用户个性头像上传与裁剪接入
     const rosterUserRow = document.getElementById('roster-user-row');
     const inputAvatarUser = document.getElementById('input-avatar-user');
 
@@ -4325,7 +4325,7 @@
             avatarVersion = Date.now();
             refreshAllAvatars();
             renderMessages();
-            alert('🎉 义哥新头像更换成功！');
+            alert('🎉 用户新头像更换成功！');
           } else {
             const err = await res.json().catch(() => ({}));
             alert('头像上传失败: ' + (err.detail || '未知错误'));

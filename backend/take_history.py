@@ -3,7 +3,7 @@
 A generation node keeps every clip it ever produced in `data.takes`. The one on
 display is the node's `generatedUrl`; the rest are history. The asset library
 counts any mention as a reference, so history could never be cleaned -- on the
-TLOU scene-1 canvas that was 175 takes, most of them multi-GB latents.
+a large scene canvas that was 175 takes, most of them multi-GB latents.
 
 A file is history, and may go, only when every mention of it in every project
 canvas, cut-room timeline and sequence is a superseded take. One mention

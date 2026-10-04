@@ -5,7 +5,7 @@ Before this, identity was a random UUID that localStorage happened to keep
 profile" and cleared cache meant a new person. An account makes that identity
 something the user can state and carry between browsers.
 
-Registration is open on purpose -- this runs on Yige's own machine and on the
+Registration is open on purpose -- this runs on the owner's own machine and on the
 LAN/Tailscale addresses he opens it from, so the point is naming yourself, not
 keeping anyone out. Passwords are still stored as PBKDF2 hashes rather than
 plaintext, because people reuse passwords even on a toy login.

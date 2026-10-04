@@ -169,8 +169,8 @@ python tools\install_comfyui_nodes.py --comfyui C:\ComfyUI
 ## 5. 安装本项目
 
 ```powershell
-git clone <仓库地址> ai-cinima
-cd ai-cinima
+git clone <仓库地址> laza-cinema
+cd laza-cinema
 copy .env.example .env
 ```
 

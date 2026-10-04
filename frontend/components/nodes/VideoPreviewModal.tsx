@@ -78,7 +78,7 @@ export default function VideoPreviewModal({ beforeUrl, afterUrl, onClose, onCapt
   const totalFrames = shotDuration > 0 ? Math.max(1, Math.ceil(shotDuration * videoFps)) : 0;
   // 0-based, like ffmpeg's n, guide-frame indexes and edit windows: "frame 134"
   // here is the frame an agent extracts as n=134. A 1-based count put every
-  // frame Yige named one frame after the one pulled (C20a, 2026-09-25).
+  // frame the user named one frame after the one pulled (C20a, 2026-09-25).
   const currentFrame = totalFrames > 0
     ? Math.min(totalFrames - 1, Math.max(0, Math.floor(shotTime * videoFps + 1e-3)))
     : 0;

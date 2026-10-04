@@ -187,7 +187,7 @@ def last_cut_frame(path: Path, threshold: float = 0.1) -> int:
     """Frame index where the last shot of `path` begins (0 when there is no cut).
 
     0.1, not the usual 0.3: a cut between two dark night shots scores about 0.19,
-    while frames inside a shot stay under 0.03 (measured on the TLOU scene-2 clips).
+    while frames inside a shot stay under 0.03 (measured on the a large scene clips).
     """
     proc = subprocess.run(
         ["ffmpeg", "-v", "info", "-i", str(path), "-an",

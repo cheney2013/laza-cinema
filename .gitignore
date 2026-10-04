@@ -61,7 +61,6 @@ backend/.upscaler_rollback_commit
 !/backend/previs/plate_coverage.py
 !/backend/previs/scene_config.py
 !/backend/previs/vendor/
-/backend/uploads/tlou_*
 /models/
 /tools/h3_av_bridge_test.py
 /tools/h3_av_extension_test.py
@@ -70,7 +69,6 @@ backend/.upscaler_rollback_commit
 /tools/submit_segment.py
 /tools/audit_scene_plates.py
 /*_prompt.txt
-/tlou_*.txt
 /newprompt*.txt
 /shot1_*
 /p[0-9]*.json

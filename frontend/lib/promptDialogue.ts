@@ -9,15 +9,15 @@
  *   the words right before it. An off-screen voice is written "the man on the
  *   phone (S2), off-screen, ... says:" with no Subject label; looking for the
  *   nearest `<Subject N> (Sx)` instead gave his line to whoever spoke before
- *   him (C1: Tommy's line shown as Sarah's).
+ *   him (C1: Ben's line shown as Anna's).
  * - No id, and nobody named: the previous speaker going on ("and then he turns
  *   ... and says:", C16b).
- * - No id, but someone named: left blank. C13a's "then Joel, gripping Sarah's
- *   hand, calls out: <d>Jimmy!</d>" has no id of its own; borrowing Sarah's
+ * - No id, but someone named: left blank. C13a's "then Mark, gripping Anna's
+ *   hand, calls out: <d>Sam!</d>" has no id of its own; borrowing Anna's
  *   (S1) from the line before named the wrong person.
  *
  * Subject names are the first word after "<Subject N> is" in
- * subject_definitions ("<Subject 1> is Sarah, ..." -> "Sarah").
+ * subject_definitions ("<Subject 1> is Anna, ..." -> "Anna").
  */
 export interface DialogueLine {
   speaker: string;
@@ -32,7 +32,7 @@ export function promptDialogue(prompt: string | undefined | null): DialogueLine[
   for (const m of prompt.matchAll(/<Subject (\d+)> is (?:an? |the )?([A-Z][\w'-]*)/g)) {
     if (!names.has(m[1])) names.set(m[1], m[2]);
   }
-  // Speaker ids paired with a subject anywhere: "(S2)" -> "Tommy".
+  // Speaker ids paired with a subject anywhere: "(S2)" -> "Ben".
   const byId = new Map<string, string>();
   for (const m of prompt.matchAll(/<Subject (\d+)>\s*\((S\d+)\)/g)) {
     const name = names.get(m[1]);

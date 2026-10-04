@@ -26,7 +26,7 @@ import urllib.request
 logger = logging.getLogger(__name__)
 
 MACHINE_PROFILES: dict[str, dict] = {
-    # RTX 5090 32 GB. Singularity is the default base again as of 2026-10-02 (Yige).
+    # RTX 5090 32 GB. Singularity is the default base again as of 2026-10-02.
     # Fused had been the default since 2026-09-18, when it pulled the C3 bedroom door
     # toward the camera where singularity pushed it every take; a shot that needs that
     # names motionPreset "fused" itself.
@@ -73,7 +73,7 @@ MACHINE_PROFILES: dict[str, dict] = {
         "upscale_method": "esrgan",
         "disabled_upscale_methods": ["h3_latent"],
         # Not "sol": at 864x480 the Sol sparse attention smeared faces on this build (w4a8 + ref2v turbo 8-step,
-        # 2026-10-04, same seed: dense and kjsage clean, sol melted; Yige confirmed on H3_Video_65b84132).
+        # 2026-10-04, same seed: dense and kjsage clean, sol melted; confirmed on H3_Video_65b84132).
         # kjsage is the memory-efficient patch that kept the picture clean in that test.
         "h3_accel": "kjsage",
         "unet_substitutes": {

@@ -107,11 +107,11 @@ const FLOW_STYLE = { background: '#08080a' } as const;
 /** Where the scene a project was last left on is remembered, per project. */
 const lastSceneKey = (projectId: string) => `ai_cinema_last_scene_${projectId}`;
 // Keep this selector to a handful of elements: every one it matches is restyled
-// on every zoom frame (298 ports cost ~15 ms/frame on TLOU scene 3).
+// on every zoom frame (298 ports cost ~15 ms/frame on a large scene).
 const zoomRule = (zoom: number) => `.node-alias-tag,.node-bible-tab,.canvas-lod .edge-delete-btn,.canvas-lod .lod-audio-name{--rf-zoom:${zoom}}`;
 // Edge width tier for the zoom. Under ~1 screen px a line shimmers while the
 // canvas pans (anti-aliasing lands it on a different sub-pixel each frame) --
-// the flicker Yige saw at 0.33 on 2026-09-23. Each tier keeps the line ~1.1-1.9
+// the flicker seen at 0.33 on 2026-09-23. Each tier keeps the line ~1.1-1.9
 // px on screen; the tier flips only when a boundary is crossed (data attribute
 // on the wrapper, rules in globals.css), never per frame.
 const edgeTier = (zoom: number) => (zoom >= 0.6 ? 0 : zoom >= 0.35 ? 1 : zoom >= 0.2 ? 2 : zoom >= 0.12 ? 3 : 4);
@@ -525,7 +525,7 @@ function Canvas() {
       const scene = canvasSceneRef.current;
       try {
         // Only the revision and the lock unless something changed: the full canvas
-        // is megabytes (4 MB for TLOU scene 3) and this runs every 3 s.
+        // is megabytes (4 MB for a large scene) and this runs every 3 s.
         const remote = await api.loadCanvas(currentProjectId, 'default', scene, canvasRevisionRef.current);
         if (switchingSceneRef.current || canvasSceneRef.current !== scene) return;
         const remoteLock = ((remote as any).lock ?? null) as { agent: string; until: number; reason?: string } | null;
@@ -915,7 +915,7 @@ function Canvas() {
   const [lodPortPick, setLodPortPick] = useState<{ x: number; y: number; options: { label: string; connection: Connection }[] } | null>(null);
   const connectingInfo = useRef<{ nodeId: string, handleId: string | null, handleType: 'source' | 'target', portType: string } | null>(null);
   // While a connection is being dragged the focus dimming is lifted, so the
-  // target node can be read (Yige, 2026-09-15).
+  // target node can be read (2026-09-15).
   const [isConnecting, setIsConnecting] = useState(false);
 
   const onConnectStart = useCallback((event: any, { nodeId, handleId, handleType }: any) => {
@@ -1013,7 +1013,7 @@ function Canvas() {
   );
 
   // ── Highlight connected nodes and edges when nodes are selected ────────────
-  // Performance (2026-09-05, 义哥: dragging a selected node stuttered). Every
+  // Performance (2026-09-05: dragging a selected node stuttered). Every
   // drag frame replaces the nodes array, and the first version of this memo
   // re-derived the focus sets and re-cloned every dimmed node on each frame, so
   // all ~60 cards re-rendered per frame. Now:
@@ -1160,7 +1160,7 @@ function Canvas() {
   // (alias and bible tags scale by its inverse in CSS). It is written into a rule
   // that matches only those tags, not onto the canvas wrapper: an inherited custom
   // property on the wrapper made every zoom frame restyle all ~8,400 elements under
-  // it (50 ms/frame on TLOU scene 3, vs ~1 ms for the rule; 2026-09-23).
+  // it (50 ms/frame on a large scene, vs ~1 ms for the rule; 2026-09-23).
   const zoomRuleRef = useRef<HTMLStyleElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const onMove = useCallback((_event: unknown, viewport: { zoom: number }) => {

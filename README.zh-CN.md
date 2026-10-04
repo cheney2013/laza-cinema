@@ -94,6 +94,23 @@ python tools\check_install.py
 - 连入一个节点的边的顺序就是它的 `<Picture N>` 编号。`get_node_catalog` 列出节点类型和字段。
 - 没设 token 时服务接受所有请求，只在别人连不到的机器上这样用。细节见 [docs/DEPLOY.md](docs/DEPLOY.md) 第 8 节。
 
+## AI 助手需要的技能和参考文档
+
+写视频提示词、拆分场景之前，助手需要两样东西。**技能没有放进本仓库。**
+
+| 是什么 | 从哪里来 | 用来做什么 |
+|---|---|---|
+| `h3-prompt-writing` 技能 | **MiniMax 官方**：[MiniMax-AI/MiniMax-H3 › skills/h3-prompt-writing](https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing) | MiniMax H3 提示词的格式（字段名、段落顺序、时间标注） |
+| Enhanced 规范 | 作者 WarmBloodAban，和 Singularity 权重一起发布：[Hugging Face 上的 Minimax-h3_Singularity](https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/tree/main)（模型页标注 Apache-2.0）。本仓库 [docs/](docs/MiniMax_H3_Singularity_Prompt_Writing_Specification_Enhanced_EN.md) 里留了一份副本。**不是** MiniMax 的官方文档 | 写法规则：参考图角色、动作链、镜头、光线、表演、失败模式、检查清单 |
+
+官方技能用 [skills CLI](https://github.com/vercel-labs/skills) 安装，会装进助手的技能目录（Claude Code 是 `~/.claude/skills/`）：
+
+```bash
+npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing
+```
+
+[`CLAUDE.md`](CLAUDE.md) 写明了各自什么时候必须用（每条 H3 提示词：技能加整份规范），也是其余工作规则所在；多个助手协作见 [`AGENTS.md`](AGENTS.md)。
+
 ## 仓库结构
 
 ```

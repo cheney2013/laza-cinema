@@ -778,7 +778,7 @@ def _h3_video_decode(samples: list, tiled: bool, vae: list | None = None) -> dic
     }}
 
 
-# Official INT8 convrot build (7.26 GB, half of qwen_image_2.1_bf16's 14.2 GB). Switched 2026-10-02 (Yige)
+# Official INT8 convrot build (7.26 GB, half of qwen_image_2.1_bf16's 14.2 GB). Switched 2026-10-02
 # to free memory next to H3; the bf16 file stays in models/diffusion_models for A/B.
 #
 # A smaller machine swaps these two through the environment instead of editing code (see
@@ -1325,7 +1325,7 @@ def build_h3_video_workflow(
     # which is what the relight attempts on 2026-09-07 demonstrated: a 124-frame
     # reference against a 124-frame generation still invented a gallery wall and
     # moved the window. The control video is the frame-aligned input, and being
-    # frame-aligned is exactly why it has to be as long as the clip (Yige).
+    # frame-aligned is exactly why it has to be as long as the clip.
     #
     # VHS_LoadVideo does the windowing in the graph, so a chunk reads its own
     # stretch with skip_first_frames and needs no pre-cut file. Tested on pruned int8, w4a8 (official and
@@ -1470,7 +1470,7 @@ def build_h3_video_workflow(
         # (comfy_extras/nodes_minimax_h3.py). The centre crop to the output shape
         # that used to sit here was our own addition, and it cut the top and
         # bottom off every portrait character sheet and the sides off every wide
-        # plate before the model saw them (2026-09-06, Yige).
+        # plate before the model saw them (2026-09-06).
         for i, img in enumerate(all_images):
             load_nid = str(100 + i)
             wf[load_nid] = {"class_type": "LoadImage", "inputs": {"image": img}}
@@ -1561,7 +1561,7 @@ def build_h3_video_workflow(
                 # Depth may be estimated from a brightened copy of the clip
                 # (depth_source): on a dark night interior MoGe masks most of the
                 # frame as unreliable, the warp comes out nearly all holes, and the
-                # model ignores the guide and copies its references instead (TLOU
+                # model ignores the guide and copies its references instead (
                 # C27, 2026-09-28). The warp itself still moves the original frames.
                 depth_image = ["86", 0]
                 if crossview_warp.get("depth_source"):
@@ -1594,7 +1594,7 @@ def build_h3_video_workflow(
                     # ahead). The automatic one comes from the middle of the frame:
                     # fine on a bed two metres away, but looking out of a car it lands
                     # on the road far ahead, the orbit radius (distance x |pivot|)
-                    # explodes and the near seats shred (TLOU C27, 2026-09-28).
+                    # explodes and the near seats shred (C27, 2026-09-28).
                     **({"pivot_override": True,
                         "pivot_x": float(crossview_warp["pivot"].get("x", 0.0)),
                         "pivot_y": float(crossview_warp["pivot"].get("y", 0.0)),
@@ -1670,7 +1670,7 @@ def build_h3_video_workflow(
         # one room disagree with each other by construction. This is what joins
         # them: the tail of the previous clip is pinned as never-denoised
         # conditioning rows, so the new chunk starts already knowing what the
-        # room looked like and where the camera was (2026-09-07, Yige).
+        # room looked like and where the camera was (2026-09-07).
         #
         # The wiring is the pack's own example workflow verbatim rather than a
         # reading of the schema: conditioning and the empty latent from
@@ -1841,7 +1841,7 @@ def build_h3_video_workflow(
     # in one 15-second generation. Splitting it into separate jobs was the first
     # answer and the wrong one: three generations of one room disagree, and
     # stitching them is manual work every time. So the chain is built into the
-    # graph instead (Yige, 2026-09-07: can the node not handle it itself).
+    # graph instead (2026-09-07: can the node not handle it itself).
     #
     # Each stage samples `chunk_frames`, and every stage after the first takes
     # the previous stage's latent straight off the sampler as its motion
@@ -1872,7 +1872,7 @@ def build_h3_video_workflow(
             # `context_latent`, not through the noise). An earlier version here
             # used `seed + c`, on a suspicion that a shared seed pulls every
             # chunk toward the same still; that was never measured against a
-            # same-prompt pair, so it is off until it is (Yige, 2026-09-09).
+            # same-prompt pair, so it is off until it is (2026-09-09).
             wf[nid] = {"class_type": "RandomNoise",
                        "inputs": {**base_noise, "noise_seed": int(seed)}}
             cond = [r2v, 0]
@@ -2098,7 +2098,7 @@ def build_h3_latent_upscale_workflow(
     # Temporal chunking. 0 (the default) samples the whole clip as ONE span: the
     # temporal_split_param input is left unconnected, which the node documents as
     # "single chunk". A 362-frame 2752x1536 refine fits, so chunking only added
-    # seams and anchor re-stages (2026-09-06, Yige: the upscale is not batched).
+    # seams and anchor re-stages (2026-09-06: the upscale is not batched).
     # Set a positive multiple of 17 only when a clip will not fit in VRAM; then
     # every span after the first is anchored to the previous one's boundary frame.
     chunk_frames: int = 0,
@@ -2134,7 +2134,7 @@ def build_h3_latent_upscale_workflow(
     # A chained clip's saved latent still holds the context window regenerated
     # at its head; the clip itself had those frames trimmed before it was saved,
     # so the upscale has to take the same number off or it comes back longer
-    # than its source (Yige, 2026-09-15: chain 2's 2x was 260 frames against a
+    # than its source (2026-09-15: chain 2's 2x was 260 frames against a
     # 238-frame clip). The caller works the count out; 0 leaves the decode whole.
     trim_head_frames: int = 0,
 ) -> dict:

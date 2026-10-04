@@ -719,9 +719,10 @@ def get_attachment_original(
     return get_attachment(att_id, relay_session)
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_MEDIA_ROOTS = [
-    Path(r"D:\ComfyUI-sage3\ComfyUI\output").resolve(),
-    Path(r"D:\Projects\ai-cinima").resolve(),
+    Path(os.environ.get("COMFYUI_OUTPUT_DIR", r"D:\ComfyUI-sage3\ComfyUI\output")).resolve(),
+    REPO_ROOT,
     RELAY_DIR.resolve(),
 ]
 
@@ -741,7 +742,7 @@ def get_local_media(path: str, relay_session: Optional[str] = Cookie(default=Non
     try:
         p = Path(path)
         if not p.is_absolute():
-            p = (Path(r"D:\Projects\ai-cinima") / p).resolve()
+            p = (REPO_ROOT / p).resolve()
         else:
             p = p.resolve()
     except Exception:

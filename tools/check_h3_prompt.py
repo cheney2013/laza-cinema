@@ -319,7 +319,7 @@ def check_summary(summary: str, r: Report) -> None:
     for t in (x.strip() for x in m.group(1).split("+")):
         if t not in TASK_TYPES:
             r.err(f"summary 任务类型 `{t}` 不在规范枚举里：{sorted(TASK_TYPES)}")
-    # 义哥 2026-09-05（第二段 v5/v6 同 seed A/B）：summary 里讲了整段剧情，演员会抢演后面镜头
+    # 2026-09-05（第二段 v5/v6 同 seed A/B）：summary 里讲了整段剧情，演员会抢演后面镜头
     # 的内容。summary 只写场景设定和分镜说明；剧情只在各自的 [Shot] 块里。
     words = len(body.split())
     if words > 70:
@@ -374,10 +374,10 @@ def check_speakers(defs: str, detail: str, r: Report) -> None:
     """Speaker ids (S1, S2...) against who speaks and which <Audio N> voices them.
 
     ref-en 5.4: ids are given in the order people first speak, one id per
-    speaker. Two failures from TLOU scene 4 are caught here too: an <Audio N>
-    bound to a different-numbered speaker (Audio 1 -> S2 swapped Joel's and
-    Tommy's voices in C24), and a timbre-only voice reference whose definition
-    quotes the lines (C23b: Joel's line then came out at the start of the clip,
+    speaker. Two failures from a large scene are caught here too: an <Audio N>
+    bound to a different-numbered speaker (Audio 1 -> S2 swapped Mark's and
+    Ben's voices in C24), and a timbre-only voice reference whose definition
+    quotes the lines (C23b: Mark's line then came out at the start of the clip,
     where it sits in the reference recording).
     """
     uses = [(m.group(1), m.group(2), m.start()) for m in
@@ -411,12 +411,12 @@ def check_speakers(defs: str, detail: str, r: Report) -> None:
                       + "、".join(f"<Subject {x}>" for x in sorted(by_sid[sid])))
             if sid != f"S{n}":
                 r.warn(f"<Audio {n}> 对应 {sid}：编号交叉，模型容易把第 {n} 条声音配给 S{n}"
-                       f"（C24 就这样把乔尔和汤米的声音配反了）。把声音参考的连线顺序"
+                       f"（C24 就这样把马克和本的声音配反了）。把声音参考的连线顺序"
                        f"调成与说话人 ID 一致")
         timbre_only = re.search(r"\btimbre\b", body) and not re.search(r"copy|reuse|fully_copy", body)
         if timbre_only and re.search(r"[\"“”]", body):
             r.warn(f"<Audio {n}> 只参考音色，却在定义里写了台词原文 —— 模型会照参考录音里的时间"
-                   f"把台词提前说出来（C23b 的乔尔台词就是这样提前的）。定义里只写音色")
+                   f"把台词提前说出来（C23b 的马克台词就是这样提前的）。定义里只写音色")
 
 
 def is_empty_room_plate(defs: str, detail: str) -> bool:

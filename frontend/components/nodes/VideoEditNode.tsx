@@ -711,7 +711,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
   // 与 H3 生成节点同理：只有预览态在放画面，编辑态整块是控件与文本
   const showsMedia = Boolean(data.generatedUrl) && viewMode === 'preview';
   // 首次生成时还没有成片，但目标分辨率已定、整块被生成遮罩盖住：按成片比例占位，
-  // 不让长提示词把表单撑成竖条（2026-09-19 义哥）
+  // 不让长提示词把表单撑成竖条（2026-09-19）
   const firstRender = data.status === 'generating' && !data.generatedUrl;
 
   const sizing = useNodeSizing({

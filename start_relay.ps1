@@ -12,7 +12,7 @@
 #      config. They are not started here; restarting the client reconnects them.
 #   3. The web console (tools/relay_ui/server.py) is the only long-running
 #      process: it serves http://127.0.0.1:8777, holds the Ed25519 signing key that
-#      marks a message as genuinely typed by Yige, and is what he watches. When it
+#      marks a message as genuinely typed by the human, and is what they watch. When it
 #      is down the agents still talk to each other, but he cannot talk to them.
 #      That is the process this script starts.
 #

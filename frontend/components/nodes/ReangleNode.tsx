@@ -29,7 +29,7 @@ import { CameraOrbitPad, CameraPlan, CameraShot, keyframesToShots, shotsToKeyfra
  * the graph and pins the render to that warp, with the clip itself as a silent
  * reference for identity and look; the source's audio is muxed back afterwards.
  *
- * Measured 2026-09-21 on the TLOU clips: identity, costume and set hold at 20-90
+ * Measured 2026-09-21 on the real clips: identity, costume and set hold at 20-90
  * degrees. What the source camera never saw is invented — reference images on
  * in-ref-image (a set plate, character sheets) steer that fill. A large object right
  * at the lens is the weak case. The keyframe list cuts between several cameras in one

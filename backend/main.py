@@ -882,7 +882,7 @@ async def auth_login(req: AuthRequest):
 
 
 # Passwordless sign-in for the one test account agents use to check the studio
-# in a browser (Yige, 2026-09-19). Allowed only for a request made on this
+# in a browser (2026-09-19). Allowed only for a request made on this
 # machine directly: tailscaled serves :8443 by forwarding to localhost, so a
 # loopback address alone is not proof -- any forwarding header refuses it.
 # A page on another site cannot use it from a local browser either: its Origin
@@ -1201,7 +1201,7 @@ def _job_for_prompt(prompt_id: Optional[str]) -> Optional[dict]:
 
 async def _vram_sampler() -> None:
     # Each sample is (time, used, total, generating). The average is taken over
-    # generating samples only (Yige: idle VRAM is not what the number is for);
+    # generating samples only (idle VRAM is not what the number is for);
     # the peak over every sample.
     async with comfyui_client_http() as client:
         while True:
@@ -1692,7 +1692,7 @@ class VideoRequest(BaseModel):
     guide_frames_delivered: bool = False
     # 钉住末帧: the clip this node showed before the re-run. Its last frame is cut
     # out and pinned at the new take's last frame, so the next chain -- which
-    # continues from that ending -- does not have to be re-run (Yige, 2026-09-29).
+    # continues from that ending -- does not have to be re-run (2026-09-29).
     pin_last_frame_of: Optional[str] = None
     ref_image_urls: list[str] = []          # maps to <Picture 1>, <Picture 2>, ...
     ref_audio_urls: list[str] = []          # maps to <Audio 1>, <Audio 2>, ...
@@ -1716,7 +1716,7 @@ class VideoRequest(BaseModel):
     # live. Set this (with a base unet) only to go back to the LoRA path.
     lora_name: str = ""
     lora_strength: float = 1.0
-    # None by default (Yige, 2026-09-09). From 2026-08-29 to 09-09 this
+    # None by default (2026-09-09). From 2026-08-29 to 09-09 this
     # defaulted to AfterMidnight ref2va rank64 v1.2 and every render stacked
     # it unasked -- the accepted takes of that stretch carry it.
     style_lora_name: str = ""
@@ -1744,7 +1744,7 @@ class VideoRequest(BaseModel):
     # 'taomate3' -- TaoMate-H3 3-step distill, steps locked to 3. Chain 7 v11 same
     #   seed: whole job 103-108 s vs 203-222 s for turbo8, per-step time unchanged;
     #   cooler grade, hotter lamp. Chain 11 back to back (2026-09-16): weaker prompt
-    #   adherence and audio, so it is opt-in (Yige).
+    #   adherence and audio, so it is opt-in.
     # 'none' -- no speed LoRA, 20 steps (the official r2v template).
     # 'fused' is always 8. The request's steps only apply with an explicit lora_name.
     accel_lora: Optional[str] = None
@@ -1816,11 +1816,11 @@ def _make_on_queued(job: dict):
 
 
 #: The preset a shot gets when it names none: singularity on the workstation again
-#: since 2026-10-02 (Yige); it was fused from 2026-09-18 (it got the C3 door pull right).
+#: since 2026-10-02; it was fused from 2026-09-18 (it got the C3 door pull right).
 #: Singularity was the default from 2026-09-07:
 #: across four Last-of-Us shots (segments A, C, H, K, same prompt/refs/seed/8
 #: steps) it renders the light the set actually has, so an unlit corner comes
-#: back unlit instead of being filled. Yige takes that as correct and it is the
+#: back unlit instead of being filled. That is taken as correct and it is the
 #: look this production is graded for. Costs nothing in time -- measured 305 vs
 #: 308 s, 353 vs 362 s, 345 vs 350 s against "fused". Reach for "fused" when a
 #: shot needs the wider expression range, or for anything that needs
@@ -1994,7 +1994,7 @@ async def _slice_ref_video(url: str, start: int, count: int) -> str:
     reference on every chunk: chunk c only covers its own stretch of the move,
     and handing it all 15 seconds makes it encode fourteen of them for nothing
     -- four times over. This is what makes motion context worth having with a
-    video attached at all (Yige, 2026-09-07).
+    video attached at all (2026-09-07).
     """
     import subprocess
 
@@ -2102,7 +2102,7 @@ async def _prepare_audio_locks(req, frame_len: int, motion_context_video: str,
     if doubled:
         raise audio_lock.AudioLockError(
             "the prompt also has these locked lines spoken as <d>: " + "; ".join(doubled) +
-            ". The model says them again outside the lock (tested: Tommy's line repeated 0.1 s after "
+            ". The model says them again outside the lock (tested: Ben's line repeated 0.1 s after "
             "it). Remove them from the prompt, or leave the lines that are not locked.")
     context = audio_lock.context_frames(
         motion_context_latent=req.motion_context_latent or "", motion_context_video=motion_context_video,
@@ -2286,7 +2286,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
                 # One seed for the whole chain, as the Motion Context docs do:
                 # continuity comes from the carried latent, not from the noise.
                 # The earlier `seed + c` here was a guess that was never measured
-                # against a same-prompt pair (Yige, 2026-09-09).
+                # against a same-prompt pair (2026-09-09).
                 "seed": int(req.seed),
             })
             job["progress"] = c / stages
@@ -4502,7 +4502,7 @@ async def _run_video_upscale_job(job: dict, req: VideoUpscaleRequest) -> dict:
 
         # A chained clip was saved without the context window regenerated at its
         # head, but its latent still has it: take the same frames off the upscale
-        # so the result lines up frame for frame with its source (Yige, 2026-09-15).
+        # so the result lines up frame for frame with its source (2026-09-15).
         # Only a context-sized difference is trimmed; anything else is logged and
         # the decode is left whole rather than cut by a wrong count.
         trim_head = 0
@@ -5144,7 +5144,7 @@ class CanvasSaveRequest(BaseModel):
 # An agent that is about to read-modify-write a canvas takes the lock first; the
 # studio's auto-save sees it on GET /canvas and pauses, and a PUT from anyone but
 # the holder is refused with 423. Locks expire on their own, so a crashed agent
-# cannot leave a project frozen. Requested by Yige on 2026-09-05 after agent
+# cannot leave a project frozen. Requested on 2026-09-05 after agent
 # writes and browser auto-saves kept colliding on revision numbers (409s) and a
 # finished render's job id was lost that way.
 _CANVAS_LOCKS: dict[str, dict] = {}
@@ -5311,7 +5311,7 @@ def _read_project_summary(proj_dir: Path) -> dict:
                 d = n.get("data", {})
                 url = d.get("generatedUrl") or d.get("url") or d.get("previewUrl") or d.get("image_url")
                 # Pictures and clips only: a voice reference (.wav) came first on
-                # the TLOU canvas and the card showed no cover at all.
+                # a large canvas and the card showed no cover at all.
                 if (url and isinstance(url, str) and d.get("mediaType") != "audio"
                         and _COVER_EXT.search(url.split("?")[0]) and _local_media_present(url)):
                     thumbnail_url = url
@@ -5627,7 +5627,7 @@ async def delete_project(project_id: str, workspace: str = "default",
 
 # revision of a canvas file by (path, mtime, size): the studio polls every 3 s,
 # and parsing a 4 MB canvas only to learn it has not changed cost the backend a
-# parse and the browser a 4 MB download + parse each time (TLOU scene 3, 2026-09-23).
+# parse and the browser a 4 MB download + parse each time (a large scene, 2026-09-23).
 _CANVAS_REVISION_CACHE: dict[str, tuple[int, int, int]] = {}
 
 
@@ -8742,7 +8742,7 @@ class ReangleRequest(BaseModel):
     (the warp's magenta holes); reference images on `ref_image_urls` steer that fill.
     The source's own audio is muxed back afterwards -- the model's would be invented.
 
-    Measured 2026-09-21 on TLOU chains 6 and 12: holds identity, costume and set at
+    Measured 2026-09-21 on two real chains: holds identity, costume and set at
     20-90 degrees. Weak where a large object sits right at the lens (a huge area to
     invent). `keyframes` cuts between several cameras in one clip; a cut can land 1-3
     frames early.
@@ -8793,7 +8793,7 @@ def _reangle_render_size(src_w: int, src_h: int, megapixels: float = 0.5) -> tup
     """The model's render size: `megapixels` at the source's aspect, on the 32 px grid.
 
     Not the source size: the CrossView LoRA was trained at 0.5 MP, and at 1376x768
-    it ignores the warp and copies the source (TLOU C27 frame 31, -30 deg, pivot
+    it ignores the warp and copies the source (C27 frame 31, -30 deg, pivot
     0.8 m: 960x544 re-angled, 1376x768 unchanged, 2026-09-28). The output is
     scaled back to the source size afterwards (output_size).
     """
@@ -8936,7 +8936,7 @@ def _reangle_source_head(keyframes: list[dict]) -> tuple[int, list[dict]]:
     A shot list that opens on the source camera (0/0) and then cuts or moves to a
     new one gives (the last source-camera frame, the rest shifted to start at 1).
     Otherwise (0, keyframes). Those opening frames are the source's own; rendering them made the
-    model copy the source for the whole clip, the re-angled part included (TLOU C27
+    model copy the source for the whole clip, the re-angled part included (C27
     2026-09-28: the per-shot render from the cut turned, the full render did not).
     """
     kfs = sorted(keyframes, key=lambda k: int(k.get("f", 0)))
@@ -9016,7 +9016,7 @@ async def _run_reangle_still_job(job: dict, req: ReangleStillRequest) -> dict:
 
     Same angle, references, prompt, LoRA, seed and steps as the full render, so the
     still shows what the render will look like at that moment. Not the 5-frame
-    minimum: at 5 frames the model ignores the warp and copies the source (TLOU
+    minimum: at 5 frames the model ignores the warp and copies the source (
     C27 frame 31, 2026-09-28: 5 frames unchanged, 22 frames re-angled).
     """
     import subprocess

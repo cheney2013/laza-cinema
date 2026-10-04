@@ -83,7 +83,7 @@ class PartialLockTest(unittest.TestCase):
 
 class PromptCheckTest(unittest.TestCase):
     def test_locked_line_written_as_d_is_caught(self):
-        prompt = ("Sarah says: <d>[English] Yeah.</d> and Joel: "
+        prompt = ("Anna says: <d>[English] Yeah.</d> and Mark: "
                   "<d>[English]We have got to get out of here.</d>")
         self.assertEqual(al.locked_lines_in_prompt(prompt, [_spec(text="Yeah.")]), ["Yeah."])
         self.assertEqual(al.locked_lines_in_prompt(prompt, [_spec(text="Holy shit")]), [])
