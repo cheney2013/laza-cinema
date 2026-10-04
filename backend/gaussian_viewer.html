@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gaussian Splat Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            color: #ddd;
+        }
+        #viewerContainer {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            background: #111;
+        }
+        #canvasWrapper {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+        }
+        canvas { display: block; }
+
+        #loadingOverlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+            z-index: 50;
+            gap: 12px;
+        }
+        #loadingOverlay.hidden { display: none; }
+        .spinner {
+            width: 36px; height: 36px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: rgba(100,180,255,0.8);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 12px; color: #888; }
+
+        #errorOverlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+            z-index: 50;
+            gap: 8px;
+            padding: 20px;
+        }
+        #errorOverlay.hidden { display: none; }
+        .error-icon { font-size: 32px; }
+        .error-text { font-size: 12px; color: #ff6b6b; text-align: center; max-width: 300px; }
+
+        #emptyState {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            z-index: 10;
+        }
+        #emptyState.hidden { display: none; }
+        .empty-icon { font-size: 40px; opacity: 0.3; }
+        .empty-text { font-size: 12px; color: #444; text-align: center; }
+
+        #cameraInfo {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.65);
+            padding: 6px 10px;
+            border-radius: 5px;
+            font-size: 10px;
+            font-family: monospace;
+            line-height: 1.5;
+            color: #999;
+            z-index: 20;
+            pointer-events: none;
+            max-width: 220px;
+        }
+
+        #controlsBar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #1a1a1a;
+            padding: 6px 10px;
+            border-top: 1px solid #2a2a2a;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+        .ctrl-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #ccc;
+            padding: 4px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+        .ctrl-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+        .ctrl-btn.primary {
+            background: rgba(80,140,255,0.25);
+            border-color: rgba(80,140,255,0.4);
+            color: #7ab4ff;
+        }
+        .ctrl-btn.primary:hover { background: rgba(80,140,255,0.4); color: #fff; }
+        .ctrl-label { font-size: 10px; color: #555; margin-right: 2px; }
+        .ctrl-sep { width: 1px; height: 16px; background: #2d2d2d; margin: 0 2px; }
+        .ctrl-scale { display: flex; align-items: center; gap: 5px; }
+        .ctrl-scale input[type="range"] { width: 70px; cursor: pointer; }
+        .ctrl-scale input[type="number"] {
+            width: 48px; background: #252525; border: 1px solid #3a3a3a;
+            color: #ccc; font-size: 10px; padding: 2px 5px; border-radius: 4px;
+        }
+        .ctrl-help {
+            margin-left: auto;
+            font-size: 10px; color: #444;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewerContainer">
+        <div id="canvasWrapper">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="loadingOverlay">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loadingText">正在加载...</div>
+        </div>
+
+        <div id="errorOverlay" class="hidden">
+            <div class="error-icon">⚠️</div>
+            <div class="error-text" id="errorText">加载失败</div>
+        </div>
+
+        <div id="emptyState" class="hidden">
+            <div class="empty-icon">🔵</div>
+            <div class="empty-text">等待 PLY 文件...</div>
+        </div>
+
+        <div id="cameraInfo"></div>
+    </div>
+
+    <div id="controlsBar">
+        <span class="ctrl-label">视图</span>
+        <button class="ctrl-btn" id="btnReset" title="重置相机">重置视图</button>
+        <div class="ctrl-sep"></div>
+        <span class="ctrl-label">缩放</span>
+        <div class="ctrl-scale">
+            <input type="range" id="scaleRange" min="0.01" max="10" step="0.01" value="1.0">
+            <input type="number" id="scaleNum" min="0.01" max="100" step="0.1" value="1.0">
+        </div>
+        <div class="ctrl-sep"></div>
+        <button class="ctrl-btn primary" id="btnCapture" title="截图并输出">📷 截图输出</button>
+        <span class="ctrl-help">左键拖拽旋转 · 右键平移 · 滚轮缩放</span>
+    </div>
+
+    <!-- gsplat.js bundle -->
+    <script src="/gaussian/js/gsplat-bundle.js"></script>
+    <script src="/gaussian/js/precise_orbit_controls.js"></script>
+
+    <script type="module">
+        const SPLAT = window.GSPLAT;
+
+        const canvas = document.getElementById('canvas');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorText = document.getElementById('errorText');
+        const emptyState = document.getElementById('emptyState');
+        const cameraInfoEl = document.getElementById('cameraInfo');
+        const scaleRange = document.getElementById('scaleRange');
+        const scaleNum = document.getElementById('scaleNum');
+
+        let scene = null, camera = null, renderer = null, controls = null;
+        let animationId = null, currentSplat = null, originalScales = null;
+        const RENDER_TAIL_MS = 1500;
+        let renderUntil = 0, lastSignature = '', idleTimer = null;
+        let baseFocalLength = null, baseFocalY = null;
+        let nativeAspect = null, nativeImageWidth = null, nativeImageHeight = null;
+        let initialCameraData = null;
+        let currentScale = 1.0;
+        let gaussianScaleCompensation = 1.0;
+        let isLoaded = false;
+
+        const DEFAULT_FOCAL_LENGTH = 30;
+        const SCALE_DENSITY_BOOST = 3.0;
+
+        // Parse ?file= query param
+        const params = new URLSearchParams(location.search);
+        const fileParam = params.get('file');
+
+        function showLoading(text) {
+            loadingText.textContent = text || '正在加载...';
+            loadingOverlay.classList.remove('hidden');
+            errorOverlay.classList.add('hidden');
+            emptyState.classList.add('hidden');
+        }
+        function hideLoading() { loadingOverlay.classList.add('hidden'); }
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('hidden');
+        }
+        function showEmpty() {
+            emptyState.classList.remove('hidden');
+            loadingOverlay.classList.add('hidden');
+        }
+
+        function initViewer() {
+            try {
+                scene = new SPLAT.Scene();
+                camera = new SPLAT.Camera();
+
+                // Patch preserveDrawingBuffer for screenshots
+                const origGetCtx = canvas.getContext.bind(canvas);
+                canvas.getContext = (type, attrs) => {
+                    if (type === 'webgl2' || type === 'webgl') {
+                        attrs = Object.assign({}, attrs || {}, { preserveDrawingBuffer: true });
+                    }
+                    return origGetCtx(type, attrs);
+                };
+
+                renderer = new SPLAT.WebGLRenderer(canvas);
+                controls = new window.PreciseOrbitControls(camera, canvas);
+                controls.minZoom = 0.001;
+                controls.maxZoom = 100;
+
+                camera.data.fx = DEFAULT_FOCAL_LENGTH;
+                camera.data.fy = DEFAULT_FOCAL_LENGTH;
+                baseFocalLength = camera.data.fx;
+                baseFocalY = camera.data.fy;
+
+                const resize = () => {
+                    const container = document.getElementById('viewerContainer');
+                    const cw = container.clientWidth || 1;
+                    const ch = container.clientHeight || 1;
+                    if (!nativeImageWidth) {
+                        renderer.setSize(cw, ch);
+                        nativeAspect = cw / ch;
+                        // Recalculate focal length to maintain ~60° VFOV
+                        const f = ch / (2 * Math.tan(Math.PI / 6));
+                        camera.data.fx = f;
+                        camera.data.fy = f;
+                        baseFocalLength = f;
+                        baseFocalY = f;
+                    } else {
+                        updateCanvasDisplaySize();
+                    }
+                };
+                window.addEventListener('resize', resize);
+                new ResizeObserver(resize).observe(document.getElementById('viewerContainer'));
+                resize();
+
+                ['pointerdown', 'pointermove', 'wheel', 'keydown', 'input', 'change', 'message', 'resize'].forEach((type) =>
+                    window.addEventListener(type, wakeRender, { passive: true }));
+                startRenderLoop();
+
+                // If we have a file param, load immediately
+                if (fileParam) {
+                    loadPlyFromUrl('/uploads/' + fileParam);
+                } else {
+                    showEmpty();
+                }
+            } catch (err) {
+                showError('WebGL 初始化失败: ' + err.message);
+            }
+        }
+
+        async function loadPlyFromUrl(url) {
+            showLoading('正在加载 PLY 文件...');
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const buf = await resp.arrayBuffer();
+                await loadPLYFromData(buf, url.split('/').pop(), null, null);
+            } catch (err) {
+                showError('加载失败: ' + err.message);
+                notifyParent({ type: 'MESH_ERROR', error: err.message });
+            }
+        }
+
+        // A plain point cloud (x y z + colour, as GAE / DA3 / most scanners write
+        // it) has none of the fields gsplat's PLYLoader reads, so it is rewritten
+        // here as one small, opaque, round gaussian per point. A 3DGS file passes
+        // through untouched.
+        const PLY_TYPES = {
+            char: ['getInt8', 1], int8: ['getInt8', 1], uchar: ['getUint8', 1], uint8: ['getUint8', 1],
+            short: ['getInt16', 2], int16: ['getInt16', 2], ushort: ['getUint16', 2], uint16: ['getUint16', 2],
+            int: ['getInt32', 4], int32: ['getInt32', 4], uint: ['getUint32', 4], uint32: ['getUint32', 4],
+            float: ['getFloat32', 4], float32: ['getFloat32', 4], double: ['getFloat64', 8], float64: ['getFloat64', 8],
+        };
+        const SH_C0 = 0.28209479177387814;
+
+        let pointCloudTargetZ = null;   // set when the file was a plain point cloud
+
+        function pointCloudToSplatPly(buf) {
+            const bytes = new Uint8Array(buf);
+            const probe = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 65536)));
+            const endIdx = probe.indexOf('end_header');
+            if (endIdx < 0) return buf;
+            const header = probe.slice(0, endIdx);
+            if (/property\s+\S+\s+f_dc_0/.test(header)) return buf;   // already gaussians
+            let bodyStart = endIdx + 'end_header'.length;
+            while (bodyStart < bytes.length && (bytes[bodyStart] === 0x0d || bytes[bodyStart] === 0x0a)) {
+                bodyStart++;
+                if (bytes[bodyStart - 1] === 0x0a) break;
+            }
+            const format = (header.match(/format\s+(\S+)/) || [])[1] || 'ascii';
+            // Properties of the vertex element only; later elements (faces) are ignored.
+            const props = [];
+            let count = 0, inVertex = false;
+            for (const line of header.split(/\r?\n/)) {
+                const w = line.trim().split(/\s+/);
+                if (w[0] === 'element') { inVertex = w[1] === 'vertex'; if (inVertex) count = parseInt(w[2], 10); }
+                else if (w[0] === 'property' && inVertex && w[1] !== 'list') props.push({ type: w[1], name: w[2] });
+            }
+            const idx = (n) => props.findIndex((p) => p.name === n);
+            const ix = idx('x'), iy = idx('y'), iz = idx('z');
+            if (!count || ix < 0 || iy < 0 || iz < 0) return buf;
+            const ir = [idx('red'), idx('r')].find((i) => i >= 0) ?? -1;
+            const ig = [idx('green'), idx('g')].find((i) => i >= 0) ?? -1;
+            const ib = [idx('blue'), idx('b')].find((i) => i >= 0) ?? -1;
+
+            const vals = new Float64Array(count * props.length);
+            if (format === 'ascii') {
+                const text = new TextDecoder().decode(bytes.subarray(bodyStart));
+                let k = 0, m;
+                const total = count * props.length;
+                const re = /[-+0-9.eEnaif]+/g;
+                while (k < total && (m = re.exec(text)) !== null) vals[k++] = parseFloat(m[0]);
+            } else {
+                const little = format === 'binary_little_endian';
+                const view = new DataView(buf, bodyStart);
+                let off = 0;
+                for (let v = 0; v < count; v++) {
+                    for (let p = 0; p < props.length; p++) {
+                        const [fn, size] = PLY_TYPES[props[p].type] || PLY_TYPES.float;
+                        vals[v * props.length + p] = size === 1 ? view[fn](off) : view[fn](off, little);
+                        off += size;
+                    }
+                }
+            }
+
+            // Splat size from the spacing of the points. Depth-derived clouds are
+            // written pixel by pixel, so consecutive points are neighbours; the
+            // median of those steps ignores the jumps at row ends and depth edges.
+            const P = props.length;
+            const steps = [];
+            const stride = Math.max(1, Math.floor(count / 20000));
+            for (let v = 0; v + 1 < count; v += stride) {
+                const a = v * P, b = (v + 1) * P;
+                steps.push(Math.hypot(vals[b + ix] - vals[a + ix], vals[b + iy] - vals[a + iy], vals[b + iz] - vals[a + iz]));
+            }
+            steps.sort((p, q) => p - q);
+            const spacing = steps[Math.floor(steps.length / 2)] || 0.01;
+            // 0.15 x spacing, measured by eye on a GAE cloud (2026-09-23): the
+            // viewer's density boost and gsplat's footprint make this just close
+            // the gaps; 0.6 drew blobs ten times too wide.
+            const logScale = Math.log(0.15 * spacing);
+            // Such a cloud is in its first camera's frame (OpenCV: +z forward), so
+            // the view starts there, looking at the middle of what lies in front.
+            const ahead = [];
+            for (let v = 0; v < count; v += stride) { const z = vals[v * P + iz]; if (z > 0) ahead.push(z); }
+            ahead.sort((p, q) => p - q);
+            pointCloudTargetZ = ahead.length ? ahead[Math.floor(ahead.length / 2)] : 2;
+            const colourScale = (i) => (i >= 0 && /char|int8/.test(props[i].type) ? 1 / 255 : 1);
+            const cr = colourScale(ir), cg = colourScale(ig), cb = colourScale(ib);
+
+            const fields = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity',
+                            'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+            const outHeader = 'ply\nformat binary_little_endian 1.0\nelement vertex ' + count + '\n' +
+                fields.map((f) => 'property float ' + f).join('\n') + '\nend_header\n';
+            const headBytes = new TextEncoder().encode(outHeader);
+            const f32 = new Float32Array(count * fields.length);
+            for (let v = 0; v < count; v++) {
+                const o = v * fields.length, s = v * P;
+                const rgb = [ir >= 0 ? vals[s + ir] * cr : 0.7, ig >= 0 ? vals[s + ig] * cg : 0.7, ib >= 0 ? vals[s + ib] * cb : 0.7];
+                f32[o] = vals[s + ix]; f32[o + 1] = vals[s + iy]; f32[o + 2] = vals[s + iz];
+                for (let a = 0; a < 3; a++) f32[o + 3 + a] = (rgb[a] - 0.5) / SH_C0;
+                f32[o + 6] = 6.0;                                    // sigmoid(6) ~ fully opaque
+                f32[o + 7] = f32[o + 8] = f32[o + 9] = logScale;
+                f32[o + 10] = 1; f32[o + 11] = f32[o + 12] = f32[o + 13] = 0;
+            }
+            const out = new Uint8Array(headBytes.length + f32.byteLength);
+            out.set(headBytes);
+            out.set(new Uint8Array(f32.buffer), headBytes.length);
+            return out.buffer;
+        }
+
+        async function loadPLYFromData(arrayBuffer, filename, extrinsics, intrinsics) {
+            try {
+                pointCloudTargetZ = null;
+                arrayBuffer = pointCloudToSplatPly(arrayBuffer);
+                // Clear scene
+                if (scene.objects && scene.objects.length > 0) {
+                    while (scene.objects.length > 0) scene.removeObject(scene.objects[0]);
+                }
+                currentSplat = null;
+                originalScales = null;
+                initialCameraData = null;
+
+                gaussianScaleCompensation = 1.0;
+                if (intrinsics && Array.isArray(intrinsics) && intrinsics.length >= 2) {
+                    const cx = intrinsics[0][2];
+                    const imageWidth = cx * 2;
+                    const containerWidth = canvas.clientWidth || 512;
+                    gaussianScaleCompensation = (imageWidth / containerWidth) * SCALE_DENSITY_BOOST;
+                    nativeImageWidth = imageWidth;
+                    nativeImageHeight = intrinsics[1][2] * 2;
+                    renderer.setSize(nativeImageWidth, nativeImageHeight);
+                    nativeAspect = nativeImageWidth / nativeImageHeight;
+                    updateCanvasDisplaySize();
+                } else {
+                    // No intrinsics: compute focal length from canvas height for ~60° vertical FOV
+                    // fx = fy for square pixels (no distortion)
+                    const ch = canvas.clientHeight || 512;
+                    const f = ch / (2 * Math.tan(Math.PI / 6)); // 60° VFOV
+                    camera.data.fx = f;
+                    camera.data.fy = f;
+                    baseFocalLength = f;
+                    baseFocalY = f;
+                    gaussianScaleCompensation = SCALE_DENSITY_BOOST;
+                    nativeImageWidth = null;
+                    nativeImageHeight = null;
+                }
+
+                const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+                const blobUrl = URL.createObjectURL(blob);
+
+                loadingText.textContent = '正在解析高斯泼溅数据...';
+                await SPLAT.PLYLoader.LoadAsync(blobUrl, scene);
+                URL.revokeObjectURL(blobUrl);
+
+                if (scene.objects && scene.objects.length > 0) {
+                    currentSplat = scene.objects[scene.objects.length - 1];
+
+                    if (currentSplat.data && currentSplat.data.scales) {
+                        const scales = currentSplat.data.scales;
+                        originalScales = new Float32Array(scales.length);
+                        for (let i = 0; i < scales.length; i++) {
+                            originalScales[i] = scales[i] * gaussianScaleCompensation;
+                        }
+                        for (let i = 0; i < scales.length; i++) {
+                            scales[i] = originalScales[i] * currentScale;
+                        }
+                        if (currentSplat.data) currentSplat.data.changed = true;
+                    }
+
+                    if ((extrinsics || intrinsics) && !initialCameraData) {
+                        setCameraFromExtrinsics(extrinsics, intrinsics, currentSplat);
+                    } else if (!initialCameraData) {
+                        camera.position.x = 0;
+                        camera.position.y = 0;
+                        camera.position.z = 0;
+                        // Target along Z axis only so P/Y start at 0°
+                        let tz = 2;
+                        if (pointCloudTargetZ !== null) {
+                            tz = pointCloudTargetZ;
+                        } else if (currentSplat && currentSplat.bounds) {
+                            // A splat generated all round the camera (FlashWorld ring/pan)
+                            // centres near the origin; aim at least 1 m ahead, or the
+                            // start view faces backwards.
+                            tz = Math.max(1, currentSplat.bounds.center().z || 2);
+                        }
+                        const target = new SPLAT.Vector3(0, 0, tz);
+                        controls.setCameraTarget(target);
+                        if (controls.resetRoll) controls.resetRoll();
+                        initialCameraData = {
+                            position: new SPLAT.Vector3(0, 0, 0),
+                            target: target,
+                            fx: camera.data.fx, fy: camera.data.fy
+                        };
+                    }
+                }
+
+                hideLoading();
+                isLoaded = true;
+                notifyParent({ type: 'MESH_LOADED', filename });
+            } catch (err) {
+                showError('加载失败: ' + err.message);
+                notifyParent({ type: 'MESH_ERROR', error: err.message });
+            }
+        }
+
+        function setCameraFromExtrinsics(extrinsics, intrinsics, splat) {
+            if (!camera || !controls) return;
+            let camPosX = 0, camPosY = 0, camPosZ = 0;
+
+            if (extrinsics && Array.isArray(extrinsics) && extrinsics.length === 4) {
+                const R = [
+                    [extrinsics[0][0], extrinsics[0][1], extrinsics[0][2]],
+                    [extrinsics[1][0], extrinsics[1][1], extrinsics[1][2]],
+                    [extrinsics[2][0], extrinsics[2][1], extrinsics[2][2]]
+                ];
+                const t = [extrinsics[0][3], extrinsics[1][3], extrinsics[2][3]];
+                camPosX = -(R[0][0]*t[0] + R[1][0]*t[1] + R[2][0]*t[2]);
+                camPosY = -(R[0][1]*t[0] + R[1][1]*t[1] + R[2][1]*t[2]);
+                camPosZ = -(R[0][2]*t[0] + R[1][2]*t[1] + R[2][2]*t[2]);
+            }
+
+            let targetZ = 2;
+            if (intrinsics && Array.isArray(intrinsics) && intrinsics.length >= 2) {
+                camera.data.fx = intrinsics[0][0];
+                camera.data.fy = intrinsics[1][1];
+                baseFocalLength = camera.data.fx;
+                baseFocalY = camera.data.fy;
+                const cy = intrinsics[1][2];
+                const imageHeight = cy * 2;
+                const fy = intrinsics[1][1];
+                targetZ = Math.max(1, fy / imageHeight * 2);
+            }
+
+            camPosY = -camPosY;
+            let targetX = 0, targetY = 0, orbitZ = targetZ;
+            if (splat && splat.bounds) {
+                const center = splat.bounds.center();
+                const size = splat.bounds.size();
+                targetZ = center.z;
+                const minZ = center.z - size.z / 2;
+                orbitZ = minZ * 1.5;
+            }
+
+            camera.position.x = camPosX;
+            camera.position.y = camPosY;
+            camera.position.z = camPosZ;
+            const targetPos = new SPLAT.Vector3(targetX, targetY, orbitZ);
+            controls.setCameraTarget(targetPos);
+            initialCameraData = {
+                position: new SPLAT.Vector3(camPosX, camPosY, camPosZ),
+                target: targetPos,
+                fx: camera.data.fx, fy: camera.data.fy
+            };
+        }
+
+        function updateCanvasDisplaySize() {
+            const container = document.getElementById('viewerContainer');
+            const rect = container.getBoundingClientRect();
+            const aspect = nativeAspect || ((renderer?.canvas?.width || 1) / (renderer?.canvas?.height || 1));
+            if (!aspect || rect.width <= 0 || rect.height <= 0) return;
+
+            let dw = rect.width, dh = rect.width / aspect;
+            if (dh > rect.height) { dh = rect.height; dw = rect.height * aspect; }
+            canvas.style.width = dw + 'px';
+            canvas.style.height = dh + 'px';
+        }
+
+        let scaleUpdatePending = false;
+
+        function updateGaussianScale(scale) {
+            scale = Math.max(0.01, Math.min(100, parseFloat(scale) || 1.0));
+            currentScale = scale;
+            if (!currentSplat || !currentSplat.data || !currentSplat.data.scales) return;
+            const scales = currentSplat.data.scales;
+            if (originalScales) {
+                for (let i = 0; i < scales.length; i++) scales[i] = originalScales[i] * scale;
+            } else {
+                for (let i = 0; i < scales.length; i++) scales[i] *= scale;
+            }
+            currentSplat.data.changed = true;
+
+            if (scene && scene.removeObject && scene.addObject && !scaleUpdatePending) {
+                scaleUpdatePending = true;
+                const splatRef = currentSplat;
+                setTimeout(() => {
+                    scaleUpdatePending = false;
+                    if (splatRef === currentSplat) {
+                        scene.removeObject(splatRef);
+                        scene.addObject(splatRef);
+                    }
+                }, 150);
+            }
+        }
+
+        function updateCameraInfo() {
+            const fmt = v => { const s = v.toFixed(2); return s === '-0.00' ? '0.00' : s; };
+
+            if (!camera || !controls) {
+                cameraInfoEl.innerHTML =
+                    `<div><span style="color:#555">Pos</span> 0.00, 0.00, 0.00</div>` +
+                    `<div><span style="color:#555">Rot</span> P:0.00° Y:0.00° R:0.00°</div>`;
+                return;
+            }
+
+            const pos = camera.position || { x: 0, y: 0, z: 0 };
+            const toDeg = (rad) => fmt(rad * 180 / Math.PI);
+
+            let pitch = 0, yaw = 0, roll = 0;
+            if (controls.currentAlpha !== undefined) {
+                pitch = -controls.currentBeta;
+                yaw = -controls.currentAlpha;
+                roll = controls.currentRoll;
+            }
+
+            cameraInfoEl.innerHTML =
+                `<div><span style="color:#555">Pos</span> ${fmt(pos.x)}, ${fmt(pos.y)}, ${fmt(pos.z)}</div>` +
+                `<div><span style="color:#555">Rot</span> P:${toDeg(pitch)}° Y:${toDeg(yaw)}° R:${toDeg(roll)}°</div>`;
+        }
+
+        function getCanvasWithBlackBg() {
+            const src = renderer.canvas;
+            const tmp = document.createElement('canvas');
+            tmp.width = src.width; tmp.height = src.height;
+            const ctx = tmp.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, tmp.width, tmp.height);
+            ctx.drawImage(src, 0, 0);
+            return tmp;
+        }
+
+        async function captureScreenshot() {
+            if (!renderer || !isLoaded) return null;
+            if (animationId) cancelAnimationFrame(animationId);
+            controls.update();
+            renderer.render(scene, camera);
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+            renderer.render(scene, camera);
+
+            const finalCanvas = getCanvasWithBlackBg();
+            const dataUrl = finalCanvas.toDataURL('image/png');
+
+            startRenderLoop();
+            return dataUrl;
+        }
+
+        // Render on demand. The viewer sits on the studio canvas as a node; drawing
+        // the splats every frame while nothing moved kept the GPU busy for as long as
+        // the page was open, competing with the canvas and ComfyUI (2026-09-23).
+        // Keep drawing while the camera, focal length, canvas size or scene changes,
+        // and for a short tail after any input so the async depth sort settles.
+        function wakeRender() {
+            renderUntil = performance.now() + RENDER_TAIL_MS;
+            if (!animationId && renderer) startRenderLoop();
+        }
+        function viewSignature() {
+            const p = camera.position || {}, r = camera.rotation || {}, c = renderer.canvas || {};
+            // Rounded: orbit damping approaches its target forever in ever smaller steps.
+            const q = (v) => (typeof v === 'number' ? v.toFixed(4) : v);
+            return [p.x, p.y, p.z, r.x, r.y, r.z, r.w, camera.data?.fx, camera.data?.fy,
+                c.width, c.height, scene?.objects?.length, isLoaded].map(q).join(',');
+        }
+        function startRenderLoop() {
+            if (animationId) cancelAnimationFrame(animationId);
+            renderUntil = performance.now() + RENDER_TAIL_MS;
+            const frame = () => {
+                controls.update();
+                const signature = viewSignature();
+                if (signature !== lastSignature) {
+                    lastSignature = signature;
+                    renderUntil = performance.now() + RENDER_TAIL_MS;
+                }
+                updateCameraInfo();
+                renderer.render(scene, camera);
+                if (performance.now() < renderUntil) {
+                    animationId = requestAnimationFrame(frame);
+                } else {
+                    animationId = null;
+                    // Idle: look for changes made outside input events (a load
+                    // finishing, a slider, a postMessage) at a low rate.
+                    idlePoll();
+                }
+            };
+            if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+            frame();
+        }
+        function idlePoll() {
+            idleTimer = setTimeout(() => {
+                idleTimer = null;
+                if (animationId) return;
+                controls.update();
+                if (viewSignature() !== lastSignature) wakeRender(); else idlePoll();
+            }, 250);
+        }
+
+        function notifyParent(data) {
+            try { window.parent.postMessage(data, '*'); } catch(e) {}
+        }
+
+        function getCameraState() {
+            if (!camera || !controls) return null;
+            const target = controls.getCameraTarget ? controls.getCameraTarget() : null;
+            return {
+                position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+                target: target ? { x: target.x, y: target.y, z: target.z } : null,
+                fx: camera.data?.fx || null,
+                fy: camera.data?.fy || null,
+                image_width: nativeImageWidth || canvas.width || null,
+                image_height: nativeImageHeight || canvas.height || null,
+                scale: currentScale
+            };
+        }
+
+        // ── postMessage API ──────────────────────────────────────────────────
+        window.addEventListener('message', async (e) => {
+            const msg = e.data;
+            if (!msg || !msg.type) return;
+
+            if (msg.type === 'LOAD_PLY_URL') {
+                await loadPlyFromUrl(msg.url);
+            } else if (msg.type === 'LOAD_PLY_DATA') {
+                const buf = msg.data; // ArrayBuffer
+                await loadPLYFromData(buf, msg.filename || 'scene.ply', msg.extrinsics || null, msg.intrinsics || null);
+            } else if (msg.type === 'CAPTURE') {
+                const dataUrl = await captureScreenshot();
+                notifyParent({ type: 'CAPTURE_RESULT', image: dataUrl, request_id: msg.request_id });
+            } else if (msg.type === 'RESET_CAMERA') {
+                if (camera && controls) {
+                    if (initialCameraData) {
+                        camera.position.x = initialCameraData.position.x;
+                        camera.position.y = initialCameraData.position.y;
+                        camera.position.z = initialCameraData.position.z;
+                        if (initialCameraData.target) controls.setCameraTarget(initialCameraData.target);
+                        camera.data.fx = initialCameraData.fx || DEFAULT_FOCAL_LENGTH;
+                        camera.data.fy = initialCameraData.fy || DEFAULT_FOCAL_LENGTH;
+                    } else {
+                        camera.position.x = 0;
+                        camera.position.y = 0;
+                        camera.position.z = 0;
+                        controls.setCameraTarget(new SPLAT.Vector3(0, 0, 2));
+                        camera.data.fx = baseFocalLength || DEFAULT_FOCAL_LENGTH;
+                        camera.data.fy = baseFocalY || DEFAULT_FOCAL_LENGTH;
+                    }
+                    if (controls.resetRoll) controls.resetRoll();
+                    controls.update();
+                }
+            } else if (msg.type === 'SET_SCALE') {
+                const s = parseFloat(msg.scale) || 1.0;
+                updateGaussianScale(s);
+                scaleRange.value = Math.min(s, 10);
+                scaleNum.value = s;
+            } else if (msg.type === 'GET_CAMERA') {
+                notifyParent({ type: 'CAMERA_STATE', state: getCameraState(), request_id: msg.request_id });
+            }
+        });
+
+        // ── UI Controls ──────────────────────────────────────────────────────
+        document.getElementById('btnReset').addEventListener('click', () => {
+            window.dispatchEvent(new MessageEvent('message', { data: { type: 'RESET_CAMERA' } }));
+        });
+
+        document.getElementById('btnCapture').addEventListener('click', async () => {
+            const btn = document.getElementById('btnCapture');
+            btn.disabled = true;
+            btn.textContent = '截图中...';
+            try {
+                const dataUrl = await captureScreenshot();
+                if (dataUrl) {
+                    notifyParent({ type: 'CAPTURE_RESULT', image: dataUrl });
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '📷 截图输出';
+            }
+        });
+
+        scaleRange.addEventListener('input', () => {
+            const v = parseFloat(scaleRange.value);
+            scaleNum.value = v;
+            updateGaussianScale(v);
+        });
+        scaleNum.addEventListener('change', () => {
+            const v = parseFloat(scaleNum.value) || 1.0;
+            scaleRange.value = Math.min(v, 10);
+            updateGaussianScale(v);
+        });
+
+        // ── Init ─────────────────────────────────────────────────────────────
+        const hideControls = params.get('hide_controls');
+        if (hideControls === 'true' || hideControls === '1') {
+            document.getElementById('controlsBar').style.display = 'none';
+        }
+
+        showLoading('初始化渲染器...');
+        initViewer();
+    </script>
+</body>
+</html>

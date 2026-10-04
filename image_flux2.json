@@ -1,0 +1,359 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "Flux2",
+      "images": [
+        "68:8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "儲存圖片"
+    }
+  },
+  "45": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "46",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "將影像縮放至總像素數"
+    }
+  },
+  "46": {
+    "inputs": {
+      "image": "ChatGPT Image 2026年4月21日 09_37_54.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "120": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "121",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "將影像縮放至總像素數"
+    }
+  },
+  "121": {
+    "inputs": {
+      "image": "Gemini_Generated_Image_rnma54rnma54rnma.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "68:48": {
+    "inputs": {
+      "steps": [
+        "68:93",
+        0
+      ],
+      "width": [
+        "68:72",
+        0
+      ],
+      "height": [
+        "68:72",
+        1
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2Scheduler"
+    }
+  },
+  "68:22": {
+    "inputs": {
+      "model": [
+        "68:92",
+        0
+      ],
+      "conditioning": [
+        "68:43",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "基礎引導器"
+    }
+  },
+  "68:16": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K採樣器選擇"
+    }
+  },
+  "68:10": {
+    "inputs": {
+      "vae_name": "full_encoder_small_decoder.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "載入 VAE"
+    }
+  },
+  "68:13": {
+    "inputs": {
+      "noise": [
+        "68:25",
+        0
+      ],
+      "guider": [
+        "68:22",
+        0
+      ],
+      "sampler": [
+        "68:16",
+        0
+      ],
+      "sigmas": [
+        "68:48",
+        0
+      ],
+      "latent_image": [
+        "68:47",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "68:6": {
+    "inputs": {
+      "text": "参考图2",
+      "clip": [
+        "68:38",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "68:38": {
+    "inputs": {
+      "clip_name": "mistral_3_small_flux2_bf16.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "載入 CLIP"
+    }
+  },
+  "68:25": {
+    "inputs": {
+      "noise_seed": 590666696276533
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "隨機雜訊"
+    }
+  },
+  "68:8": {
+    "inputs": {
+      "samples": [
+        "68:13",
+        0
+      ],
+      "vae": [
+        "68:10",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE 解碼"
+    }
+  },
+  "68:26": {
+    "inputs": {
+      "guidance": 4,
+      "conditioning": [
+        "68:6",
+        0
+      ]
+    },
+    "class_type": "FluxGuidance",
+    "_meta": {
+      "title": "FluxGuidance"
+    }
+  },
+  "68:89": {
+    "inputs": {
+      "lora_name": "Flux_2-Turbo-LoRA_comfyui.safetensors",
+      "strength_model": 1,
+      "model": [
+        "68:12",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "68:12": {
+    "inputs": {
+      "unet_name": "flux2_dev_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "載入擴散模型"
+    }
+  },
+  "68:92": {
+    "inputs": {
+      "switch": [
+        "68:94",
+        0
+      ],
+      "on_false": [
+        "68:12",
+        0
+      ],
+      "on_true": [
+        "68:89",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch(model)"
+    }
+  },
+  "68:90": {
+    "inputs": {
+      "value": 8
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "68:91": {
+    "inputs": {
+      "value": 20
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "68:93": {
+    "inputs": {
+      "switch": [
+        "68:94",
+        0
+      ],
+      "on_false": [
+        "68:91",
+        0
+      ],
+      "on_true": [
+        "68:90",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch(steps)"
+    }
+  },
+  "68:47": {
+    "inputs": {
+      "width": [
+        "68:72",
+        0
+      ],
+      "height": [
+        "68:72",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空白 Flux 轉 Latent"
+    }
+  },
+  "68:72": {
+    "inputs": {
+      "image": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "取得圖片尺寸"
+    }
+  },
+  "68:44": {
+    "inputs": {
+      "pixels": [
+        "45",
+        0
+      ],
+      "vae": [
+        "68:10",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE 編碼"
+    }
+  },
+  "68:43": {
+    "inputs": {
+      "conditioning": [
+        "68:26",
+        0
+      ],
+      "latent": [
+        "68:44",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "參考潛在空間"
+    }
+  },
+  "68:94": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Enable 8 steps lora"
+    }
+  }
+}

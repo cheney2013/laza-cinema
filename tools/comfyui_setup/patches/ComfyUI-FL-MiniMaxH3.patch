@@ -1,0 +1,45 @@
+diff --git a/nodes/FL_MiniMaxH3TemporalReshot.py b/nodes/FL_MiniMaxH3TemporalReshot.py
+index 39f86fd..bcf72f7 100644
+--- a/nodes/FL_MiniMaxH3TemporalReshot.py
++++ b/nodes/FL_MiniMaxH3TemporalReshot.py
+@@ -335,6 +335,20 @@ def _working_audio_latent(audio_vae, audio, render_frames, expected):
+         audio_vae,
+         {"waveform": waveform, "sample_rate": sample_rate},
+     )
++    # The audio VAE's frame count is rounded differently from the video grid, so
++    # the encoded source can come out one or two audio frames short or long of the
++    # latent the render expects (seen 291 vs 292). Pad with the last frame or trim
++    # rather than failing the job; a larger mismatch is still an error.
++    # (local patch 2026-09-22)
++    if (encoded.shape != expected.shape and encoded.ndim == expected.ndim
++            and encoded.shape[:-1] == expected.shape[:-1]
++            and abs(encoded.shape[-1] - expected.shape[-1]) <= 2):
++        want = expected.shape[-1]
++        if encoded.shape[-1] < want:
++            tail = encoded[..., -1:].expand(*encoded.shape[:-1], want - encoded.shape[-1])
++            encoded = torch.cat((encoded, tail), dim=-1)
++        else:
++            encoded = encoded[..., :want]
+     if encoded.shape != expected.shape:
+         raise ValueError(
+             f"{_OWNER}: source audio encoded to {tuple(encoded.shape)}, expected {tuple(expected.shape)}."
+@@ -714,6 +728,19 @@ class FL_MiniMaxH3TemporalReshotAssembler(io.ComfyNode):
+             )
+         generated = decoded[offset:offset + count]
+ 
++        # Local patch (ai-cinima, 2026-09-11): the sampler leaves ~40 GB of model
++        # weights staged in host RAM (Dynamic VRAM / aimdo), which starves this
++        # decode. Drop them before materialising the source; the next job reloads
++        # them (~30 s). Without this a 340-frame 1376x768 source fails with
++        # "needs about 8.0 GB of free system memory".
++        try:
++            import gc
++            import comfy.model_management as _mm
++            _mm.unload_all_models()
++            _mm.soft_empty_cache()
++            gc.collect()
++        except Exception as _exc:  # never let the cleanup itself fail the job
++            print(f"[FL TemporalReshot] pre-decode unload skipped: {_exc}")
+         _check_source_decode_memory(source)
+         source_input = InputImpl.VideoFromFile(str(path))
+         components = source_input.get_components()

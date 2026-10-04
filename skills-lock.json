@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "bfl-api": {
+      "source": "black-forest-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/bfl-api/SKILL.md",
+      "computedHash": "7ee1e3a9079da3987a05d1cdaad3119b9b8f81da8ccfd75121cd9e20d1286a55"
+    },
+    "flux-best-practices": {
+      "source": "black-forest-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/flux-best-practices/SKILL.md",
+      "computedHash": "8c2ce7efa9f7773b2b7a9542508ff7c7d7848bff4863b1ffb080f2cf63a126dc"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "516bd2154eb843a8240e43d5b285229129853114ad7075a5e141e1c08e408c84"
+    }
+  }
+}

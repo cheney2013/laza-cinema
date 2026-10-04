@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="antiBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="visorGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with Cosmic Aura -->
+  <rect width="128" height="128" rx="36" fill="url(#antiBg)"/>
+  <rect x="2" y="2" width="124" height="124" rx="34" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+
+  <!-- Celestial Orbit Ring -->
+  <ellipse cx="64" cy="62" rx="44" ry="16" fill="none" stroke="#a5f3fc" stroke-width="2" stroke-dasharray="8 5" opacity="0.6" transform="rotate(-15 64 62)"/>
+
+  <!-- Chibi Floating Helmet -->
+  <g transform="translate(64,58)">
+    <!-- Oxygen Backpack Hint -->
+    <rect x="-30" y="-18" width="60" height="42" rx="10" fill="#cbd5e1"/>
+    
+    <!-- Helmet White Shell -->
+    <circle r="26" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2"/>
+    
+    <!-- Dark Reflective Cosmic Visor -->
+    <ellipse cx="0" cy="2" rx="19" ry="15" fill="url(#visorGlow)"/>
+    <!-- Visor Reflection Curve -->
+    <path d="M-12 -6 A15 11 0 0 1 8 -6" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Friendly Glowing Cyan Eyes inside Visor -->
+    <circle cx="-6" cy="3" r="2.5" fill="#38bdf8"/>
+    <circle cx="6" cy="3" r="2.5" fill="#38bdf8"/>
+    <path d="M-3 8 Q0 10 3 8" stroke="#38bdf8" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+
+    <!-- Antigravity Propulsor Sparks -->
+    <circle cx="-16" cy="28" r="3" fill="#67e8f9" opacity="0.8"/>
+    <circle cx="16" cy="28" r="3" fill="#67e8f9" opacity="0.8"/>
+    <circle cx="0" cy="32" r="2" fill="#38bdf8" opacity="0.9"/>
+  </g>
+</svg>

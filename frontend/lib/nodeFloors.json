@@ -1,0 +1,194 @@
+{
+ "_comment": "Single source for node size floors. Read by frontend/lib/nodeSizing.ts + types.ts and by backend/node_sizing.py (enforced on every canvas save). See docs/node-sizing.md.",
+ "chromeFloorDefault": {
+  "minW": 220,
+  "chromeH": 106
+ },
+ "chromeFloorByType": {
+  "video": {
+   "minW": 220,
+   "chromeH": 106
+  },
+  "videoEdit": {
+   "minW": 220,
+   "chromeH": 106
+  },
+  "characterSheet": {
+   "minW": 300,
+   "chromeH": 106
+  },
+  "qwenImage": {
+   "minW": 280,
+   "chromeH": 106
+  },
+  "videoReshot": {
+   "minW": 360,
+   "chromeH": 106
+  },
+  "videoBridge": {
+   "minW": 360,
+   "chromeH": 106
+  },
+  "videoContinue": {
+   "minW": 300,
+   "chromeH": 106
+  },
+  "videoFrames": {
+   "minW": 300,
+   "chromeH": 106
+  },
+  "inpaint": {
+   "minW": 200,
+   "chromeH": 96
+  },
+  "videoUpscale": {
+   "minW": 200,
+   "chromeH": 90
+  },
+  "videoInterpolate": {
+   "minW": 200,
+   "chromeH": 90
+  },
+  "videoTrim": {
+   "minW": 240,
+   "chromeH": 140
+  },
+  "audioGen": {
+   "minW": 260,
+   "chromeH": 32
+  },
+  "videoCompare": {
+   "minW": 240,
+   "chromeH": 90
+  },
+  "image": {
+   "minW": 220,
+   "chromeH": 32
+  },
+  "preview": {
+   "minW": 140,
+   "chromeH": 32
+  },
+  "chainPreview": {
+   "minW": 240,
+   "chromeH": 32
+  },
+  "pose": {
+   "minW": 160,
+   "chromeH": 56
+  },
+  "gaussian": {
+   "minW": 200,
+   "chromeH": 72
+  },
+  "gaussianViewer": {
+   "minW": 220,
+   "chromeH": 72
+  },
+  "prompt": {
+   "minW": 200,
+   "chromeH": 64
+  }
+ },
+ "defaultDims": {
+  "prompt": {
+   "width": 320,
+   "height": 180
+  },
+  "video": {
+   "width": 320,
+   "height": 340
+  },
+  "videoEdit": {
+   "width": 340,
+   "height": 380
+  },
+  "videoReshot": {
+   "width": 420,
+   "height": 720
+  },
+  "videoBridge": {
+   "width": 420,
+   "height": 720
+  },
+  "videoContinue": {
+   "width": 380,
+   "height": 560
+  },
+  "videoFrames": {
+   "width": 380,
+   "height": 520
+  },
+  "charswap": {
+   "width": 340,
+   "height": 380
+  },
+  "videoReangle": {
+   "width": 340,
+   "height": 420
+  },
+  "wardrobeSwap": {
+   "width": 300,
+   "height": 340
+  },
+  "characterSheet": {
+   "width": 360,
+   "height": 760
+  },
+  "inpaint": {
+   "width": 280,
+   "height": 280
+  },
+  "videoUpscale": {
+   "width": 280,
+   "height": 280
+  },
+  "videoCompare": {
+   "width": 340,
+   "height": 280
+  },
+  "videoInterpolate": {
+   "width": 280,
+   "height": 280
+  },
+  "videoTrim": {
+   "width": 320,
+   "height": 340
+  },
+  "audioGen": {
+   "width": 320,
+   "height": 420
+  },
+  "gaussian": {
+   "width": 320,
+   "height": 320
+  },
+  "gaussianViewer": {
+   "width": 360,
+   "height": 300
+  },
+  "pose": {
+   "width": 280,
+   "height": 280
+  },
+  "qwenImage": {
+   "width": 340,
+   "height": 620
+  },
+  "image": {
+   "width": 240,
+   "height": 240
+  },
+  "preview": {
+   "width": 240,
+   "height": 240
+  },
+  "chainPreview": {
+   "width": 360,
+   "height": 260
+  }
+ },
+ "mediaMinH": 64,
+ "audioContentH": 64,
+ "fallbackRatio": 1.7777777777777777
+}

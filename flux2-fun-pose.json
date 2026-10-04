@@ -1,0 +1,356 @@
+{
+  "6": {
+    "inputs": {
+      "text": "Keep the exact spatial arrangement, change pose",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "13",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE 解碼"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "Flux2",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "儲存圖片"
+    }
+  },
+  "10": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "載入 VAE"
+    }
+  },
+  "12": {
+    "inputs": {
+      "unet_name": "flux2_dev_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "載入擴散模型"
+    }
+  },
+  "13": {
+    "inputs": {
+      "noise": [
+        "25",
+        0
+      ],
+      "guider": [
+        "22",
+        0
+      ],
+      "sampler": [
+        "16",
+        0
+      ],
+      "sigmas": [
+        "48",
+        0
+      ],
+      "latent_image": [
+        "47",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "16": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K採樣器選擇"
+    }
+  },
+  "22": {
+    "inputs": {
+      "model": [
+        "12",
+        0
+      ],
+      "conditioning": [
+        "91",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "基礎引導器"
+    }
+  },
+  "25": {
+    "inputs": {
+      "noise_seed": 43
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "隨機雜訊"
+    }
+  },
+  "38": {
+    "inputs": {
+      "clip_name": "mistral_3_small_flux2_bf16.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "載入 CLIP"
+    }
+  },
+  "47": {
+    "inputs": {
+      "width": [
+        "99",
+        0
+      ],
+      "height": [
+        "99",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "空白 Flux 轉 Latent"
+    }
+  },
+  "48": {
+    "inputs": {
+      "steps": 50,
+      "width": [
+        "99",
+        0
+      ],
+      "height": [
+        "99",
+        1
+      ]
+    },
+    "class_type": "Flux2Scheduler",
+    "_meta": {
+      "title": "Flux2Scheduler"
+    }
+  },
+  "70": {
+    "inputs": {
+      "image": "pose_snapshot_3cbf089d4e50455c8d5307e465b17d18.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "91": {
+    "inputs": {
+      "strength": 0.75,
+      "conditioning": [
+        "98",
+        0
+      ],
+      "controlnet": [
+        "92",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ],
+      "control_image": [
+        "70",
+        0
+      ]
+    },
+    "class_type": "Flux2FunControlNetApply",
+    "_meta": {
+      "title": "Apply Flux2 Fun ControlNet"
+    }
+  },
+  "92": {
+    "inputs": {
+      "controlnet_name": "FLUX.2-dev-Fun-Controlnet-Union.safetensors"
+    },
+    "class_type": "Flux2FunControlNetLoader",
+    "_meta": {
+      "title": "Load Flux2 Fun ControlNet"
+    }
+  },
+  "93": {
+    "inputs": {
+      "pixels": [
+        "95",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE 編碼"
+    }
+  },
+  "94": {
+    "inputs": {
+      "conditioning": [
+        "6",
+        0
+      ],
+      "latent": [
+        "93",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "參考潛在空間"
+    }
+  },
+  "95": {
+    "inputs": {
+      "image": "style_6559c184dd714da9a18f75dd6975617f.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "96": {
+    "inputs": {
+      "image": "pose_snapshot_c9f5937f6ccf41acaff4f670753cb075.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "97": {
+    "inputs": {
+      "pixels": [
+        "96",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE 編碼"
+    }
+  },
+  "98": {
+    "inputs": {
+      "conditioning": [
+        "94",
+        0
+      ],
+      "latent": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "參考潛在空間"
+    }
+  },
+  "99": {
+    "inputs": {
+      "image": [
+        "70",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "取得圖片尺寸"
+    }
+  },
+  "100": {
+    "inputs": {
+      "rgthree_comparer": {
+        "images": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_otoev_00001_.png&type=temp&subfolder=&rand=0.5735089514143017"
+          },
+          {
+            "name": "B",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_otoev_00002_.png&type=temp&subfolder=&rand=0.11105853582621128"
+          }
+        ]
+      },
+      "image_a": [
+        "101",
+        0
+      ],
+      "image_b": [
+        "95",
+        0
+      ]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": {
+      "title": "Image Comparer (rgthree)"
+    }
+  },
+  "101": {
+    "inputs": {
+      "method": "adain",
+      "image_output": "Preview",
+      "save_prefix": "ComfyUI",
+      "image_ref": [
+        "95",
+        0
+      ],
+      "image_target": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "easy imageColorMatch",
+    "_meta": {
+      "title": "Image Color Match"
+    }
+  }
+}

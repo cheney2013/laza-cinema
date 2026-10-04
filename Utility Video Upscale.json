@@ -1,0 +1,376 @@
+{
+  "719": {
+    "inputs": {
+      "file": "WanVideo_SCAIL_00028-audio.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "載入影片"
+    }
+  },
+  "720": {
+    "inputs": {
+      "batch_index": 0,
+      "length": 121,
+      "image": [
+        "724",
+        0
+      ]
+    },
+    "class_type": "ImageFromBatch",
+    "_meta": {
+      "title": "從批次擷取影像"
+    }
+  },
+  "721": {
+    "inputs": {
+      "fps": [
+        "724",
+        2
+      ],
+      "images": [
+        "722",
+        0
+      ],
+      "audio": [
+        "724",
+        1
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "建立影片"
+    }
+  },
+  "722": {
+    "inputs": {
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white",
+      "image1": [
+        "720",
+        0
+      ],
+      "image2": [
+        "728:698",
+        0
+      ]
+    },
+    "class_type": "ImageStitch",
+    "_meta": {
+      "title": "影像拼接"
+    }
+  },
+  "723": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video-preview": "",
+      "video": [
+        "721",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "儲存影片"
+    }
+  },
+  "724": {
+    "inputs": {
+      "video": [
+        "719",
+        0
+      ]
+    },
+    "class_type": "GetVideoComponents",
+    "_meta": {
+      "title": "取得影片元件"
+    }
+  },
+  "725": {
+    "inputs": {
+      "fps": [
+        "724",
+        2
+      ],
+      "images": [
+        "728:698",
+        0
+      ],
+      "audio": [
+        "724",
+        1
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "建立影片"
+    }
+  },
+  "726": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "mp4",
+      "codec": "h264",
+      "video-preview": "",
+      "video": [
+        "725",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "儲存影片"
+    }
+  },
+  "728:700": {
+    "inputs": {
+      "backend": "inductor",
+      "fullgraph": false,
+      "mode": "default",
+      "dynamic": false,
+      "dynamo_cache_size_limit": 64,
+      "compile_transformer_blocks_only": true,
+      "dynamo_recompile_limit": 128,
+      "force_parameter_static_shapes": false,
+      "allow_unmerged_lora_compile": false
+    },
+    "class_type": "WanVideoTorchCompileSettings",
+    "_meta": {
+      "title": "Torch CompSettings"
+    }
+  },
+  "728:708": {
+    "inputs": {
+      "value": 896
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "728:709": {
+    "inputs": {
+      "value": 1664
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Heigth"
+    }
+  },
+  "728:706": {
+    "inputs": {
+      "width": [
+        "728:708",
+        0
+      ],
+      "height": [
+        "728:709",
+        0
+      ],
+      "interpolation": "lanczos",
+      "method": "fill / crop",
+      "condition": "always",
+      "multiple_of": 8,
+      "image": [
+        "720",
+        0
+      ]
+    },
+    "class_type": "ImageResize+",
+    "_meta": {
+      "title": "🔧 Image Resize"
+    }
+  },
+  "728:696": {
+    "inputs": {
+      "steps": 30,
+      "cfg": 1.0000000000000002,
+      "shift": 5,
+      "seed": 504913196843573,
+      "force_offload": false,
+      "scheduler": "euler",
+      "riflex_freq_index": 0,
+      "denoise_strength": 0.25,
+      "batched_cfg": false,
+      "rope_function": "comfy",
+      "start_step": 0,
+      "end_step": -1,
+      "add_noise_to_samples": true,
+      "model": [
+        "728:702",
+        0
+      ],
+      "image_embeds": [
+        "728:695",
+        0
+      ],
+      "text_embeds": [
+        "728:704",
+        0
+      ],
+      "samples": [
+        "728:699",
+        0
+      ]
+    },
+    "class_type": "WanVideoSampler",
+    "_meta": {
+      "title": "WanVideo Sampler"
+    }
+  },
+  "728:698": {
+    "inputs": {
+      "enable_vae_tiling": true,
+      "tile_x": 512,
+      "tile_y": 512,
+      "tile_stride_x": 256,
+      "tile_stride_y": 256,
+      "normalization": "default",
+      "vae": [
+        "728:701",
+        0
+      ],
+      "samples": [
+        "728:696",
+        1
+      ]
+    },
+    "class_type": "WanVideoDecode",
+    "_meta": {
+      "title": "WanVideo Decode"
+    }
+  },
+  "728:701": {
+    "inputs": {
+      "model_name": "wan_2.1_vae.safetensors",
+      "precision": "bf16",
+      "use_cpu_cache": false,
+      "verbose": false
+    },
+    "class_type": "WanVideoVAELoader",
+    "_meta": {
+      "title": "WanVideo VAE Loader"
+    }
+  },
+  "728:702": {
+    "inputs": {
+      "model": [
+        "728:703",
+        0
+      ],
+      "lora": [
+        "728:705",
+        0
+      ]
+    },
+    "class_type": "WanVideoSetLoRAs",
+    "_meta": {
+      "title": "WanVideo Set LoRAs"
+    }
+  },
+  "728:697": {
+    "inputs": {
+      "image": [
+        "728:706",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "取得圖片尺寸"
+    }
+  },
+  "728:695": {
+    "inputs": {
+      "width": [
+        "728:697",
+        0
+      ],
+      "height": [
+        "728:697",
+        1
+      ],
+      "num_frames": [
+        "728:697",
+        2
+      ]
+    },
+    "class_type": "WanVideoEmptyEmbeds",
+    "_meta": {
+      "title": "Image Embeds"
+    }
+  },
+  "728:699": {
+    "inputs": {
+      "enable_vae_tiling": true,
+      "tile_x": 512,
+      "tile_y": 512,
+      "tile_stride_x": 256,
+      "tile_stride_y": 256,
+      "noise_aug_strength": 0,
+      "latent_strength": 1,
+      "vae": [
+        "728:701",
+        0
+      ],
+      "image": [
+        "728:706",
+        0
+      ]
+    },
+    "class_type": "WanVideoEncode",
+    "_meta": {
+      "title": "WanVideo Encode"
+    }
+  },
+  "728:705": {
+    "inputs": {
+      "lora": "lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
+      "strength": 0.7,
+      "low_mem_load": false,
+      "merge_loras": false
+    },
+    "class_type": "WanVideoLoraSelect",
+    "_meta": {
+      "title": "Lightning Lora"
+    }
+  },
+  "728:703": {
+    "inputs": {
+      "model": "Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors",
+      "base_precision": "fp16_fast",
+      "quantization": "fp8_e4m3fn_scaled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa",
+      "rms_norm_function": "default",
+      "compile_args": [
+        "728:700",
+        0
+      ]
+    },
+    "class_type": "WanVideoModelLoader",
+    "_meta": {
+      "title": "WanVideo Model Loader"
+    }
+  },
+  "728:704": {
+    "inputs": {
+      "model_name": "umt5_xxl_fp16.safetensors",
+      "precision": "bf16",
+      "positive_prompt": "high resolution, sharp, detailed",
+      "negative_prompt": "",
+      "quantization": "disabled",
+      "use_disk_cache": true,
+      "device": "gpu"
+    },
+    "class_type": "WanVideoTextEncodeCached",
+    "_meta": {
+      "title": "WanVideo TextEncode Cached"
+    }
+  }
+}

@@ -1,0 +1,882 @@
+@import "tailwindcss";
+
+:root {
+  --background: #08080a;
+  --foreground: #ededed;
+  --foreground-muted: #8e8e93;
+  
+  /* Category Colors (Higgsfield Luxury Cinema Palette) */
+  --color-prompt: #a855f7;
+  --color-prompt-glow: rgba(168, 85, 247, 0.45);
+  --color-image: #10b981;
+  --color-image-glow: rgba(16, 185, 129, 0.45);
+  --color-video: #06b6d4;
+  --color-video-glow: rgba(6, 182, 212, 0.45);
+  --color-motion: #f59e0b;
+  --color-motion-glow: rgba(245, 158, 11, 0.45);
+  --color-character: #f43f5e;
+  --color-character-glow: rgba(244, 63, 94, 0.45);
+  --color-upscale: #eab308;
+  --color-upscale-glow: rgba(234, 179, 8, 0.45);
+  --color-inpaint: #ec4899;
+  --color-inpaint-glow: rgba(236, 72, 153, 0.45);
+  --color-pose: #6366f1;
+  --color-pose-glow: rgba(99, 102, 241, 0.45);
+  --color-gaussian: #14b8a6;
+  --color-gaussian-glow: rgba(20, 184, 166, 0.45);
+
+  /* Unified Apple Pro / Higgsfield Material System */
+  --mat-ultra-thin: rgba(22, 22, 30, 0.72);
+  --mat-regular: rgba(14, 14, 20, 0.88);
+  --mat-thick: rgba(10, 10, 16, 0.96);
+  
+  /* Specular Rim Lights & Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(255, 255, 255, 0.22);
+  --rim-specular: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --shadow-float: 0 16px 48px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 24px rgba(255, 255, 255, 0.16), 0 16px 44px rgba(0, 0, 0, 0.85);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Glassmorphism Utility Classes ───────────────────────── */
+.glass-panel {
+  background: var(--surface-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-card);
+}
+
+.glass-dock {
+  background: rgba(14, 14, 18, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.glass-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.glass-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ── Custom Scrollbars ───────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Hide Scrollbars Utility ─────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* ── React Flow Canvas Overrides ─────────────────────────── */
+.react-flow__pane { cursor: default !important; }
+.react-flow__node { cursor: default; }
+/* The viewport is NOT promoted with will-change: transform. That was added on
+   2026-09-05 when 19 playing <video> cards made every pan repaint; cards now show
+   poster frames. As one promoted layer the whole canvas needed tile memory far
+   beyond the screen, and with ComfyUI holding the VRAM, blocks of it went
+   undrawn at some zoom levels (2026-09-23, Chrome: removing only this rule filled
+   them in, and pan frames were no slower). */
+/* The edge SVG is NOT given its own compositor layer. Its box is tiny and its lines
+   overflow far past it; promoted (will-change) on a zoomed-out canvas with ~100 edges,
+   that layer is so large that Chrome stops rastering the layers painted after it --
+   the double-click menu opened as an empty box with only its caret and scrollbar.
+   Measured in Chrome on 2026-09-17: removing only this rule fixed the menu every time,
+   restoring it broke it again, and edges stayed whole zoomed in and out. */
+/* Layout + style containment on every card: a card's own reflow (a video
+   loading, an editor growing) stays inside its box instead of invalidating the
+   siblings' layout. `paint` is deliberately not used -- handles hang outside. */
+.react-flow__node { contain: layout style; }
+/* No backdrop-filter inside the canvas. Every blurred element is its own render
+   surface that must re-read and re-blur what is behind it on each pan/zoom frame;
+   TLOU scene 3 (114 nodes) carried 393 of them -- card shells, 263 media icon
+   buttons -- and cards showed up as empty boxes with edges and minimap missing
+   until raster caught up (2026-09-23). The shells are 85-92% opaque over a
+   near-black dot grid, so the blur was not visible anyway. Floating panels
+   outside the viewport keep their glass. */
+/* Unprefixed only: with both, the minifier keeps just the -webkit- one, which Chrome ignores. */
+.react-flow__viewport * { backdrop-filter: none !important; }
+
+.react-flow__handle {
+  cursor: crosshair !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease !important;
+}
+
+.react-flow__handle:hover {
+  border-color: rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.8) !important;
+}
+
+/* Remove default React Flow node selection ring — we apply our own custom neon glow */
+.react-flow__node.selected > div,
+.react-flow__node.selected > div:first-child { 
+  outline: none !important; 
+  box-shadow: none !important; 
+}
+.react-flow__node.selected { 
+  outline: none !important; 
+}
+
+/* 选中框不圈标题：上边线与上排手柄下移一个标题栏高度（--shell-top-inset 由 NodeShell 实测写入） */
+.node-shell { --shell-top-inset: 0px; }
+.node-shell > .react-flow__resize-control.top,
+.node-shell > .react-flow__resize-control.top.left,
+.node-shell > .react-flow__resize-control.top.right {
+  margin-top: var(--shell-top-inset);
+}
+.node-shell > .react-flow__resize-control.line.left,
+.node-shell > .react-flow__resize-control.line.right {
+  margin-top: var(--shell-top-inset);
+  height: calc(100% - var(--shell-top-inset)) !important;
+}
+
+/* Selected node custom glow — targets the cardBody */
+.react-flow__node.selected > div > div:last-child {
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, 0.85),
+    0 0 24px rgba(255, 255, 255, 0.15),
+    0 12px 36px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Controls */
+.react-flow__controls {
+  background: rgba(18, 18, 24, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  padding: 2px !important;
+}
+.react-flow__controls button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: #888 !important;
+  fill: #888 !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  transition: all 0.15s ease !important;
+}
+.react-flow__controls button:last-child { border-bottom: none !important; }
+.react-flow__controls button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  fill: #fff !important;
+}
+.react-flow__controls button svg { width: 12px; height: 12px; }
+
+/* MiniMap */
+.react-flow__minimap {
+  background: rgba(12, 12, 16, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+/* Edge */
+.react-flow__edge-path { 
+  stroke: rgba(255, 255, 255, 0.22) !important; 
+  stroke-width: 1.8 !important;
+  /* No stroke transition: selecting a node restyles all ~100 edges, and animating
+     that over 0.2 s repainted the whole promoted canvas layer for a dozen frames,
+     which showed as the lines flashing several times (2026-09-15). */
+}
+.react-flow__edge:hover .react-flow__edge-path { 
+  stroke: rgba(255, 255, 255, 0.6) !important; 
+  stroke-width: 2.2 !important; 
+}
+.react-flow__edge.selected .react-flow__edge-path { 
+  stroke: #ffffff !important; 
+  stroke-width: 2.2 !important; 
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
+}
+
+/* Connected Highlight: edges wired into or out from selected node(s) */
+/* ── Selection focus mode ─────────────────────────────────────────────────────
+   Selected node(s): the studio's own selection ring. Wired neighbours: amber
+   ring, full opacity. Everything else recedes so the wiring can be read. */
+.react-flow__edge.edge-highlight-connected .react-flow__edge-path {
+  stroke: rgba(245, 179, 66, 0.95) !important;
+  stroke-width: 2.6 !important;
+  stroke-dasharray: none !important;
+  /* No drop-shadow filter here: the connected edges are exactly the paths that
+     redraw on every drag frame, and an SVG filter re-rasterises each of them per
+     frame (2026-09-05, dragging a selected node stuttered). Width + colour only. */
+}
+.react-flow__edge.edge-dimmed .react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.06) !important;
+  stroke-width: 1.2 !important;
+  filter: none !important;
+}
+/* Focus mode (a node is selected): everything not selected and not wired to the
+   selection recedes. Done with a container class + :not() selectors so the
+   unrelated node objects are never touched (re-classing 49 of them re-rendered
+   every heavy card at once, 2026-09-05). Opacity only: it composites for free. */
+.react-flow.focus-active .react-flow__node:not(.selected):not(.node-highlight-connected) {
+  opacity: 0.28;
+}
+/* Lit nodes win where they overlap receded ones: above every dimmed node, still
+   below the selection (xyflow raises selected nodes by 1000). Same layer, so no
+   extra compositing -- unlike raising edges, see displayEdges. */
+.react-flow.focus-active .react-flow__node.node-highlight-connected { z-index: 999 !important; }
+/* In focus mode the receded edges are scenery: they take no hover, click or
+   delete button, so only the lit wiring answers the pointer. */
+/* Named parts, never `*`: a universal descendant under .focus-active made every
+   select/deselect restyle the whole canvas (54 ms vs 2 ms on TLOU scene 3). The
+   rest of the edge inherits pointer-events. */
+.react-flow.focus-active .react-flow__edge:not(.edge-highlight-connected),
+.react-flow.focus-active .react-flow__edge:not(.edge-highlight-connected) .react-flow__edge-interaction {
+  pointer-events: none !important;
+}
+.react-flow.focus-active .react-flow__edge:not(.edge-highlight-connected) .react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.06) !important;
+  stroke-width: 1.2 !important;
+}
+.react-flow__node.node-dimmed {
+  opacity: 0.28;
+}
+.react-flow__node.node-highlight-connected {
+  opacity: 1;
+}
+
+
+/* Connection line */
+.react-flow__connection-path { 
+  stroke: rgba(255, 255, 255, 0.7) !important; 
+  stroke-width: 2 !important;
+  stroke-dasharray: 5, 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+.temp-connection-line-dash {
+  stroke-dasharray: 6, 4;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from { stroke-dashoffset: 10; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Selection box */
+.react-flow__selection {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Prevent iframe from intercepting mouse events when dragging a connection */
+.react-flow--connecting iframe {
+  pointer-events: none !important;
+}
+
+/* ── Shimmer, Laser & Audio Animations ───────────────────── */
+@keyframes laser-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-laser {
+  animation: laser-sweep 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes soundwave-1 {
+  0%, 100% { height: 20%; }
+  50% { height: 85%; }
+}
+@keyframes soundwave-2 {
+  0%, 100% { height: 60%; }
+  50% { height: 30%; }
+}
+@keyframes soundwave-3 {
+  0%, 100% { height: 40%; }
+  50% { height: 100%; }
+}
+@keyframes soundwave-4 {
+  0%, 100% { height: 80%; }
+  50% { height: 45%; }
+}
+
+.animate-soundwave-1 { animation: soundwave-1 0.8s ease-in-out infinite; }
+.animate-soundwave-2 { animation: soundwave-2 0.7s ease-in-out infinite 0.1s; }
+.animate-soundwave-3 { animation: soundwave-3 0.9s ease-in-out infinite 0.2s; }
+.animate-soundwave-4 { animation: soundwave-4 0.6s ease-in-out infinite 0.15s; }
+
+/* Filmstrip Sprocket / Perforation */
+.film-sprockets {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.15) 35%, transparent 36%);
+  background-size: 14px 14px;
+  background-repeat: repeat-x;
+}
+
+/* Glass Studio Highlights */
+.cinema-glass-card {
+  background: rgba(14, 14, 20, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.cinema-glass-card-active {
+  background: rgba(18, 18, 26, 0.92);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.16), 0 20px 48px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Glow pill chip */
+.cinema-chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
+}
+.cinema-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.cinema-chip.active {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+}
+
+/* ============================================================
+   节点尺寸骨架 (NodeShell) —— 详见 docs/node-sizing.md
+   ============================================================ */
+
+/* --- 槽位弹性次序 --------------------------------------------------
+   功能区永不压缩 / 媒体区吃掉剩余 / 内容区先被挤走并自己滚动 */
+.node-shell-header,
+.node-shell-actions {
+  flex: 0 0 auto;
+}
+.node-shell-content {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.node-shell-media {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 媒体区不用 aspect-ratio：那会让媒体盒高度变成宽度的硬函数，拖宽时撑破容器。
+   比例的正确性由 onResizeEnd 松手吸附保证，拖拽中最多出现黑边。 */
+.node-shell-media > video,
+.node-shell-media > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* --- 设置面板：标题栏下方的正常排版，打开时撑高节点 -------------------
+   所有节点同一个规则：面板是 data-chrome-row="settings" 的一行，useNodeSizing 按实例
+   实测它的高度计入节点高，打开时节点往下长、画面整体下移，关上时缩回。以前是挂在节点
+   下沿的绝对定位浮层，不占高度，盖住下面的画面和相邻节点（义哥 2026-09-29 要统一撑高）。
+   设置很长时面板自己滚，节点不至于长到一屏放不下。没有媒体时由 NodeShell 临时加高（见其顶部）。
+   不许被 flex 压缩 —— 量到的高度要是它自己的高度，否则加高要好几轮才追上。 */
+.node-shell-drawer {
+  position: static;
+  flex: 0 0 auto;
+  width: 100%;
+  max-height: 640px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 6px;
+  border-radius: 12px;
+  background: #121218;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+/* 有媒体的节点打开设置：画面不显示（NodeShell 同时暂停播放），节点只剩功能区 + 设置 + 内容 */
+.node-shell[data-media-hidden] [data-node-media] {
+  display: none !important;
+}
+.node-shell-drawer::-webkit-scrollbar {
+  width: 6px;
+}
+.node-shell-drawer::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+/* --- 密度：全有或全无 ----------------------------------------------
+   功能区只有两种形态：完整文案，或只留图标。没有折行、没有省略号、没有横向滚动 ——
+   那些都是把问题推给用户。
+
+   哪一种由 NodeShell 实测决定：摘掉 compact 量一次自然宽度，装不下就整排收成图标态。
+   不写死断点 —— 按钮个数与文案随时会改，任何像素常量都注定失真（这正是被换掉的那批
+   `minWidth={280}` 的下场）。
+
+   minW 是按图标态标定的，所以图标态永远放得下，不需要溢出菜单：功能不会消失，只是文字让位。 */
+[data-fit='compact'] [data-chrome='label'],
+[data-fit='compact'] button > span:not(:only-child):not(.node-shell-label-fallback) {
+  display: none;
+}
+/* 文案让位时顶上的短标签：主操作按钮永远有字可读，功能只简化不消失 */
+.node-shell-label-fallback {
+  display: none;
+}
+[data-fit='compact'] .node-shell-label-fallback {
+  display: inline;
+}
+
+/* 标定镜像强制走图标态：镜像是 width:max-content，容器查询会误判成宽容器 */
+.node-chrome-mirror [data-chrome='label'] {
+  display: none !important;
+}
+.node-chrome-mirror .node-shell-label-fallback {
+  display: inline !important;
+}
+
+/* --- 就地标定：测量期强制功能区走图标态并按内容宽度排布 ---------------- */
+.node-chrome-measuring [data-chrome='label'],
+.node-chrome-measuring button > span:not(:only-child):not(.node-shell-label-fallback) {
+  display: none !important;
+}
+.node-chrome-measuring .node-shell-label-fallback {
+  display: inline !important;
+}
+.node-chrome-measuring [data-chrome-row] {
+  width: max-content !important;
+}
+
+/* --- 溢出角标：真的裁了就让人看得见，而不是 overflow:hidden 静默吞掉 --- */
+.node-shell-overflow {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 60;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.node-shell-overflow:hover {
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+}
+
+/* --- 功能按钮永不折行 ------------------------------------------------
+   flex 子项默认可以收缩到 min-content，于是"编辑提示词"被压成两行、
+   "重成"被压成上下两个字。功能区的规则是只简化不变形：宁可整排横向滚动，
+   也不把一个按钮的文案折断。 */
+.node-shell button,
+.node-shell button > span {
+  white-space: nowrap;
+}
+.node-shell button {
+  flex-shrink: 0;
+}
+/* 参与实测降级的按钮排。标题栏（[data-chrome-row]）自动算一排，
+   覆盖层等额外的排显式加 .node-shell-btnrow。 */
+.node-shell-btnrow,
+.node-shell [data-chrome-row] {
+  min-width: 0;
+  overflow: hidden;
+}
+[data-fit='compact'] button {
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+}
+
+/* --- 素材节点的视频控制条 --------------------------------------------
+   控制条是浮在画面上的，不参与 minW 标定，所以窄节点下得自己让位。
+   按容器宽度分两档收起次级控件：先收单帧步进与倍速，再收时间码与回首帧。
+   播放 / 进度 / 循环 / 声音这四件永远在场 —— 它们是"能不能停下来"的最小集合。 */
+.video-asset-player {
+  container-type: inline-size;
+}
+@container (max-width: 268px) {
+  .video-asset-player .vap-hide-sm {
+    display: none;
+  }
+}
+@container (max-width: 208px) {
+  .video-asset-player .vap-hide-xs {
+    display: none;
+  }
+}
+
+/* 最窄状态优先展示素材参数，标题让位。别名已移到画面左上角，不参与标题栏抢位。 */
+[data-fit='compact'] .upload-node-title {
+  flex: 0 1 auto;
+}
+[data-fit='compact'] .upload-node-meta {
+  max-width: calc(100% - 34px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* --- 画中画：原生控件上的按钮也一并藏掉 ------------------------------
+   属性由 <DisablePictureInPicture /> 逐个补上，这里只负责控件条的外观，
+   两者缺一：光有属性 Chrome 仍会画出按钮位，光有样式则右键菜单还在。 */
+video::-webkit-media-controls-picture-in-picture-button,
+video::-internal-media-controls-picture-in-picture-button {
+  display: none !important;
+}
+
+/* Nodes linked to the production bible: a blue frame and a tab above the node. */
+.react-flow__node .node-shell.node-bible {
+  border-radius: 14px;
+  outline: 2px solid rgba(56, 189, 248, 0.9);
+  outline-offset: 3px;
+  box-shadow: 0 0 26px rgba(56, 189, 248, 0.3);
+}
+.node-bible-tab {
+  position: absolute;
+  right: 10px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  transform-origin: bottom right;
+  transform: scale(clamp(1, calc(1 / var(--rf-zoom, 1)), 4));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgb(14, 116, 144);
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  color: #e0f2fe;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* Hovering an amber (wired-to-selection) edge: a soft light travels along it,
+   source to target, over a faint glow of the whole line. The light fades in as
+   it leaves one end and out as it reaches the other, and its halo is longer
+   than its core, so it tapers into the line instead of having hard ends. The
+   paths exist only while that one edge is hovered. */
+.edge-hover-pulse { display: none; }
+.react-flow__edge.edge-highlight-connected .edge-hover-pulse { display: inline; }
+.edge-pulse-bed {
+  stroke: rgba(251, 191, 36, 0.3);
+  stroke-width: 8;
+  stroke-linecap: round;
+  filter: blur(3px);
+  animation: edge-pulse-breathe 2.6s ease-in-out infinite;
+}
+.edge-pulse-halo,
+.edge-pulse-core {
+  stroke-linecap: round;
+  /* Gaps longer than the line (pathLength 100): one light, nothing wraps round. */
+  animation-duration: 2.6s;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.3, 1), linear;
+}
+.edge-pulse-halo {
+  stroke: rgba(253, 224, 71, 0.7);
+  stroke-width: 11;
+  stroke-dasharray: 26 200;
+  filter: blur(6px);
+  animation-name: edge-pulse-travel-halo, edge-pulse-fade;
+}
+.edge-pulse-core {
+  stroke: #fffbeb;
+  stroke-width: 2.2;
+  stroke-dasharray: 10 200;
+  filter: blur(0.6px);
+  animation-name: edge-pulse-travel-core, edge-pulse-fade;
+}
+/* The two dashes share a centre: the halo starts 8 units earlier than the core. */
+@keyframes edge-pulse-travel-core {
+  from { stroke-dashoffset: 5; }
+  to { stroke-dashoffset: -95; }
+}
+@keyframes edge-pulse-travel-halo {
+  from { stroke-dashoffset: 13; }
+  to { stroke-dashoffset: -87; }
+}
+@keyframes edge-pulse-fade {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes edge-pulse-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+
+/* Nodes wired to the selection: the same rounded ring as a bible node, in amber.
+   Declared after the bible ring so a node that is both shows the amber one. */
+.react-flow__node.node-highlight-connected .node-shell {
+  border-radius: 14px;
+  outline: 2px solid rgba(245, 179, 66, 0.9);
+  outline-offset: 3px;
+  box-shadow: 0 0 26px rgba(245, 179, 66, 0.3);
+}
+
+/* An edit panel grown past its node's saved height draws over its neighbours. */
+.react-flow__node:has(.node-shell[data-edit-extended]) {
+  z-index: 1000 !important;
+}
+/* ...but in focus mode a receded one stays under the lit nodes (999). */
+.react-flow.focus-active .react-flow__node:not(.selected):not(.node-highlight-connected):has(.node-shell[data-edit-extended]) {
+  z-index: 998 !important;
+}
+
+/* Node alias tag: above the node's top-left corner, scaled by the inverse of the
+   canvas zoom (--rf-zoom, set by the canvas) so it stays readable in an overview.
+   Capped at 6x; at 100% zoom and closer it is its own size. */
+.node-alias-tag {
+  position: absolute;
+  left: 6px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  z-index: 6;
+  transform-origin: bottom left;
+  transform: scale(clamp(1, calc(1 / var(--rf-zoom, 1)), 6));
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(24, 24, 32, 0.92);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fde68a;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  cursor: text;
+}
+.node-alias-tag--empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(228, 228, 231, 0.7);
+  font-weight: 500;
+}
+
+/* ── Outline mode (zoomed out past LOD_ZOOM in InfiniteCanvas) ─────────────────
+   Zoomed out, the canvas is for selecting, dragging, wiring and panning. A card's
+   inner controls then only get in the way (a click meant for the node lands on a
+   button or an editor), so each card is covered by an opaque plate that takes the
+   pointer as the node itself. It sits at z 30, over the cards' own media bars
+   (z 20); the ports (z 50) and the alias/bible tags (raised to 31) stay above it. A plate, not `visibility: hidden` on the content: hiding is
+   inherited, so crossing the threshold restyled every element inside every card
+   (53 ms on TLOU scene 3); one pseudo-element per card costs ~3 ms. */
+.canvas-lod .node-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border-radius: 18px;
+  /* The card's picture (--lod-thumb, set by NodeShell), so cards can be told apart. */
+  background: var(--lod-thumb, none) center / contain no-repeat, #16161d;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+/* An unset alias shows as a "+ 别名" button on the selected card; zoomed out it is
+   blown up by the inverse zoom and covers the cards above. */
+.canvas-lod .node-alias-tag--empty { display: none; }
+/* The card's own media is covered by the plate, so it is not painted at all:
+   drawing every picture twice (card + plate thumbnail) at overview zoom is what
+   ran the image budget out. Only these elements change -- no deep restyle. */
+.canvas-lod .node-shell-media,
+.canvas-lod .node-shell img,
+.canvas-lod .node-shell video,
+.canvas-lod .node-shell iframe { visibility: hidden; }
+.canvas-lod .node-shell .node-alias-tag,
+.canvas-lod .node-shell .node-bible-tab { z-index: 31 !important; }
+.canvas-lod .react-flow__node.selected .node-shell::after {
+  background: var(--lod-thumb, none) center / contain no-repeat, #1d1d27;
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.9);
+}
+/* Audio strips keep a working play button zoomed out: as tall as the node, over
+   the plate, with the clip's name beside it. Only the button takes the pointer;
+   the rest of the strip selects and drags like any node. The name grows by the
+   inverse zoom, capped so it stays inside the strip's height. */
+.lod-audio { display: none; }
+.canvas-lod .lod-audio {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 0;
+  pointer-events: none;
+}
+.canvas-lod .lod-audio-play {
+  pointer-events: auto;
+  height: 100%;
+  aspect-ratio: 1;
+  flex: none;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(125, 211, 252, 0.28);
+  box-shadow: inset 0 0 0 2px rgba(125, 211, 252, 0.7);
+  cursor: pointer;
+}
+.canvas-lod .lod-audio-play:hover { background: rgba(125, 211, 252, 0.5); }
+.canvas-lod .lod-audio-name {
+  --s: clamp(1, calc(0.35 / var(--rf-zoom, 1)), 2.4);
+  flex: none;
+  width: calc((100% - 110px) / var(--s));
+  transform: scale(var(--s));
+  transform-origin: left center;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #e4e4e7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A card that is generating, zoomed out: one figure (percent, or #place in the
+   queue) as large as the card allows and a bar along its foot, with a coloured
+   frame -- blue running, amber queued. Sized in container units, so it follows
+   the card with no per-frame zoom variable. */
+.lod-gen { display: none; }
+.canvas-lod .gen-overlay { container-type: size; }
+.canvas-lod .gen-overlay > :not(.lod-gen) { display: none; }
+.canvas-lod .gen-overlay.gen-running { box-shadow: inset 0 0 0 4px rgba(56, 189, 248, 0.95) !important; }
+.canvas-lod .gen-overlay.gen-queued { box-shadow: inset 0 0 0 4px rgba(251, 191, 36, 0.95) !important; }
+.canvas-lod .lod-gen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.canvas-lod .lod-gen-figure {
+  font: 700 min(42cqh, 24cqw) / 1 ui-monospace, monospace;
+  color: #fff;
+}
+.canvas-lod .gen-queued .lod-gen-figure { color: #fcd34d; }
+.canvas-lod .lod-gen-bar {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 9%;
+  height: max(6px, 7cqh);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.canvas-lod .lod-gen-bar > div { height: 100%; background: #38bdf8; border-radius: inherit; }
+/* 1.6x, fixed: stacked ports are ~1.7 port-heights apart and must not overlap. Not
+   tied to the zoom -- a zoom variable on ~300 ports cost ~15 ms a frame.
+   Dropping a wire anywhere on a node also connects it (onConnectEnd). */
+.canvas-lod .react-flow__handle { scale: 1.6; }
+/* Edges: no preview cards; the hover delete button stays, drawn at a fixed
+   ~32 px on screen whatever the zoom (transform, since hover:scale uses `scale`). */
+.canvas-lod .edge-offscreen-preview { display: none; }
+.canvas-lod .edge-delete-btn { transform: scale(calc(1.6 / var(--rf-zoom, 1))); }
+/* Zoomed out, lines get wider in canvas units so they stay >= ~1.1 px on screen:
+   a sub-pixel line shimmers while panning (found 2026-09-23 by hiding parts of the
+   canvas one at a time at the zoom where it flickered: the visible edge paths).
+   data-edge-tier is set on the wrapper by InfiniteCanvas (edgeTier) and changes
+   only at tier boundaries. vector-effect: non-scaling-stroke is not used: it
+   repaints the whole edge layer on every zoom frame. */
+[data-edge-tier="1"] .react-flow__edge-path { stroke-width: 3.2px !important; }
+[data-edge-tier="2"] .react-flow__edge-path { stroke-width: 5.5px !important; }
+[data-edge-tier="3"] .react-flow__edge-path { stroke-width: 9px !important; }
+[data-edge-tier="4"] .react-flow__edge-path { stroke-width: 15px !important; }
+/* The invisible hit stroke (30 canvas units) steps up too, staying ~18-30 px on
+   screen so a zoomed-out line can still be hovered and clicked. */
+[data-edge-tier="1"] .react-flow__edge-interaction { stroke-width: 50px; }
+[data-edge-tier="2"] .react-flow__edge-interaction { stroke-width: 90px; }
+[data-edge-tier="3"] .react-flow__edge-interaction { stroke-width: 150px; }
+[data-edge-tier="4"] .react-flow__edge-interaction { stroke-width: 250px; }
+/* Lit edges keep their amber at every tier, hovered or not. */
+[data-edge-tier="1"] .react-flow__edge.edge-highlight-connected .react-flow__edge-path { stroke-width: 4.4px !important; }
+[data-edge-tier="2"] .react-flow__edge.edge-highlight-connected .react-flow__edge-path { stroke-width: 7.5px !important; }
+[data-edge-tier="3"] .react-flow__edge.edge-highlight-connected .react-flow__edge-path { stroke-width: 12px !important; }
+[data-edge-tier="4"] .react-flow__edge.edge-highlight-connected .react-flow__edge-path { stroke-width: 20px !important; }
+/* No hover restyle below 0.6: a restyled line repaints its whole bounding box,
+   and zoomed out these lines span half the canvas -- moving the pointer across
+   them flickered (2026-09-23). The delete button still marks the hovered edge. */
+[data-edge-tier="1"] .react-flow__edge:not(.edge-highlight-connected):hover .react-flow__edge-path { stroke: rgba(255, 255, 255, 0.22) !important; stroke-width: 3.2px !important; }
+[data-edge-tier="2"] .react-flow__edge:not(.edge-highlight-connected):hover .react-flow__edge-path { stroke: rgba(255, 255, 255, 0.22) !important; stroke-width: 5.5px !important; }
+[data-edge-tier="3"] .react-flow__edge:not(.edge-highlight-connected):hover .react-flow__edge-path { stroke: rgba(255, 255, 255, 0.22) !important; stroke-width: 9px !important; }
+[data-edge-tier="4"] .react-flow__edge:not(.edge-highlight-connected):hover .react-flow__edge-path { stroke: rgba(255, 255, 255, 0.22) !important; stroke-width: 15px !important; }
+/* Same reason for the lit edge's hover pulse: it animates along the whole line. */
+[data-edge-tier]:not([data-edge-tier="0"]) .edge-hover-pulse { display: none !important; }
+
+/* Edge hover cards (delete button, off-screen previews) sit above every node. */
+.react-flow__edgelabel-renderer {
+  z-index: 10000;
+}
+
+/* Phones: the creation dock sits on the bottom edge, so the zoom controls and the minimap
+   sit above it instead of under it, and the minimap is a small thumbnail rather than a third of the screen. */
+@media (max-width: 639px) {
+  .react-flow__panel.bottom { margin-bottom: 68px; }
+  .react-flow__minimap { transform: scale(0.62); transform-origin: right bottom; }
+}

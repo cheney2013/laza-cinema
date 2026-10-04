@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-relay"
+version = "0.1.0"
+description = "A local message bus and web console for several coding agents on one machine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    # Pinned below 2.0 deliberately. mcp 2.x renamed FastMCP to MCPServer and
+    # changed the surrounding API; this server is written against v1 and a
+    # fresh install without the pin fails at import. Lifting it means porting
+    # mcp_server.py, not just widening the range.
+    "mcp>=1.2,<2",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "cryptography>=42",
+    "python-multipart>=0.0.9",
+    "psutil>=5.9",
+]
+
+[project.scripts]
+agent-relay-mcp = "agent_relay.mcp_server:main"
+agent-relay-ui = "agent_relay.ui.server:main"
+agent-relay-watch = "agent_relay.watch:main"
+agent-relay-peers = "agent_relay.peer_watch:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_relay"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/agent_relay/ui/index.html" = "agent_relay/ui/index.html"
+"src/agent_relay/ui/qrcode.min.js" = "agent_relay/ui/qrcode.min.js"

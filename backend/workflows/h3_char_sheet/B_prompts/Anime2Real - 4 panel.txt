@@ -1,0 +1,18 @@
+Completely discard the anime face, large stylized eyes, line art, flat cel-shaded colors from the references. Generate a brand-new photorealistic human face and completely natural hair and skin.
+
+[STYLE]
+Fully photorealistic live-action, unretouched studio photograph. Completely natural bare face and body — zero makeup of any kind. Natural lip color, natural eyelashes and eyebrows only. Skin shows real texture. Mild natural film grain. Style never drifts.   
+
+
+[STAGING]
+Solid light grey seamless backdrop, one flat uniform tone edge to edge, with no gradient, no vignette, no texture and no floor line. Nothing else is in frame. the subject casts no shadow onto the backdrop and no contact shadow on the ground beneath it, and it does not sit in its own shadow. Soft form shading on the subject itself is fine and should read its shape. Long telephoto lens, near-orthographic.
+
+The character holds one relaxed A-pose throughout: arms hanging slightly away from the body, palms toward the thighs, feet shoulder-width apart, head level, calm neutral expression, eyes open and looking forward.
+The subject is completely frozen, as rigid and motionless as a statue. Only the camera moves. There is no wind, no breeze, no air movement, no breathing, no settling, no sway, no secondary motion of any kind. Orientation, surfaces and lighting are identical in every shot, and the subject stays the same size in frame.
+
+[0-2 seconds] tight full shot of the subject. The camera makes one smooth fixed-speed orbit to the left around it, sweeping 180 degrees: starting square on the back, passing the left side a third of the way through this move, and ending square on the front at 2 seconds. The subject does not move at all. Ends on the back view at 2 seconds.
+
+[2-3 seconds] Camera whip-pans front and snaps into a fast push-in on the character's upper body. Locked-off head and shoulders close-up, face square to camera, eyes into the lens. Ends on a sharp front-on face at 3 seconds.
+
+[CAMERA] One constant-speed 180-degree orbit in beat 1, then a hard whip-pan back to front and a push-in for beat 2. No zoom, no dolly, no tilt, no roll, no handheld shake, no motion blur, no dissolves beyond the one whip-pan cut.
+[AUDIO] Silence. No music, no room tone, no voices.

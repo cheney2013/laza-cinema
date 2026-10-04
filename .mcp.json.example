@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ai-cinema-canvas": {
+      "type": "http",
+      "url": "${AI_CINEMA_MCP_URL:-http://127.0.0.1:8004/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${AI_CINEMA_MCP_TOKEN}"
+      }
+    }
+  }
+}

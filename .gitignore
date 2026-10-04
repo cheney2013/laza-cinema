@@ -1,0 +1,131 @@
+backend/uploads/
+.venv/
+.venv-mcp/
+.codex_tmp/
+node_modules
+productions
+__pycache__
+backend/workspaces/default
+# Backend runtime logs (rotated daily, 7 days kept)
+backend/logs/
+*.log
+
+# Password hashes and session tokens for the studio login -- never committed.
+backend/workspaces/accounts.json
+backend/workspaces/accounts.json.tmp
+
+scratch
+
+# Local secrets (template lives in .env.example)
+.env
+
+# Python / Node build output
+*.pyc
+.next/
+frontend/.next/
+
+# Runtime data written by the studio and tools
+backend/workspaces/asset_origins.jsonl
+backend/.upscaler_rollback_commit
+
+# Blender autosaves and hand-made backups
+*.blend1
+*.bak
+*.bak_*
+*.plates_bak
+
+# One-off dumps and benchmark output at the repo root
+/history_dump.json
+/last_workflow.json
+/flf_out.txt
+/sage_auto.txt
+/baseline_test_job.txt
+/benchmark_*.json
+/*.zip
+
+# Per-machine agent config
+.gemini/
+
+# >>> content
+# Film content (prompts, previs scenes, sets, plates, reference audio, scene
+# models) is not platform code. It stays on disk and is recorded in
+# backend/workspaces/content_archive.db by tools/content_archive.py
+# (text files by content, media files by path only).
+/backend/previs/*
+!/backend/previs/rig.py
+!/backend/previs/figures.py
+!/backend/previs/make_sheet.py
+!/backend/previs/render_textured_camera.py
+!/backend/previs/render_plate_camera.py
+!/backend/previs/render_camera_move.py
+!/backend/previs/plate_coverage.py
+!/backend/previs/scene_config.py
+!/backend/previs/vendor/
+/backend/uploads/tlou_*
+/models/
+/tools/h3_av_bridge_test.py
+/tools/h3_av_extension_test.py
+/tools/reextract_voice_refs.py
+/tools/shot_inventory.py
+/tools/submit_segment.py
+/tools/audit_scene_plates.py
+/*_prompt.txt
+/tlou_*.txt
+/newprompt*.txt
+/shot1_*
+/p[0-9]*.json
+/ops.json
+# <<< content
+
+# >>> generated media
+# Renders, extracted frames, trimmed clips, normalised audio, built .blend sets
+# and their backups. Ignored by git like the content above, and also left out of
+# content_archive.db: they are regenerated from the recorded text, not recorded.
+*.blend1
+*.bak
+*.bak_*
+*_out/
+/backend/uploads/
+/backend/previs/**/*.blend
+/backend/previs/**/*.png
+/backend/previs/**/*.wav
+/models/**/*.blend
+/models/**/*.png
+/models/**/*.npz
+# <<< generated media
+
+# Debug scratch at the repo root and in frontend/
+/*_job.txt
+/*_out.txt
+/*_pid.txt
+/*_pids.json
+/sweep_out.json
+/renum.txt
+/c.json
+/*.glsl
+/worker_*.js
+/worker_script.js
+/sur.js
+/*.png
+/*.jpg
+/video_minimax_h3_ref2v_*.json
+/frontend/a.json
+/frontend/llm-route-benchmark.json
+backend/workspaces/content_archive.db
+
+# Temporary test / benchmark / probe scripts: not platform code, not content.
+# Neither committed nor recorded in content_archive.db.
+/*.js
+/*.py
+/tools/benchmark_*.py
+/tools/eval_*.py
+/tools/watch_*.py
+/tools/scratch_*.py
+/tools/tmp_*.py
+
+# Local Claude Code settings: may hold tokens (AI_CINEMA_MCP_TOKEN) and per-machine worktrees.
+/.claude/settings.local.json
+/.claude/worktrees/
+
+# Per-machine MCP client config (holds local absolute paths)
+.agents/mcp_config.json

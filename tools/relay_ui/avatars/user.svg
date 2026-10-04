@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="userBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="50%" stop-color="#27272a"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="36" fill="url(#userBg)"/>
+  <rect x="2" y="2" width="124" height="124" rx="34" fill="none" stroke="url(#goldAccent)" stroke-width="2"/>
+
+  <!-- Character / Stylish Operator Crown & Shades -->
+  <g transform="translate(64,62)">
+    <!-- Shoulders / Jacket -->
+    <path d="M-36 44 C-36 24, -20 20, 0 20 C20 20, 36 24, 36 44 Z" fill="#3f3f46"/>
+    <!-- Collar Shirt -->
+    <path d="M-10 20 L0 32 L10 20 Z" fill="#f4f4f5"/>
+    <!-- Gold Tie / Pin -->
+    <polygon points="0,26 4,38 0,44 -4,38" fill="url(#goldAccent)"/>
+
+    <!-- Head -->
+    <circle cy="-2" r="22" fill="#fde047" opacity="0.15"/>
+    <circle cy="-2" r="20" fill="#fcd34d"/>
+
+    <!-- Cool Sunglasses -->
+    <path d="M-14 -6 L-2 -6 L-4 3 L-12 3 Z" fill="#09090b"/>
+    <path d="M2 -6 L14 -6 L12 3 L4 3 Z" fill="#09090b"/>
+    <line x1="-2" y1="-4" x2="2" y2="-4" stroke="#09090b" stroke-width="2.5"/>
+    <!-- Sunglass Glares -->
+    <line x1="-12" y1="-3" x2="-6" y2="1" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="4" y1="-3" x2="10" y2="1" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round"/>
+
+    <!-- Confident Smile -->
+    <path d="M-5 8 Q0 13 5 8" stroke="#78350f" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+    <!-- Operator Headphones / Crown Tag -->
+    <path d="M-18 -18 L-12 -28 L0 -22 L12 -28 L18 -18" fill="none" stroke="url(#goldAccent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="0" cy="-22" r="2" fill="#fbbf24"/>
+  </g>
+</svg>

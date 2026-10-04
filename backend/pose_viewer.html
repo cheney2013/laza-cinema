@@ -1,0 +1,3238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>3D Pose Editor</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #111;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            background: rgba(12, 12, 12, 0.7);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            padding: 4px;
+            border-radius: 11px;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            pointer-events: auto;
+            width: fit-content;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn {
+            background: transparent;
+            border: none;
+            color: #888;
+            padding: 5px 11px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: #ddd;
+        }
+
+        .btn.active {
+            background: rgba(80, 140, 255, 0.18);
+            color: #7ab4ff;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .sep {
+            width: 1px;
+            height: 18px;
+            background: rgba(255, 255, 255, 0.07);
+            flex-shrink: 0;
+        }
+
+        .mode-label {
+            font-size: 9px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.25);
+            letter-spacing: 0.07em;
+            padding: 0 6px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        #status {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.85);
+            background: rgba(12, 12, 12, 0.7);
+            backdrop-filter: blur(14px);
+            padding: 5px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            pointer-events: none;
+            font-weight: 500;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .kshort {
+            opacity: 0.35;
+            font-size: 9px;
+            margin-left: 3px;
+            font-family: monospace;
+            font-weight: 700;
+        }
+
+        svg {
+            flex-shrink: 0;
+        }
+
+        .shape-row {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .shape-lbl {
+            font-size: 9px;
+            color: #888;
+            white-space: nowrap;
+        }
+
+        input[type=range].shape-sl {
+            width: 52px;
+            height: 3px;
+            cursor: pointer;
+            accent-color: #7ab4ff;
+            vertical-align: middle;
+            margin: 0;
+        }
+    </style>
+    <script
+        type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+</head>
+
+<body>
+    <div id="ui-layer">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+
+
+            <!-- Transform mode -->
+            <div class="toolbar" id="toolbar-transform">
+                <button class="btn active" id="btn-translate">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round">
+                        <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M9 19l3 3 3-3M19 9l3 3-3 3M2 12h20M12 2v20" />
+                    </svg>
+                    移动
+                </button>
+                <button class="btn" id="btn-rotate">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round">
+                        <path d="M21 12a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 8" />
+                        <path d="M3 3v5h5" />
+                    </svg>
+                    旋转
+                </button>
+            </div>
+
+            <!-- Undo / Redo -->
+            <div class="toolbar">
+                <button class="btn" id="btn-undo">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round">
+                        <path d="M3 7v6h6" />
+                        <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+                    </svg>
+                    撤销<span class="kshort">Z</span>
+                </button>
+                <button class="btn" id="btn-redo">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round">
+                        <path d="M21 7v6h-6" />
+                        <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
+                    </svg>
+                    重做<span class="kshort">Y</span>
+                </button>
+            </div>
+
+
+
+
+            <!-- Appendages -->
+            <div class="toolbar" id="toolbar-appendages">
+                <span class="mode-label">附加</span>
+                <button class="btn" id="btn-add-hands" title="添加手部关节（21关节×2，可拖拽）">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 11V6a2 2 0 0 0-4 0v5" />
+                        <path d="M14 10V4a2 2 0 0 0-4 0v6" />
+                        <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
+                        <path
+                            d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+                    </svg>
+                    手
+                </button>
+            </div>
+
+            <!-- Body-shape sliders (visible only when mannequin is shown) -->
+            <div class="toolbar" id="toolbar-body-shape" style="display:none;">
+                <span class="mode-label">体型</span>
+                <div class="shape-row">
+                    <span class="shape-lbl">头</span>
+                    <input type="range" class="shape-sl" id="sl-head" min="0.6" max="1.6" step="0.05" value="1.0">
+                </div>
+                <div class="shape-row">
+                    <span class="shape-lbl">胸</span>
+                    <input type="range" class="shape-sl" id="sl-chest" min="0.5" max="1.5" step="0.05" value="1.0">
+                </div>
+                <div class="shape-row">
+                    <span class="shape-lbl">臀</span>
+                    <input type="range" class="shape-sl" id="sl-hip" min="0.5" max="2.0" step="0.05" value="1.0">
+                </div>
+            </div>
+
+        </div>
+        <div id="status" style="display:none;"></div>
+    </div>
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+        // ══════════════════════════════════════════════
+        // OPENPOSE COCO-18 definitions
+        // ══════════════════════════════════════════════
+        const OP_NAMES = [
+            'Nose', 'Neck', 'R.Shoulder', 'R.Elbow', 'R.Wrist',
+            'L.Shoulder', 'L.Elbow', 'L.Wrist',
+            'R.Hip', 'R.Knee', 'R.Ankle',
+            'L.Hip', 'L.Knee', 'L.Ankle',
+            'R.Eye', 'L.Eye', 'R.Ear', 'L.Ear'
+        ];
+        // Joint colors (per keypoint)
+        const OP_JOINT_COLORS = [
+            0xff0000, 0xff5500, 0xffaa00, 0xffff00, 0xaaff00,
+            0x55ff00, 0x00ff00, 0x00ff55, 0x00ffaa, 0x00ffff,
+            0x00aaff, 0x0055ff, 0x0000ff, 0x5500ff, 0xaa00ff,
+            0xff00ff, 0xff00aa, 0xff0055
+        ];
+        // Limb connections [start, end]
+        const OP_LIMBS = [
+            [1, 2], [1, 5], [2, 3], [3, 4], [5, 6], [6, 7],
+            [1, 8], [8, 9], [9, 10], [1, 11], [11, 12], [12, 13],
+            [1, 0], [0, 14], [14, 16], [0, 15], [15, 17]
+        ];
+        // Limb colors (rainbow)
+        const OP_LIMB_COLORS = [
+            0xff0000, 0xff5500, 0xffaa00, 0xffff00, 0xaaff00, 0x55ff00,
+            0x00ff00, 0x00ff55, 0x00ffaa, 0x00ffff, 0x00aaff, 0x0055ff,
+            0x0000ff, 0x5500ff, 0xaa00ff, 0xff00ff, 0xff00aa
+        ];
+
+        // Default T-pose: [x, y, z] in "human" scale, Y-up, person stands at Y=0..1.7
+        const OP_TPOSE = [
+            [0.00, 1.65, 0],  // 0  Nose
+            [0.00, 1.50, 0],  // 1  Neck
+            [-0.19, 1.44, 0],  // 2  R.Shoulder
+            [-0.38, 1.20, 0],  // 3  R.Elbow
+            [-0.54, 0.94, 0],  // 4  R.Wrist
+            [0.19, 1.44, 0],  // 5  L.Shoulder
+            [0.38, 1.20, 0],  // 6  L.Elbow
+            [0.54, 0.94, 0],  // 7  L.Wrist
+            [-0.10, 0.95, 0],  // 8  R.Hip
+            [-0.11, 0.52, 0],  // 9  R.Knee
+            [-0.11, 0.08, 0],  // 10 R.Ankle
+            [0.10, 0.95, 0],  // 11 L.Hip
+            [0.11, 0.52, 0],  // 12 L.Knee
+            [0.11, 0.08, 0],  // 13 L.Ankle
+            [-0.05, 1.70, 0],  // 14 R.Eye
+            [0.05, 1.70, 0],  // 15 L.Eye
+            [-0.09, 1.65, 0],  // 16 R.Ear
+            [0.09, 1.65, 0],  // 17 L.Ear
+        ];
+
+        const JOINT_R_OP = 0.025;  // OpenPose joint sphere radius
+        const BONE_R_OP = 0.012;  // OpenPose bone cylinder radius
+
+        // ══════════════════════════════════════════════
+        // Three.js globals
+        // ══════════════════════════════════════════════
+        let camera, scene, renderer, orbit, tcl;
+        let gridHelper, axesHelper;
+        let bgMesh = null, bgTexture = null;
+        let bgImageWidth = 0, bgImageHeight = 0;
+        let currentLoadId = 0;
+
+        // Active joint/bone state (shared between modes)
+        let jointNodes = [];  // THREE.Mesh spheres – raycasted & attached to TransformControls
+        let boneMeshes = [];  // THREE.Mesh cylinders (bone visuals)
+        let opConnections = [];  // { jointA, jointB, boneMesh } for OpenPose bone update
+        let opPersonGroups = [];  // Array of { group, joints[] } for OpenPose multi-person
+
+        let draggedJoint = null;
+        let _lastDraggedIdx = -1;
+        // Spread ratios recorded from the actual loaded skeleton (used as constraint targets
+        // instead of hard-coded T-pose values, so the initial state is always valid).
+        let _initHipSpreadRatio = 0.364;   // T-pose fallback
+        let _initShoulderSpreadRatio = 0.691;   // T-pose fallback
+        let undoStack = [], redoStack = [];
+
+        let currentMode = 'openpose'; // 'openpose' | 'wholebody'
+
+        // OpenPose appendage state (hands + feet added on top of body skeleton)
+        let opAppendages = { leftHand: [], rightHand: [] };
+        let opFeetMeshes = { left: null, right: null };  // THREE.Group – full 3D foot model
+        let opAppendageBones = [];  // { mesh, jA, jB } — updated every frame
+        let handsActive = false, feetActive = false;
+
+        // Default hand pose: 21 landmarks relative to wrist in local hand space.
+        // Axes: Y = finger direction, X = thumb side (right hand; negate X for left), Z = palm depth.
+        // Scale is in meters (same as OP_TPOSE scale, body ≈ 1.7 m).
+        const HAND_DEFAULT_REL = [
+            [0, 0, 0],                    // 0  wrist
+            [0.040, 0.030, 0.010],       // 1  thumb CMC
+            [0.070, 0.050, 0.015],       // 2  thumb MCP
+            [0.085, 0.075, 0.010],       // 3  thumb IP
+            [0.095, 0.095, 0.005],       // 4  thumb tip
+            [0.025, 0.095, 0.000],       // 5  index MCP
+            [0.025, 0.145, 0.000],       // 6  index PIP
+            [0.025, 0.175, -0.005],       // 7  index DIP
+            [0.025, 0.200, -0.005],       // 8  index tip
+            [0.005, 0.100, 0.000],       // 9  middle MCP
+            [0.005, 0.155, 0.000],       // 10 middle PIP
+            [0.005, 0.185, -0.005],       // 11 middle DIP
+            [0.005, 0.210, -0.005],       // 12 middle tip
+            [-0.020, 0.090, 0.000],      // 13 ring MCP
+            [-0.020, 0.140, 0.000],      // 14 ring PIP
+            [-0.020, 0.165, -0.005],      // 15 ring DIP
+            [-0.020, 0.185, -0.005],      // 16 ring tip
+            [-0.042, 0.080, 0.000],      // 17 pinky MCP
+            [-0.042, 0.120, 0.000],      // 18 pinky PIP
+            [-0.042, 0.145, -0.003],      // 19 pinky DIP
+            [-0.042, 0.163, -0.003],      // 20 pinky tip
+        ];
+        const OP_HAND_CONNECTIONS = [
+            [0, 1], [1, 2], [2, 3], [3, 4],        // thumb
+            [0, 5], [5, 6], [6, 7], [7, 8],        // index
+            [0, 9], [9, 10], [10, 11], [11, 12],   // middle
+            [0, 13], [13, 14], [14, 15], [15, 16], // ring
+            [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+            [5, 9], [9, 13], [13, 17]              // palm
+        ];
+
+        // Shared foot material (white model – MeshBasicMaterial so normals don't affect appearance)
+        let FOOT_MAT = null;
+        function getFootMat() {
+            if (!FOOT_MAT) FOOT_MAT = new THREE.MeshBasicMaterial({ color: 0xd8d8d8, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+            return FOOT_MAT;
+        }
+
+        // Loaded FBX foot template (normalized; right foot; origin at ankle)
+        // 全局变量改为存纯净的几何体
+        let footGeometry = null;
+        let footFbxTemplate = null;
+
+        // ══════════════════════════════════════════════
+        // MANNEQUIN — anime FBX driven by OpenPose joints
+        // ══════════════════════════════════════════════
+        let mannequinGroup = null;
+        let mannequinSkeleton = null;
+        // Body-shape parameters (X/Z scale for hip & chest; uniform for head)
+        const bodyShape = { head: 1.0, chest: 1.0, hip: 1.0 };
+        let mannequinRestData = {};       // boneName → { restDir:Vector3, restWorldQuat:Quaternion }
+        let mannequinFbxBodyHeight = 1;   // rest-pose Neck→Hips distance in world units (with defaultScale applied)
+        let mannequinDefaultScale = 1;   // scale FBXLoader baked in (e.g. 0.01 for cm→m)
+        let mannequinHipsLocalPos = new THREE.Vector3();
+        let showMannequin = true;
+
+        async function preloadMannequin() {
+            if (mannequinGroup) return;
+            const loader = new FBXLoader();
+            try {
+                const fbx = await loader.loadAsync('/gaussian/js/anime_basic_female.fbx');
+                mannequinGroup = fbx;
+
+                fbx.traverse(obj => {
+                    if (obj.isSkinnedMesh && !mannequinSkeleton) mannequinSkeleton = obj.skeleton;
+                });
+                if (!mannequinSkeleton) { console.warn('[Mannequin] no skeleton'); return; }
+
+                fbx.updateMatrixWorld(true);
+
+                // Store rest pose for every bone (before any group transform changes)
+                mannequinSkeleton.bones.forEach(bone => {
+                    bone.updateMatrixWorld(true);
+                    const bwp = bone.getWorldPosition(new THREE.Vector3());
+                    const bwq = bone.getWorldQuaternion(new THREE.Quaternion());
+                    let restDir = null;
+                    for (const c of bone.children) {
+                        if (c.isBone) {
+                            restDir = c.getWorldPosition(new THREE.Vector3()).sub(bwp).normalize();
+                            break;
+                        }
+                    }
+                    // restLocalDir: bone's pointing direction in its OWN local space (invariant to group transform)
+                    const restLocalDir = restDir ? restDir.clone().applyQuaternion(bwq.clone().invert()).normalize() : null;
+                    let restLength = 0;
+                    for (const c of bone.children) {
+                        if (c.isBone) { restLength = bwp.distanceTo(c.getWorldPosition(new THREE.Vector3())); break; }
+                    }
+                    mannequinRestData[bone.name] = {
+                        restWorldQuat: bwq,
+                        restLocalQuat: bone.quaternion.clone(),
+                        restDir,
+                        restLocalDir,
+                        restLength,
+                    };
+                });
+
+                // Body height reference: neck → hips distance in world units
+                const neckBone = mannequinSkeleton.bones.find(b => b.name === 'mixamorigNeck');
+                const hipsBone = mannequinSkeleton.bones.find(b => b.name === 'mixamorigHips');
+                if (neckBone && hipsBone) {
+                    const neckPos = neckBone.getWorldPosition(new THREE.Vector3());
+                    const hipsPos = hipsBone.getWorldPosition(new THREE.Vector3());
+                    mannequinFbxBodyHeight = Math.max(0.001, neckPos.distanceTo(hipsPos));
+                    mannequinDefaultScale = mannequinGroup.scale.x || 1;
+                    // Hips offset from group origin, normalized to scale=1 (divide by defaultScale)
+                    mannequinHipsLocalPos = hipsPos.clone().sub(mannequinGroup.position)
+                        .divideScalar(mannequinDefaultScale);
+                }
+
+                fbx.visible = true;
+                scene.add(fbx);
+                buildBodyShapeMorphs();
+                console.log('[Mannequin] ready  defaultScale=', mannequinDefaultScale, ' bodyH=', mannequinFbxBodyHeight.toFixed(3));
+                console.log('[Mannequin] all bone names:', mannequinSkeleton.bones.map(b => b.name));
+                if (window._syncShapeToolbar) window._syncShapeToolbar();
+            } catch (e) {
+                console.error('[Mannequin] load failed:', e);
+            }
+        }
+
+        /**
+         * Bake bust and hip morph targets from skinning weights.
+         * Bust: uses only mixamorigSpine2 (upper chest, not Spine1 which is ribcage),
+         *   further restricted to vertices inside the Spine2→Neck height window and
+         *   front-facing only (y < 0 in FBX Z-up local space).
+         * Hip: mixamorigHips + upper legs, full radial XY expansion.
+         * Called once after FBX load; morphTargetInfluences drives the sliders thereafter.
+         */
+        function buildBodyShapeMorphs() {
+            if (!mannequinGroup) return;
+            mannequinGroup.updateMatrixWorld(true);
+
+            mannequinGroup.traverse(obj => {
+                if (!obj.isSkinnedMesh) return;
+                const geo = obj.geometry;
+                if (!geo.attributes.skinIndex || !geo.attributes.skinWeight) return;
+
+                const boneMap = {};
+                obj.skeleton.bones.forEach((b, i) => { boneMap[b.name] = i; });
+
+                // Bust: Spine2 only (Spine1 = ribcage → excluded).
+                // Also accept any dedicated breast bones if the rig has them.
+                const bustSet = new Set(
+                    ['mixamorigSpine2',
+                        'LeftBreast', 'RightBreast', 'Breast_L', 'Breast_R',
+                        'L_Breast', 'R_Breast', 'BreastL', 'BreastR',
+                        'mixamorigLeftBreast', 'mixamorigRightBreast']
+                        .map(n => boneMap[n]).filter(i => i !== undefined)
+                );
+
+                // Hip: pelvis root + upper legs
+                const hipSet = new Set(
+                    ['mixamorigHips', 'mixamorigLeftUpLeg', 'mixamorigRightUpLeg']
+                        .map(n => boneMap[n]).filter(i => i !== undefined)
+                );
+
+                // Compute the breast height window in mesh local space.
+                // FBX Z-up: Z axis = height.  Convert bone world positions → mesh local space
+                // so we can compare directly against vertex Z coordinates.
+                const meshInv = new THREE.Matrix4().copy(obj.matrixWorld).invert();
+                const boneZ = name => {
+                    const b = obj.skeleton.bones.find(x => x.name === name);
+                    return b ? b.getWorldPosition(new THREE.Vector3()).applyMatrix4(meshInv).z : null;
+                };
+                const spine1Z = boneZ('mixamorigSpine1');
+                const spine2Z = boneZ('mixamorigSpine2');
+                const neckZ = boneZ('mixamorigNeck');
+                // Lower bound = Spine1 to ensure we don't clip the bottom of the breast in Pass 1
+                const bustZMin = spine1Z ?? -Infinity;
+                const bustZMax = neckZ ?? Infinity;
+
+                const pos = geo.attributes.position;
+                const normal = geo.attributes.normal;
+                const skinI = geo.attributes.skinIndex;
+                const skinW = geo.attributes.skinWeight;
+                const count = pos.count;
+                const ipv = skinI.itemSize;
+                // Bust scale derived from body height so the effect is unit-independent:
+                const BUST_SCALE = (mannequinFbxBodyHeight / Math.max(mannequinDefaultScale, 1e-4)) * 0.02;
+
+                const bustDelta = new Float32Array(count * 3);
+                const hipDelta = new Float32Array(count * 3);
+
+                // --- Pass 1: Find left and right breast centroids ---
+                let sumL = new THREE.Vector3(), wL = 0;
+                let sumR = new THREE.Vector3(), wR = 0;
+
+                for (let v = 0; v < count; v++) {
+                    const x = pos.getX(v), y = pos.getY(v), z = pos.getZ(v);
+                    let bw = 0, hw = 0;
+                    for (let k = 0; k < ipv; k++) {
+                        const bi = skinI.getComponent(v, k);
+                        const wt = skinW.getComponent(v, k);
+                        if (bustSet.has(bi)) bw += wt;
+                        if (hipSet.has(bi)) hw += wt;
+                    }
+                    // Hip: full radial XY (front + back of pelvis both fill out)
+                    if (hw > 0) { hipDelta[v * 3] = x * hw; hipDelta[v * 3 + 1] = y * hw; }
+
+                    // Bust centroid accumulation: front-facing + height band
+                    if (bw > 0 && y < 0 && z >= bustZMin && z <= bustZMax) {
+                        // Weight by the square of forward protrusion (-y) to heavily favor the nipple.
+                        // Removed abs(x) because it artificially dragged the centroid into the armpit!
+                        const protrusion = Math.max(0, -y);
+                        const w = bw * protrusion * protrusion;
+                        if (x < 0) {
+                            sumL.add(new THREE.Vector3(x * w, y * w, z * w));
+                            wL += w;
+                        } else {
+                            sumR.add(new THREE.Vector3(x * w, y * w, z * w));
+                            wR += w;
+                        }
+                    }
+                }
+
+                const centerL = wL > 0 ? sumL.divideScalar(wL) : null;
+                const centerR = wR > 0 ? sumR.divideScalar(wR) : null;
+
+                // Define standard deviation for Gaussian (e.g., ~5% of body height is roughly breast radius)
+                const localBodyHeight = mannequinFbxBodyHeight / Math.max(mannequinDefaultScale, 1e-4);
+                const bustSigmaSq = Math.pow(localBodyHeight * 0.05, 2);
+
+                // --- Pass 2: Apply Gaussian attenuation ---
+                for (let v = 0; v < count; v++) {
+                    const x = pos.getX(v), y = pos.getY(v), z = pos.getZ(v);
+                    let bw = 0;
+                    for (let k = 0; k < ipv; k++) {
+                        const bi = skinI.getComponent(v, k);
+                        if (bustSet.has(bi)) bw += skinW.getComponent(v, k);
+                    }
+
+                    // Bust: process all vertices with bw > 0.
+                    // The spatial isolation is handled entirely by smooth continuous functions (Gaussian).
+                    if (bw > 0 && normal) {
+                        const nx = normal.getX(v), ny = normal.getY(v), nz = normal.getZ(v);
+                        const vPos = new THREE.Vector3(x, y, z);
+                        const center = (x < 0) ? centerL : centerR;
+
+                        if (center) {
+                            const distSq = vPos.distanceToSquared(center);
+                            // Gaussian decay: e^(-dist^2 / (2 * sigma^2))
+                            const gauss = Math.exp(-distSq / (2 * bustSigmaSq));
+
+                            // Cleavage dampening: linearly fade out effect near x=0 (sternum)
+                            const cleavageDamp = Math.min(1, Math.abs(x) / (localBodyHeight * 0.035));
+
+                            // Multiply base BUST_SCALE by 1.8. 
+                            // This is a product of purely continuous functions: bw * gauss * cleavageDamp
+                            // Therefore, it is mathematically impossible to have a tear/seam!
+                            const finalW = bw * gauss * BUST_SCALE * 1.8 * cleavageDamp;
+                            bustDelta[v * 3] = nx * finalW;
+                            bustDelta[v * 3 + 1] = ny * finalW;
+                            bustDelta[v * 3 + 2] = nz * finalW;
+                        }
+                    }
+                }
+
+                geo.morphAttributes.position = [
+                    new THREE.BufferAttribute(bustDelta, 3),
+                    new THREE.BufferAttribute(hipDelta, 3),
+                ];
+                geo.morphTargetsRelative = true;
+                obj.updateMorphTargets();
+            });
+            console.log('[Mannequin] morph targets built for bust/hip');
+        }
+
+        /**
+         * Aim a single bone so it points from worldFrom → worldTo.
+         * refWorldQuat (optional): the bone's world quat in the current group frame at rest pose.
+         *   When provided, the delta is computed from this stable reference instead of the
+         *   live world quat (which is contaminated by parent-bone FK and carries roll artifacts).
+         *   Without this, rotating a parent joint (e.g. knee) can spin child bones (e.g. foot)
+         *   because setFromUnitVectors produces different roll each frame as the base changes.
+         */
+        function aimMannequinBone(boneName, worldFrom, worldTo, refWorldQuat) {
+            if (!mannequinSkeleton) return;
+            const bone = mannequinSkeleton.bones.find(b => b.name === boneName);
+            const rd = mannequinRestData[boneName];
+            if (!bone || !rd?.restDir || rd.restDir.lengthSq() < 1e-6) return;
+
+            const desired = new THREE.Vector3().subVectors(worldTo, worldFrom);
+            if (desired.lengthSq() < 1e-10) return;
+            desired.normalize();
+
+            const restLocalDir = rd.restLocalDir || rd.restDir;
+            if (!restLocalDir) return;
+
+            // Use the stable rest-pose world quat when provided; otherwise fall back to the
+            // live world quat (pre-FK behaviour, kept for callers that don't supply one).
+            const baseWorldQuat = refWorldQuat
+                ? refWorldQuat.clone()
+                : bone.getWorldQuaternion(new THREE.Quaternion());
+
+            const currentRestDir = restLocalDir.clone().applyQuaternion(baseWorldQuat).normalize();
+            if (currentRestDir.lengthSq() < 0.01) return;
+
+            const delta = new THREE.Quaternion().setFromUnitVectors(currentRestDir, desired);
+            const newWorldQuat = delta.multiply(baseWorldQuat);
+
+            const parentWQ = new THREE.Quaternion();
+            if (bone.parent) bone.parent.getWorldQuaternion(parentWQ);
+            bone.quaternion.copy(parentWQ.invert().multiply(newWorldQuat));
+            bone.updateMatrixWorld(true);
+        }
+
+        /**
+         * Apply body-shape adjustments.
+         * Head: uniform bone scale (leaf, no cascade side-effects).
+         * Bust + Hip: morph target influences — completely decoupled from the skeleton,
+         * so they survive the per-frame bone-scale reset in poseMannequinFromJoints().
+         * Slider value 1.0 = rest shape (influence 0); values above/below expand/contract.
+         */
+        function applyMannequinBodyShape() {
+            if (!mannequinSkeleton) return;
+            const find = n => mannequinSkeleton.bones.find(b => b.name === n);
+
+            // Head: uniform bone scale is safe here (head is effectively a leaf)
+            const head = find('mixamorigHead');
+            if (head) head.scale.setScalar(bodyShape.head);
+
+            // Bust (morph index 0): clamp to ≥ 0 — negative influence inverts the normal
+            // direction and collapses the mesh inward, so the minimum is the rest shape.
+            // Hip (morph index 1): allow negative for slimmer hips.
+            const bustInf = Math.max(0, bodyShape.chest - 1.0);
+            const hipInf = bodyShape.hip - 1.0;
+            mannequinGroup.traverse(obj => {
+                if (!obj.isSkinnedMesh || !obj.morphTargetInfluences?.length) return;
+                obj.morphTargetInfluences[0] = bustInf;
+                obj.morphTargetInfluences[1] = hipInf;
+            });
+        }
+
+        function poseMannequinFromJoints() {
+            if (!mannequinGroup || !mannequinSkeleton || jointNodes.length < 14) return;
+
+            const wp = jointNodes.map(j => j?.getWorldPosition(new THREE.Vector3()) ?? null);
+            if (!wp[1] || !wp[2] || !wp[5] || !wp[8] || !wp[11]) return;
+
+
+            const hipCenter = wp[8].clone().add(wp[11]).multiplyScalar(0.5);
+            const shoulderCenter = wp[2].clone().add(wp[5]).multiplyScalar(0.5);
+            const opBodyH = wp[1].distanceTo(hipCenter);
+            if (opBodyH < 0.001) return;
+
+            // ── Step 1: Reset all driven bones to rest pose ───────────────────────
+            // This prevents accumulation errors from previous frame.
+            mannequinSkeleton.bones.forEach(bone => {
+                const rd = mannequinRestData[bone.name];
+                if (rd?.restLocalQuat) bone.quaternion.copy(rd.restLocalQuat);
+                bone.scale.set(1, 1, 1);
+            });
+
+            // ── Step 2: Compute body orientation and set group rotation ──────────
+            // bodyY = hipCenter→neck (spine up).
+            // rawX  = rHip→lHip (pelvis axis) so that pelvis rotation drives the mannequin.
+            //         Fall back to shoulder direction when hips overlap (degenerate case).
+            const bodyY = wp[1].clone().sub(hipCenter).normalize();
+            const hipAxis = wp[11].clone().sub(wp[8]);           // lHip - rHip
+            const rawX = hipAxis.lengthSq() > 1e-6
+                ? hipAxis.normalize()
+                : wp[5].clone().sub(wp[2]).normalize();          // fallback: shoulder dir
+            const bodyX = rawX.clone().sub(bodyY.clone().multiplyScalar(rawX.dot(bodyY))).normalize();
+            const bodyZ = new THREE.Vector3().crossVectors(bodyX, bodyY); // right-hand, points toward front
+            mannequinGroup.quaternion.setFromRotationMatrix(
+                new THREE.Matrix4().makeBasis(bodyX, bodyY, bodyZ)
+            );
+
+            // ── Step 3: Scale ─────────────────────────────────────────────────────
+            const newGroupScale = mannequinDefaultScale * (opBodyH / mannequinFbxBodyHeight);
+            mannequinGroup.scale.setScalar(newGroupScale);
+            mannequinGroup.position.set(0, 0, 0);  // temp origin
+            mannequinGroup.updateMatrixWorld(true);
+
+            // ── Step 3: Translate so hips bone lands at OP hip center ────────────
+            const hipsBone = mannequinSkeleton.bones.find(b => b.name === 'mixamorigHips');
+            if (hipsBone) {
+                hipsBone.updateMatrixWorld(true);
+                const hipsNow = hipsBone.getWorldPosition(new THREE.Vector3());
+                mannequinGroup.position.copy(hipCenter).sub(hipsNow);
+                mannequinGroup.updateMatrixWorld(true);
+
+            }
+
+            // Apply body-shape bone scales BEFORE FK driving so the wider hip/chest
+            // positions are already correct when aimBoneTo computes directions.
+            applyMannequinBodyShape();
+
+            // Snapshot every bone's world quat NOW — bones are at rest pose and the group
+            // is at the final position/rotation.  aimBoneTo passes this stable reference to
+            // aimMannequinBone so that the delta rotation is always computed from the same
+            // base, preventing roll accumulation when parent FK changes between calls.
+            mannequinGroup.updateMatrixWorld(true);
+            const _boneRestWQ = {};
+            mannequinSkeleton.bones.forEach(b => {
+                _boneRestWQ[b.name] = b.getWorldQuaternion(new THREE.Quaternion());
+            });
+
+            // Helper: aim a bone FROM its own current world position TOWARD a target world point.
+            // Using the bone's actual position (not an OP joint) as the origin avoids position drift
+            // caused by each bone segment having a different length than the OP skeleton.
+            const aimBoneTo = (boneName, worldTarget) => {
+                const b = mannequinSkeleton.bones.find(x => x.name === boneName);
+                if (!b || !worldTarget) return;
+                b.updateMatrixWorld(true);
+                const from = b.getWorldPosition(new THREE.Vector3());
+                aimMannequinBone(boneName, from, worldTarget, _boneRestWQ[boneName]);
+            };
+
+            // ── Step 4: FK driving — limbs only ──────────────────────────────────
+            // The group rotation already aligns the torso (spine/clavicles stay in rest pose).
+            // Driving clavicles / spine separately would over-rotate and distort the chest mesh.
+
+            // Legs — rotation-only (no bone Y-scaling).
+            // Non-uniform scale on parent bones causes shear distortion on child meshes
+            // (foot/hand) that compensateScale cannot fully undo when bones are at angles.
+            // The group uniform scale already sets overall proportions; joint aim handles pose.
+            if (wp[8] && wp[9]) aimBoneTo('mixamorigRightUpLeg', wp[9]);
+            if (wp[9] && wp[10]) aimBoneTo('mixamorigRightLeg', wp[10]);
+            if (wp[11] && wp[12]) aimBoneTo('mixamorigLeftUpLeg', wp[12]);
+            if (wp[12] && wp[13]) aimBoneTo('mixamorigLeftLeg', wp[13]);
+
+            // ── Spine twist: upper body follows shoulder direction ────────────────
+            // Group rotation is driven by hip axis (lower body).
+            // We twist the three spine bones so the chest/shoulders align with the
+            // shoulder joint direction, enabling independent upper/lower body rotation.
+            if (wp[2] && wp[5]) {
+                const shoulderVec = new THREE.Vector3().subVectors(wp[5], wp[2]); // lSh - rSh
+                // Project both vectors onto the plane ⊥ to bodyY (remove spine component)
+                const hipPerp = rawX.clone().sub(bodyY.clone().multiplyScalar(rawX.dot(bodyY)));
+                const shPerp = shoulderVec.clone().sub(bodyY.clone().multiplyScalar(shoulderVec.dot(bodyY)));
+                if (hipPerp.lengthSq() > 1e-6 && shPerp.lengthSq() > 1e-6) {
+                    hipPerp.normalize(); shPerp.normalize();
+                    // Full twist = world-space rotation from hip-X to shoulder-X
+                    const twistQ = new THREE.Quaternion().setFromUnitVectors(hipPerp, shPerp);
+                    // 1/3 of the twist per spine bone (three bones = full twist at chest)
+                    const partialQ = new THREE.Quaternion().slerp(twistQ, 1 / 3);
+                    ['mixamorigSpine', 'mixamorigSpine1', 'mixamorigSpine2'].forEach(name => {
+                        const bone = mannequinSkeleton.bones.find(b => b.name === name);
+                        if (!bone) return;
+                        // Convert world-space partialQ to this bone's local space:
+                        //   localTwist = parentWQ^-1 * partialQ * parentWQ
+                        const parentWQ = new THREE.Quaternion();
+                        if (bone.parent) bone.parent.getWorldQuaternion(parentWQ);
+                        const localTwist = parentWQ.clone().invert().multiply(partialQ).multiply(parentWQ);
+                        bone.quaternion.premultiply(localTwist);
+                        bone.updateMatrixWorld(true);
+                    });
+                }
+            }
+
+            // Arms — rotation-only
+            if (wp[2] && wp[3]) aimBoneTo('mixamorigRightArm', wp[3]);
+            if (wp[3] && wp[4]) aimBoneTo('mixamorigRightForeArm', wp[4]);
+            if (wp[5] && wp[6]) aimBoneTo('mixamorigLeftArm', wp[6]);
+            if (wp[6] && wp[7]) aimBoneTo('mixamorigLeftForeArm', wp[7]);
+
+            // Apply joint sphere's rotation as an extra post-rotation on the corresponding bone.
+            // Post-multiplying in bone-local space keeps the offset stable when parent bones
+            // change direction via FK (unlike a world-space pre-rotation which would drift).
+            // Call this AFTER the bone has already been driven by aimBoneTo so that the
+            // user's manual twist is layered on top of the FK aim.
+            const applyJointRot = (boneName, jointNode) => {
+                if (!jointNode) return;
+                const bone = mannequinSkeleton.bones.find(x => x.name === boneName);
+                if (!bone) return;
+                bone.quaternion.multiply(jointNode.quaternion);
+                bone.updateMatrixWorld(true);
+            };
+            applyJointRot('mixamorigRightFoot', jointNodes[10]);
+            applyJointRot('mixamorigLeftFoot', jointNodes[13]);
+            applyJointRot('mixamorigRightHand', jointNodes[4]);
+            applyJointRot('mixamorigLeftHand', jointNodes[7]);
+
+            // Neck / Head
+            if (wp[1]) {
+                const headTarget = (wp[0] && jointNodes[0]?.visible)
+                    ? wp[0].clone()
+                    : wp[1].clone().add(new THREE.Vector3(0, opBodyH * 0.25, 0));
+                aimBoneTo('mixamorigNeck', headTarget);
+
+                // Neck joint rotation directly sets the neck bone's world orientation.
+                // This bypasses the FK-aim (which can't reflect Y-axis rotations when nose
+                // is directly above neck) and avoids the space-mismatch of post-multiplying
+                // a world quaternion in bone-local space.
+                // Head is re-aimed AFTER the override so it always tracks the head target
+                // from the new neck frame.
+                if (jointNodes[1]) {
+                    const jointLocalQ = jointNodes[1].quaternion;
+                    const jointWorldQ = jointNodes[1].getWorldQuaternion(new THREE.Quaternion());
+                    const neckBone = mannequinSkeleton.bones.find(b => b.name === 'mixamorigNeck');
+                    // --- DEBUG LOG (remove after fix) ---
+                    console.log('[NeckRot]', {
+                        jointIdx: jointNodes[1].userData?.jointIdx,
+                        localQ: `(${jointLocalQ.x.toFixed(3)}, ${jointLocalQ.y.toFixed(3)}, ${jointLocalQ.z.toFixed(3)}, ${jointLocalQ.w.toFixed(3)})`,
+                        worldQ: `(${jointWorldQ.x.toFixed(3)}, ${jointWorldQ.y.toFixed(3)}, ${jointWorldQ.z.toFixed(3)}, ${jointWorldQ.w.toFixed(3)})`,
+                        isIdentity: Math.abs(jointWorldQ.w - 1) < 1e-5,
+                        neckBoneFound: !!neckBone,
+                        neckBoneParent: neckBone?.parent?.name ?? 'none',
+                        jointNodesLength: jointNodes.length,
+                    });
+                    // ------------------------------------
+                    if (Math.abs(jointWorldQ.w - 1) > 1e-5) {
+                        if (neckBone) {
+                            const parentWQ = new THREE.Quaternion();
+                            if (neckBone.parent) neckBone.parent.getWorldQuaternion(parentWQ);
+                            neckBone.quaternion.copy(parentWQ.clone().invert().multiply(jointWorldQ));
+                            neckBone.updateMatrixWorld(true);
+                            console.log('[NeckRot] APPLIED → neckBone.quaternion =',
+                                `(${neckBone.quaternion.x.toFixed(3)}, ${neckBone.quaternion.y.toFixed(3)}, ${neckBone.quaternion.z.toFixed(3)}, ${neckBone.quaternion.w.toFixed(3)})`);
+                        }
+                    }
+                }
+
+                aimBoneTo('mixamorigHead', headTarget);
+            }
+
+            // ── Fingers (if appendages exist) ────────────────────────────────────
+            const driveFingers = (sidePrefix, opHand) => {
+                if (!opHand || opHand.length === 0) return;
+                const getWp = (idx) => opHand[idx]?.visible !== false ? opHand[idx]?.getWorldPosition(new THREE.Vector3()) : null;
+                
+                const fingers = [
+                    ['Thumb', 1],
+                    ['Index', 5],
+                    ['Middle', 9],
+                    ['Ring', 13],
+                    ['Pinky', 17]
+                ];
+                
+                fingers.forEach(([fName, jStart]) => {
+                    for (let i = 0; i < 3; i++) {
+                        const targetPos = getWp(jStart + i + 1);
+                        if (targetPos) {
+                            const boneName = `mixamorig${sidePrefix}Hand${fName}${i+1}`;
+                            const b = mannequinSkeleton.bones.find(x => x.name === boneName);
+                            if (b) {
+                                b.updateMatrixWorld(true);
+                                const from = b.getWorldPosition(new THREE.Vector3());
+                                // omit _boneRestWQ to use inherited live orientation
+                                aimMannequinBone(boneName, from, targetPos); 
+                            }
+                        }
+                    }
+                });
+            };
+
+            if (typeof handsActive !== 'undefined' && handsActive) {
+                driveFingers('Right', opAppendages?.rightHand);
+                driveFingers('Left', opAppendages?.leftHand);
+            }
+        }
+
+        // Remove one-shot log flags if they exist
+        delete poseMannequinFromJoints._entryLogged;
+
+        function toggleMannequin() {
+            if (!mannequinGroup) return;
+            showMannequin = !showMannequin;
+            mannequinGroup.visible = showMannequin;
+            if (showMannequin) poseMannequinFromJoints();
+            if (window._syncShapeToolbar) window._syncShapeToolbar();
+        }
+
+        async function preloadFootFbx() {
+            try {
+                const loader = new FBXLoader();
+                const fbx = await loader.loadAsync('/gaussian/js/foot.fbx');
+
+                // 暴力提取：遍历找到 FBX 里的核心 Mesh
+                let extractedMesh = null;
+                fbx.traverse(c => {
+                    if (c.isMesh && !extractedMesh) extractedMesh = c;
+                });
+
+                if (extractedMesh) {
+                    // 克隆几何体，彻底脱离 FBX 的层级包袱
+                    footGeometry = extractedMesh.geometry.clone();
+                    footGeometry.computeVertexNormals();
+                    footGeometry.computeBoundingBox();
+
+                    // 🌟 核心绝杀：计算网格真实的中心点，并强行平移所有顶点使其归零
+                    const box = footGeometry.boundingBox;
+                    const center = new THREE.Vector3();
+                    box.getCenter(center);
+                    footGeometry.translate(-center.x, -center.y, -center.z);
+
+                    // 重新计算归零后的纯净包围盒
+                    footGeometry.computeBoundingBox();
+                    const size = footGeometry.boundingBox.getSize(new THREE.Vector3());
+
+                    // 存下标准化缩放比例 (假设脚长标准为 0.25)
+                    footGeometry.userData = {
+                        normScale: 0.25 / Math.max(size.x, size.y, size.z),
+                        size: size
+                    };
+                    footFbxTemplate = footGeometry;
+                    console.log('[Foot] 几何体提取成功，顶点已强制归零。尺寸:', size);
+                }
+            } catch (e) {
+                console.warn('[Foot] FBX 加载失败:', e.message);
+            }
+        }
+
+        // Wholebody mode state
+        let wbGroup = null;       // THREE.Group for all wholebody objects
+        let wbJoints = { body: [], leftHand: [], rightHand: [], face: [] };
+        let wbBones = [];        // { meshes:[] } bone cylinders
+        let wbData = null;      // raw JSON from MediaPipe
+
+        // BLAZEPOSE-33 → COCO-18 index mapping (for export)
+        // [blazepose_idx, coco18_idx]
+        const BP_COCO18 = [
+            [0, 0], [5, 14], [2, 15], [8, 16], [7, 17],
+            [12, 2], [11, 5], [14, 3], [13, 6], [16, 4], [15, 7],
+            [24, 8], [23, 11], [26, 9], [25, 12], [28, 10], [27, 13],
+        ];
+        // Neck (COCO 1) = avg of blazepose[11] and blazepose[12]
+
+        // Hand finger colors for 5 fingers
+        const HAND_FINGER_COLORS = [0xff6b6b, 0xffd93d, 0x6bcb77, 0x4d96ff, 0xff6bd6];
+        // Finger base joints: thumb=0, index=5, middle=9, ring=13, pinky=17
+        const HAND_FINGER_STARTS = [0, 5, 9, 13, 17];
+
+        // ══════════════════════════════════════════════
+        // INIT THREE.JS
+        // ══════════════════════════════════════════════
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x181818);
+
+            gridHelper = new THREE.GridHelper(10, 20, 0x333333, 0x222222);
+            scene.add(gridHelper);
+            axesHelper = new THREE.AxesHelper(0.5);
+            scene.add(axesHelper);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100000);
+            camera.position.set(0, 0.85, 3.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            container.appendChild(renderer.domElement);
+
+            const amb = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(amb);
+            const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+            dir.position.set(2, 5, 3);
+            scene.add(dir);
+
+            orbit = new OrbitControls(camera, renderer.domElement);
+            orbit.target.set(0, 0.85, 0);
+            orbit.enableRotate = false;   // replaced by screen-space rotation below
+            orbit.update();
+
+            tcl = new TransformControls(camera, renderer.domElement);
+            tcl.setMode('translate');
+            tcl.showX = false; tcl.showY = false; tcl.showZ = false;
+            // CDN TransformControls hides the XYZ center ball when showX/Y/Z=false.
+            // Patch the gizmo so XYZ handles are always re-shown after each internal update.
+            const _tclGizmo = tcl.children[0];
+            if (_tclGizmo) {
+                const _orig = _tclGizmo.updateMatrixWorld.bind(_tclGizmo);
+                _tclGizmo.updateMatrixWorld = function (force) {
+                    _orig(force);
+                    this.traverse(obj => { if (obj.name === 'XYZ') obj.visible = true; });
+                };
+            }
+            const FK_TREE = {
+                1: [0, 14, 15, 16, 17], // Neck -> Head
+                2: [3], // R.Shoulder -> R.Elbow
+                3: [4], // R.Elbow -> R.Wrist
+                5: [6], // L.Shoulder -> L.Elbow
+                6: [7], // L.Elbow -> L.Wrist
+                8: [9], // R.Hip -> R.Knee
+                9: [10], // R.Knee -> R.Ankle
+                11: [12], // L.Hip -> L.Knee
+                12: [13], // L.Knee -> L.Ankle
+            };
+
+            function getDescendants(joint) {
+                const descendants = [];
+                const visited = new Set();
+                function traverse(jIdx) {
+                    if (visited.has(jIdx)) return;
+                    visited.add(jIdx);
+                    const children = FK_TREE[jIdx] || [];
+                    for (const c of children) {
+                        if (jointNodes[c]) {
+                            descendants.push(jointNodes[c]);
+                            traverse(c);
+                        }
+                    }
+                    if (jIdx === 4 && opAppendages.rightHand) descendants.push(...opAppendages.rightHand);
+                    if (jIdx === 7 && opAppendages.leftHand) descendants.push(...opAppendages.leftHand);
+                }
+                if (joint.userData && joint.userData.isOpJoint) {
+                    traverse(joint.userData.jointIdx);
+                } else if (joint.userData && joint.userData.isOpAppendage) {
+                    const kind = joint.userData.appendageKind;
+                    const handSpheres = kind === 'rhand' ? opAppendages.rightHand : opAppendages.leftHand;
+                    if (handSpheres) {
+                        const visitedHand = new Set();
+                        function traverseHand(hIdx) {
+                            if (visitedHand.has(hIdx)) return;
+                            visitedHand.add(hIdx);
+                            for (const [a, b] of OP_HAND_CONNECTIONS) {
+                                if (a === hIdx && handSpheres[b]) {
+                                    descendants.push(handSpheres[b]);
+                                    traverseHand(b);
+                                }
+                            }
+                        }
+                        traverseHand(joint.userData.appendageIdx);
+                    }
+                }
+                return descendants;
+            }
+
+            let _dragState = null;   // state for FK
+            let _dragStartPos = null;   // position clone at drag start (local space)
+
+            tcl.addEventListener('dragging-changed', e => {
+                orbit.enabled = !e.value;
+                if (!e.value) {
+                    // Only apply constraints (and save state) if the joint actually moved.
+                    const actuallyMoved = _dragStartPos && draggedJoint &&
+                        _dragStartPos.distanceTo(draggedJoint.position) > 1e-4;
+
+                    _lastDraggedIdx = draggedJoint?.userData?.jointIdx ?? -1;
+                    draggedJoint = null;
+                    _dragStartPos = null;
+                    _dragState = null;
+
+                    if (actuallyMoved) {
+                        enforceRigidLengths(false);
+                        requestAnimationFrame(saveState);
+                    }
+                } else {
+                    draggedJoint = tcl.object;
+                    _dragStartPos = tcl.object?.position.clone() ?? null;
+                    if (draggedJoint && currentMode === 'openpose') {
+                        const mode = tcl.getMode();
+                        const desc = getDescendants(draggedJoint);
+                        _dragState = {
+                            mode,
+                            startPos: draggedJoint.position.clone(),
+                            startQuat: draggedJoint.quaternion.clone(),
+                            descendants: desc.map(d => ({
+                                node: d,
+                                startPos: d.position.clone(),
+                                startQuat: d.quaternion.clone(),
+                                offset: d.position.clone().sub(draggedJoint.position)
+                            }))
+                        };
+                    }
+                }
+            });
+
+            tcl.addEventListener('change', () => {
+                if (_dragState && draggedJoint) {
+                    if (_dragState.mode === 'translate') {
+                        // ── Real-time rigid constraint for hand appendages ──
+                        if (draggedJoint.userData.isOpAppendage && rigidLengths) {
+                            const kind = draggedJoint.userData.appendageKind;
+                            const idx = draggedJoint.userData.appendageIdx;
+                            const handSpheres = kind === 'rhand' ? opAppendages.rightHand : opAppendages.leftHand;
+                            const handLens = kind === 'rhand' ? rigidLengths.rHand : rigidLengths.lHand;
+                            if (handSpheres && handLens) {
+                                // Find parent index and target length for this joint
+                                let parentIdx = -1, targetLen = 0;
+                                if (idx === 0) {
+                                    // Hand wrist: constrain to body wrist
+                                    const bodyWristIdx = handLens.bodyWristIdx;
+                                    const bodyWristJoint = opPersonGroups[0]?.joints[bodyWristIdx];
+                                    if (bodyWristJoint && handLens.wristToHand !== undefined) {
+                                        const bodyWristWP = bodyWristJoint.getWorldPosition(new THREE.Vector3());
+                                        const handWristWP = draggedJoint.getWorldPosition(new THREE.Vector3());
+                                        let dir = new THREE.Vector3().subVectors(handWristWP, bodyWristWP);
+                                        if (dir.lengthSq() < 1e-6) dir.set(0, -1, 0);
+                                        else dir.normalize();
+                                        const newWP = bodyWristWP.clone().addScaledVector(dir, handLens.wristToHand);
+                                        if (draggedJoint.parent) draggedJoint.parent.worldToLocal(newWP);
+                                        draggedJoint.position.copy(newWP);
+                                        draggedJoint.updateMatrixWorld(true);
+                                    }
+                                } else {
+                                    for (const {idx: bIdx, len} of handLens.baseOffsets) {
+                                        if (bIdx === idx) { parentIdx = 0; targetLen = len; break; }
+                                    }
+                                    if (parentIdx === -1) {
+                                        for (const {a, b, len} of handLens.lengths) {
+                                            if (b === idx) { parentIdx = a; targetLen = len; break; }
+                                        }
+                                    }
+                                    if (parentIdx >= 0 && targetLen > 0) {
+                                        const parentWP = handSpheres[parentIdx].getWorldPosition(new THREE.Vector3());
+                                        const childWP = draggedJoint.getWorldPosition(new THREE.Vector3());
+                                        let dir = new THREE.Vector3().subVectors(childWP, parentWP);
+                                        if (dir.lengthSq() < 1e-6) dir.set(0, -1, 0);
+                                        else dir.normalize();
+                                        const newWP = parentWP.clone().addScaledVector(dir, targetLen);
+                                        if (draggedJoint.parent) draggedJoint.parent.worldToLocal(newWP);
+                                        draggedJoint.position.copy(newWP);
+                                        draggedJoint.updateMatrixWorld(true);
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Real-time rigid constraint for body joints ──
+                        if (draggedJoint.userData.isOpJoint && rigidLengths) {
+                            const jIdx = draggedJoint.userData.jointIdx;
+                            const joints = opPersonGroups[0]?.joints;
+                            if (joints) {
+                                const getWP = i => joints[i].getWorldPosition(new THREE.Vector3());
+                                // Simple parent-child limb constraints
+                                const limbPairs = [
+                                    [3, 2, rigidLengths.upperArm], [6, 5, rigidLengths.upperArm],
+                                    [4, 3, rigidLengths.lowerArm], [7, 6, rigidLengths.lowerArm],
+                                    [9, 8, rigidLengths.thigh], [12, 11, rigidLengths.thigh],
+                                    [10, 9, rigidLengths.calf], [13, 12, rigidLengths.calf],
+                                    [0, 1, rigidLengths.neck]
+                                ];
+                                for (const [childI, parentI, tLen] of limbPairs) {
+                                    if (jIdx === childI) {
+                                        const parentWP = getWP(parentI);
+                                        const childWP = getWP(childI);
+                                        let dir = new THREE.Vector3().subVectors(childWP, parentWP);
+                                        if (dir.lengthSq() < 1e-6) dir.set(0, -1, 0);
+                                        else dir.normalize();
+                                        const newWP = parentWP.clone().addScaledVector(dir, tLen);
+                                        if (draggedJoint.parent) draggedJoint.parent.worldToLocal(newWP);
+                                        draggedJoint.position.copy(newWP);
+                                        draggedJoint.updateMatrixWorld(true);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Move descendants with constrained position
+                        const deltaPos = draggedJoint.position.clone().sub(_dragState.startPos);
+                        for (const d of _dragState.descendants) {
+                            d.node.position.copy(d.startPos.clone().add(deltaPos));
+                            d.node.updateMatrixWorld(true);
+                        }
+                        enforceRigidLengths(false);
+                    } else if (_dragState.mode === 'rotate') {
+                        // Revolve children around parent for FK rotation
+                        const deltaQ = draggedJoint.quaternion.clone().multiply(_dragState.startQuat.clone().invert());
+                        for (const d of _dragState.descendants) {
+                            const newOffset = d.offset.clone().applyQuaternion(deltaQ);
+                            d.node.position.copy(_dragState.startPos.clone().add(newOffset));
+                        }
+                    }
+                }
+            });
+            scene.add(tcl);
+
+            // Raycaster for joint picking
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            renderer.domElement.addEventListener('pointerdown', e => {
+                if (e.button !== 0 || e.target !== renderer.domElement) return;
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const hits = raycaster.intersectObjects(jointNodes, true);
+                if (hits.length > 0) {
+                    // Walk up to find the top-level joint sphere
+                    let obj = hits[0].object;
+                    while (obj) {
+                        if (jointNodes.includes(obj)) { tcl.attach(obj); return; }
+                        obj = obj.parent;
+                    }
+                } else {
+                    if (!raycaster.intersectObjects(tcl.children, true).length) tcl.detach();
+                }
+            });
+
+            // ── Screen-space rotation ─────────────────────────────────────────────
+            // Rotate around camera's current screen axes instead of fixed world axes,
+            // so dragging left always feels "left" regardless of camera tilt.
+            // Only activates when left-click lands on empty space (no joint / no gizmo).
+            const _ssRot = { active: false, lastX: 0, lastY: 0 };
+            const _ssRight = new THREE.Vector3();
+            const _ssUp = new THREE.Vector3();
+            const _ssQ = new THREE.Quaternion();
+            const ROT_SPEED = 0.004;
+
+            renderer.domElement.addEventListener('pointerdown', e => {
+                if (e.button !== 0 || tcl.dragging || !orbit.enabled) return;
+                // Only take over if TransformControls is not claiming this event
+                // (joint hits are handled by the previous listener with early return).
+                // At this point either nothing was hit, or we fell through.
+                _ssRot.active = true;
+                _ssRot.lastX = e.clientX;
+                _ssRot.lastY = e.clientY;
+                renderer.domElement.setPointerCapture(e.pointerId);
+            });
+
+            renderer.domElement.addEventListener('pointermove', e => {
+                if (!_ssRot.active) return;
+                const dx = e.clientX - _ssRot.lastX;
+                const dy = e.clientY - _ssRot.lastY;
+                _ssRot.lastX = e.clientX;
+                _ssRot.lastY = e.clientY;
+
+                // Camera's current screen axes
+                _ssRight.setFromMatrixColumn(camera.matrix, 0);  // screen X
+                _ssUp.setFromMatrixColumn(camera.matrix, 1);      // screen Y
+
+                // Build combined quaternion: horizontal → around camera-up, vertical → around camera-right
+                const qH = new THREE.Quaternion().setFromAxisAngle(_ssUp, -dx * ROT_SPEED);
+                const qV = new THREE.Quaternion().setFromAxisAngle(_ssRight, -dy * ROT_SPEED);
+                _ssQ.multiplyQuaternions(qH, qV);
+
+                // Rotate camera position around the orbit target
+                const target = orbit.target;
+                camera.position.sub(target).applyQuaternion(_ssQ).add(target);
+                // Rotate camera's up vector so roll is preserved
+                camera.up.applyQuaternion(_ssQ);
+                camera.lookAt(target);
+            });
+
+            const _stopSsRot = () => { _ssRot.active = false; };
+            renderer.domElement.addEventListener('pointerup', _stopSsRot);
+            renderer.domElement.addEventListener('pointercancel', _stopSsRot);
+
+            document.getElementById('btn-translate').addEventListener('click', () => setTransformMode('translate'));
+            document.getElementById('btn-rotate').addEventListener('click', () => setTransformMode('rotate'));
+            document.getElementById('btn-undo').addEventListener('click', undo);
+            document.getElementById('btn-redo').addEventListener('click', redo);
+
+
+            // Wholebody mode button — shows a hint; actual loading is done via postMessage
+            document.getElementById('btn-wb-mode')?.addEventListener('click', () => {
+                if (currentMode !== 'wholebody') {
+                    showStatus('在 PoseNode 中点击"提取全身 3D（含手+脸）"来加载全身骨骼', 4000);
+                }
+            });
+
+            // Body-shape sliders
+            const _shapeToolbar = document.getElementById('toolbar-body-shape');
+            const _syncShapeToolbar = () => {
+                _shapeToolbar.style.display =
+                    (showMannequin && mannequinGroup) ? 'flex' : 'none';
+            };
+            document.getElementById('sl-head').addEventListener('input', e => {
+                bodyShape.head = parseFloat(e.target.value);
+            });
+            document.getElementById('sl-chest').addEventListener('input', e => {
+                bodyShape.chest = parseFloat(e.target.value);
+            });
+            document.getElementById('sl-hip').addEventListener('input', e => {
+                bodyShape.hip = parseFloat(e.target.value);
+            });
+            // Expose so toggleMannequin can update toolbar visibility
+            window._syncShapeToolbar = _syncShapeToolbar;
+
+            // Appendage buttons (only active in openpose mode)
+            document.getElementById('btn-add-hands')?.addEventListener('click', () => {
+                if (currentMode !== 'openpose') { showStatus('附加手脚仅在 OpenPose 模式下可用', 2000); return; }
+                addOpHands();
+            });
+            document.getElementById('btn-add-feet')?.addEventListener('click', () => {
+                if (currentMode !== 'openpose') { showStatus('附加手脚仅在 OpenPose 模式下可用', 2000); return; }
+                addOpFeet();
+            });
+
+            window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('resize', onResize);
+            window.addEventListener('message', onMessage);
+
+            animate();
+        }
+
+
+        function setTransformMode(m) {
+            tcl.setMode(m);
+            // Translate: hide axis arrows, keep only center free-move ball
+            // Rotate: show all three rings
+            const showAxes = (m !== 'translate');
+            tcl.showX = showAxes;
+            tcl.showY = showAxes;
+            tcl.showZ = showAxes;
+            document.getElementById('btn-translate').classList.toggle('active', m === 'translate');
+            document.getElementById('btn-rotate').classList.toggle('active', m === 'rotate');
+        }
+
+        // ══════════════════════════════════════════════
+        // MODE SWITCHING
+        // ══════════════════════════════════════════════
+        function setMode(mode) {
+            currentMode = mode;
+            tcl.detach();
+            undoStack = []; redoStack = [];
+            document.getElementById('btn-op-mode')?.classList.toggle('active', mode === 'openpose');
+            document.getElementById('btn-wb-mode')?.classList.toggle('active', mode === 'wholebody');
+        }
+
+        // ══════════════════════════════════════════════
+        // OPENPOSE 3D SKELETON
+        // ══════════════════════════════════════════════
+
+        /** Remove all existing OpenPose person groups and appendages from scene */
+        function clearOpenPosePersons() {
+            tcl.detach();
+            clearOpAppendages();
+            for (const { group } of opPersonGroups) scene.remove(group);
+            opPersonGroups = [];
+            jointNodes = jointNodes.filter(n => !n.userData.isOpJoint);
+            boneMeshes = boneMeshes.filter(n => !n.userData.isOpBone);
+            opConnections = [];
+        }
+
+        /**
+         * Add one OpenPose 3D skeleton person to the scene.
+         * offsetX: horizontal offset in world units (for multi-person)
+         */
+        function addOpenPosePerson(offsetX = 0) {
+            const group = new THREE.Group();
+            group.name = `op_person_${opPersonGroups.length}`;
+
+            const joints = [];
+            for (let i = 0; i < 18; i++) {
+                const [x, y, z] = OP_TPOSE[i];
+                const sphere = new THREE.Mesh(
+                    new THREE.SphereGeometry(JOINT_R_OP, 14, 10),
+                    new THREE.MeshBasicMaterial({ color: OP_JOINT_COLORS[i], depthTest: false })
+                );
+                sphere.renderOrder = 1;
+                sphere.name = `op_joint_${i}`;
+                sphere.position.set(x + offsetX, y, z);
+                sphere.userData.isOpJoint = true;
+                sphere.userData.jointIdx = i;
+                sphere.userData.personIdx = opPersonGroups.length;
+                if ([14, 15, 16, 17].includes(i)) sphere.visible = false;
+                group.add(sphere);
+                joints.push(sphere);
+                jointNodes.push(sphere);
+            }
+
+            // Create limb cylinders
+            const personConns = [];
+            for (let li = 0; li < OP_LIMBS.length; li++) {
+                const [a, b] = OP_LIMBS[li];
+                const bone = makeBoneCylinder(
+                    joints[a].position, joints[b].position,
+                    BONE_R_OP, OP_LIMB_COLORS[li]
+                );
+                bone.name = `op_bone_${li}`;
+                bone.userData.isOpBone = true;
+                if ([14, 15, 16, 17].includes(a) || [14, 15, 16, 17].includes(b)) bone.visible = false;
+                group.add(bone);
+                boneMeshes.push(bone);
+                personConns.push({ jointA: joints[a], jointB: joints[b], boneMesh: bone });
+            }
+            opConnections.push(...personConns);
+
+            scene.add(group);
+            opPersonGroups.push({ group, joints, connections: personConns });
+            saveState();
+            return joints;
+        }
+
+        function removeLastPerson() {
+            if (opPersonGroups.length === 0) return;
+            tcl.detach();
+            const { group, joints, connections } = opPersonGroups.pop();
+            // Remove from global arrays
+            jointNodes = jointNodes.filter(n => !joints.includes(n));
+            opConnections = opConnections.filter(c => !connections.includes(c));
+            scene.remove(group);
+            saveState();
+        }
+
+        function makeBoneCylinder(posA, posB, radius, color) {
+            const dir = new THREE.Vector3().subVectors(posB, posA);
+            const len = Math.max(dir.length(), 1e-4);
+            // Unit cylinder along Y, length=1, will be scaled
+            const mesh = new THREE.Mesh(
+                new THREE.CylinderGeometry(radius, radius, 1, 8),
+                new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, depthTest: false })
+            );
+            mesh.renderOrder = 1;
+            // Position at midpoint
+            mesh.position.copy(new THREE.Vector3().addVectors(posA, posB).multiplyScalar(0.5));
+            mesh.scale.y = len;
+            mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+            return mesh;
+        }
+
+        /** Update all OpenPose bone cylinders to match current joint positions */
+        function updateOpBones() {
+            const up = new THREE.Vector3(0, 1, 0);
+            // Determine the active opPersonGroups context if possible
+            for (const person of opPersonGroups) {
+                const sf = person.scaleFactor || 1.0;
+                // Find connections for this person (by checking joint's personIdx)
+                for (const conn of opConnections) {
+                    if (conn.jointA.userData.personIdx === person.group.name.split('_').pop() * 1 ||
+                        (conn.jointA.parent && conn.jointA.parent.name === person.group.name)) {
+
+                        const { jointA, jointB, boneMesh } = conn;
+                        const pA = jointA.getWorldPosition(new THREE.Vector3());
+                        const pB = jointB.getWorldPosition(new THREE.Vector3());
+                        const dir = new THREE.Vector3().subVectors(pB, pA);
+                        const len = dir.length();
+                        boneMesh.position.copy(new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5));
+                        boneMesh.scale.set(sf, Math.max(len, 1e-4), sf);
+                        if (len > 1e-5) boneMesh.quaternion.setFromUnitVectors(up, dir.normalize());
+                    }
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        // OPENPOSE APPENDAGES (hands + feet)
+        // ══════════════════════════════════════════════
+
+        /** Compute hand local axes from elbow→wrist direction. */
+        function getHandBasis(elbowJoint, wristJoint, isLeft) {
+            const ep = elbowJoint.getWorldPosition(new THREE.Vector3());
+            const wp = wristJoint.getWorldPosition(new THREE.Vector3());
+            const fingerDir = new THREE.Vector3().subVectors(wp, ep).normalize();
+            // sideDir ⊥ fingerDir, in horizontal plane (thumb direction for right hand)
+            let sideDir = new THREE.Vector3().crossVectors(fingerDir, new THREE.Vector3(0, 1, 0)).normalize();
+            if (sideDir.lengthSq() < 0.01) sideDir.set(1, 0, 0);
+            if (isLeft) sideDir.negate();
+            const depthDir = new THREE.Vector3().crossVectors(sideDir, fingerDir).normalize();
+            return { fingerDir, sideDir, depthDir };
+        }
+
+        /** Build 21 hand spheres at the wrist position, oriented by basis. sf = scale factor. */
+        const OP_HAND_TO_MIXAMO = [
+            null, // 0 Wrist is handled separately
+            ['Thumb', 1], ['Thumb', 2], ['Thumb', 3], ['Thumb', 4],
+            ['Index', 1], ['Index', 2], ['Index', 3], ['Index', 4],
+            ['Middle', 1], ['Middle', 2], ['Middle', 3], ['Middle', 4],
+            ['Ring', 1], ['Ring', 2], ['Ring', 3], ['Ring', 4],
+            ['Pinky', 1], ['Pinky', 2], ['Pinky', 3], ['Pinky', 4]
+        ];
+
+        function buildHandSpheres(isLeft, wristWorldPos, basis, sf) {
+            const HAND_R = JOINT_R_OP * 0.55 * sf;
+            const spheres = [];
+            const sidePrefix = isLeft ? 'Left' : 'Right';
+            
+            for (let i = 0; i < HAND_DEFAULT_REL.length; i++) {
+                const wp = new THREE.Vector3();
+                let usedMannequin = false;
+
+                if (showMannequin && mannequinSkeleton) {
+                    if (i === 0) {
+                        // Wrist: map to mixamorigHand bone
+                        const boneName = `mixamorig${sidePrefix}Hand`;
+                        const b = mannequinSkeleton.bones.find(x => x.name === boneName);
+                        if (b) {
+                            b.updateMatrixWorld(true);
+                            b.getWorldPosition(wp);
+                            usedMannequin = true;
+                        }
+                    } else if (OP_HAND_TO_MIXAMO[i]) {
+                        const [fName, bIdx] = OP_HAND_TO_MIXAMO[i];
+                        if (bIdx <= 3) {
+                            const boneName = `mixamorig${sidePrefix}Hand${fName}${bIdx}`;
+                            const b = mannequinSkeleton.bones.find(x => x.name === boneName);
+                            if (b) {
+                                b.updateMatrixWorld(true);
+                                b.getWorldPosition(wp);
+                                usedMannequin = true;
+                            }
+                        } else if (bIdx === 4) {
+                            const b3 = mannequinSkeleton.bones.find(x => x.name === `mixamorig${sidePrefix}Hand${fName}3`);
+                            if (b3) {
+                                if (b3.children && b3.children.length > 0) {
+                                    b3.children[0].updateMatrixWorld(true);
+                                    b3.children[0].getWorldPosition(wp);
+                                    usedMannequin = true;
+                                } else {
+                                    const b2 = mannequinSkeleton.bones.find(x => x.name === `mixamorig${sidePrefix}Hand${fName}2`);
+                                    if (b2) {
+                                        const p2 = b2.getWorldPosition(new THREE.Vector3());
+                                        const p3 = b3.getWorldPosition(new THREE.Vector3());
+                                        const dir = new THREE.Vector3().subVectors(p3, p2);
+                                        wp.copy(p3).add(dir.multiplyScalar(0.8));
+                                        usedMannequin = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!usedMannequin) {
+                    const [rx, ry, rz] = HAND_DEFAULT_REL[i];
+                    const sx = isLeft ? -rx : rx;
+                    wp.copy(wristWorldPos)
+                      .addScaledVector(basis.sideDir, sx * sf)
+                      .addScaledVector(basis.fingerDir, ry * sf)
+                      .addScaledVector(basis.depthDir, rz * sf);
+                }
+
+                const sp = new THREE.Mesh(
+                    new THREE.SphereGeometry(HAND_R, 10, 8),
+                    new THREE.MeshBasicMaterial({ color: fingerColorFor(i), depthTest: false })
+                );
+                sp.renderOrder = 1;
+                sp.position.copy(wp);
+                sp.userData.isOpAppendage = true;
+                sp.userData.appendageKind = isLeft ? 'lhand' : 'rhand';
+                sp.userData.appendageIdx = i;
+                spheres.push(sp);
+                scene.add(sp);
+                jointNodes.push(sp);
+            }
+            return spheres;
+        }
+
+        function createFootGroup(isLeft, sf) {
+            const group = new THREE.Group();
+            group.userData.isFootMesh = true;
+            group.userData.footSide = isLeft ? 'left' : 'right';
+
+            if (footGeometry) {
+                const mat = getFootMat();
+                const footMesh = new THREE.Mesh(footGeometry, mat);
+
+                const normScale = footGeometry.userData.normScale || 1;
+                const totalScale = normScale * sf;
+                footMesh.scale.setScalar(totalScale);
+
+                if (isLeft) {
+                    footMesh.scale.x *= -1;
+                    footMesh.rotation.y = Math.PI / 2;
+                } else {
+                    footMesh.rotation.y = -Math.PI / 2;
+                }
+
+                // 1. 强制更新，确保拿到旋转后的真实包围盒
+                footMesh.updateMatrixWorld(true);
+                const box = new THREE.Box3().setFromObject(footMesh);
+                const size = box.getSize(new THREE.Vector3());
+
+                // 2. 核心：把网格往反方向推，让【脚后跟】准确落在 Group 的原点 (0,0,0)
+                footMesh.position.set(
+                    -(box.min.x + box.max.x) / 2,   // X轴：左右居中
+                    -box.min.y,                     // Y轴：把脚底板抬到原点
+                    -box.min.z                      // Z轴：把脚后跟（最后端）推到原点
+                );
+
+                group.add(footMesh);
+
+                // 3. 告诉系统：现在原点是脚后跟了，脚踝在前面的上方，供骨骼吸附使用
+                group.userData.ankleLocal = new THREE.Vector3((isLeft ? -1 : 1) * size.x * 0.25, size.y * 0.75, size.z * 0.25);
+            } else {
+                // ... 原有的白模生成逻辑保持不变 ...
+                const mat = getFootMat();
+                const S = sf;
+                const sole = new THREE.Mesh(new THREE.BoxGeometry(0.085 * S, 0.038 * S, 0.22 * S), mat);
+                sole.position.set(0, -0.019 * S, 0.06 * S); group.add(sole);
+                const heel = new THREE.Mesh(new THREE.SphereGeometry(0.044 * S, 10, 8), mat);
+                heel.scale.set(1, 0.75, 1); heel.position.set(0, -0.020 * S, -0.055 * S); group.add(heel);
+                const ball = new THREE.Mesh(new THREE.BoxGeometry(0.092 * S, 0.028 * S, 0.055 * S), mat);
+                ball.position.set(0, -0.020 * S, 0.165 * S); group.add(ball);
+                const toeXR = [0.033, 0.019, 0.004, -0.012, -0.028];
+                const toeLen = [0.040, 0.036, 0.032, 0.028, 0.023];
+                for (let i = 0; i < 5; i++) {
+                    const tx = isLeft ? -toeXR[i] : toeXR[i];
+                    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.012 * S, 8, 6), mat);
+                    toe.scale.set(0.85, 0.55, 1.35);
+                    toe.position.set(tx * S, -0.014 * S, (0.192 + toeLen[i] * 0.5) * S);
+                    group.add(toe);
+                }
+                // 白模原本的设计就是以脚踝为中心，所以偏移为 0
+                group.userData.ankleLocal = new THREE.Vector3(0, 0, 0);
+            }
+            return group;
+        }
+        /** Make an appendage bone cylinder between two joint objects. radius in world units. */
+        function makeAppendageBone(jA, jB, color, radius) {
+            const pA = jA.getWorldPosition(new THREE.Vector3());
+            const pB = jB.getWorldPosition(new THREE.Vector3());
+            const bone = makeBoneCylinder(pA, pB, radius || BONE_R_OP * 0.55, color);
+            bone.userData.isOpAppendageBone = true;
+            scene.add(bone);
+            return { mesh: bone, jA, jB };
+        }
+
+        function addOpHands() {
+            if (opPersonGroups.length === 0) return;
+            if (handsActive) { clearOpHands(); return; }
+            const { joints, scaleFactor: sf = 1 } = opPersonGroups[0];
+            // Right hand: elbow=joints[3], wrist=joints[4]
+            const basisR = getHandBasis(joints[3], joints[4], false);
+            const wpR = joints[4].getWorldPosition(new THREE.Vector3());
+            opAppendages.rightHand = buildHandSpheres(false, wpR, basisR, sf);
+            const hr = BONE_R_OP * 0.45 * sf;
+            // Connect body wrist to hand wrist (index 0)
+            opAppendageBones.push(makeAppendageBone(joints[4], opAppendages.rightHand[0], 0xff4444, hr));
+            for (const [a, b] of OP_HAND_CONNECTIONS) {
+                opAppendageBones.push(makeAppendageBone(opAppendages.rightHand[a], opAppendages.rightHand[b], fingerColorFor(a), hr));
+            }
+            // Left hand: elbow=joints[6], wrist=joints[7]
+            const basisL = getHandBasis(joints[6], joints[7], true);
+            const wpL = joints[7].getWorldPosition(new THREE.Vector3());
+            opAppendages.leftHand = buildHandSpheres(true, wpL, basisL, sf);
+            // Connect body wrist to hand wrist (index 0)
+            opAppendageBones.push(makeAppendageBone(joints[7], opAppendages.leftHand[0], 0xff4444, hr));
+            for (const [a, b] of OP_HAND_CONNECTIONS) {
+                opAppendageBones.push(makeAppendageBone(opAppendages.leftHand[a], opAppendages.leftHand[b], fingerColorFor(a), hr));
+            }
+            handsActive = true;
+            document.getElementById('btn-add-hands')?.classList.add('active');
+            initRigidSkeletonBaseline();
+            saveState();
+        }
+
+        function clearOpHands() {
+            for (const sp of [...opAppendages.rightHand, ...opAppendages.leftHand]) {
+                scene.remove(sp);
+                jointNodes = jointNodes.filter(n => n !== sp);
+            }
+            opAppendages.rightHand = [];
+            opAppendages.leftHand = [];
+            const kept = [];
+            for (const b of opAppendageBones) {
+                const kind = b.jA?.userData?.appendageKind || b.jB?.userData?.appendageKind;
+                if (kind === 'lhand' || kind === 'rhand') { scene.remove(b.mesh); }
+                else kept.push(b);
+            }
+            opAppendageBones = kept;
+            handsActive = false;
+            document.getElementById('btn-add-hands')?.classList.remove('active');
+            saveState();
+        }
+
+        function addOpFeet() {
+            if (opPersonGroups.length === 0) return;
+            if (feetActive) { clearOpFeet(); return; }
+            const { joints, scaleFactor: sf = 1 } = opPersonGroups[0];
+
+            const forward = (() => {
+                const rShldr = joints[2].getWorldPosition(new THREE.Vector3());
+                const lShldr = joints[5].getWorldPosition(new THREE.Vector3());
+                let sideDir = new THREE.Vector3().subVectors(lShldr, rShldr);
+                let source = 'shoulder';
+                if (sideDir.lengthSq() < 1e-6) {
+                    const rHip = joints[8].getWorldPosition(new THREE.Vector3());
+                    const lHip = joints[11].getWorldPosition(new THREE.Vector3());
+                    sideDir = new THREE.Vector3().subVectors(lHip, rHip);
+                    source = 'hip';
+                }
+                if (sideDir.lengthSq() > 1e-6) {
+                    sideDir.normalize();
+                    const fwd = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sideDir).normalize();
+                    if (fwd.lengthSq() > 1e-6) {
+                        console.log('[Foot] forward basis', {
+                            source,
+                            rShldr: rShldr.toArray(),
+                            lShldr: lShldr.toArray(),
+                            sideDir: sideDir.toArray(),
+                            forward: fwd.toArray(),
+                        });
+                        return fwd;
+                    }
+                }
+                const fallback = new THREE.Vector3(0, 0, 1);
+                console.log('[Foot] forward fallback', { source, fallback: fallback.toArray() });
+                return fallback;
+            })();
+
+            function placeFoot(isLeft, ankleJoint, kneeJoint) {
+                const wp = ankleJoint.getWorldPosition(new THREE.Vector3());
+                const footGroup = createFootGroup(isLeft, sf);
+
+                // --- 计算脚的初始朝向（朝向相机） ---
+                const up = new THREE.Vector3(0, 1, 0);
+                let forwardCam = new THREE.Vector3();
+                try {
+                    const camPos = new THREE.Vector3();
+                    camera.getWorldPosition(camPos);
+                    forwardCam.subVectors(camPos, wp);
+                    forwardCam.y = 0;
+                    if (forwardCam.lengthSq() > 1e-6) forwardCam.normalize();
+                    else forwardCam.copy(forward);
+                } catch (e) {
+                    forwardCam.copy(forward);
+                }
+                const right = new THREE.Vector3().crossVectors(up, forwardCam).normalize();
+                if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+                const basis = new THREE.Matrix4().makeBasis(right, up, forwardCam);
+
+                // 设置旋转，并把对象加入场景
+                footGroup.setRotationFromMatrix(basis);
+                scene.add(footGroup);
+
+                // --- 【核心修复3】：完美对齐脚踝 ---
+                footGroup.updateMatrixWorld(true);
+
+                // 目标点：骨骼脚踝关节的绝对世界坐标
+                const desiredAnkleWorld = ankleJoint.getWorldPosition(new THREE.Vector3());
+
+                // 当前点：鞋子里记录的“脚踝”经过旋转后的绝对世界坐标
+                const currentAnkleWorld = footGroup.localToWorld(footGroup.userData.ankleLocal.clone());
+
+                // 算出它们之间的距离差，把鞋子直接平移过去
+                const deltaWorld = new THREE.Vector3().subVectors(desiredAnkleWorld, currentAnkleWorld);
+                footGroup.position.add(deltaWorld);
+
+                // 记录放置时的初始四元数，供旋转跟随使用
+                footGroup.userData.initialFootQuaternion = footGroup.quaternion.clone();
+                footGroup.userData.initialAnkleQuaternion = ankleJoint.getWorldQuaternion(new THREE.Quaternion());
+
+                // 记录放置时的小腿方向（膝→踝），用于跟随父关节旋转
+                if (kneeJoint) {
+                    const kneePos = kneeJoint.getWorldPosition(new THREE.Vector3());
+                    const anklePos = ankleJoint.getWorldPosition(new THREE.Vector3());
+                    const shinDir = new THREE.Vector3().subVectors(anklePos, kneePos);
+                    if (shinDir.lengthSq() > 1e-6)
+                        footGroup.userData.initialShinDir = shinDir.normalize();
+                }
+
+                return footGroup;
+            }
+            opFeetMeshes.right = placeFoot(false, joints[10], joints[9]);
+            opFeetMeshes.left = placeFoot(true, joints[13], joints[12]);
+
+            feetActive = true;
+            document.getElementById('btn-add-feet')?.classList.add('active');
+        }
+
+        function clearOpFeet() {
+            if (opFeetMeshes.right) { scene.remove(opFeetMeshes.right); opFeetMeshes.right = null; }
+            if (opFeetMeshes.left) { scene.remove(opFeetMeshes.left); opFeetMeshes.left = null; }
+            if (tcl.object?.userData?.isFootMesh) tcl.detach();
+            feetActive = false;
+            document.getElementById('btn-add-feet')?.classList.remove('active');
+        }
+
+        function clearOpAppendages() {
+            clearOpHands();
+            clearOpFeet();
+        }
+
+        /** Update all appendage bone cylinders to follow moved joints. */
+        function updateOpAppendageBones() {
+            const up = new THREE.Vector3(0, 1, 0);
+            for (const { mesh, jA, jB } of opAppendageBones) {
+                const pA = jA.getWorldPosition(new THREE.Vector3());
+                const pB = jB.getWorldPosition(new THREE.Vector3());
+                const dir = new THREE.Vector3().subVectors(pB, pA);
+                const len = dir.length();
+                mesh.position.copy(new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5));
+                mesh.scale.set(1, Math.max(len, 1e-4), 1);
+                if (len > 1e-5) mesh.quaternion.setFromUnitVectors(up, dir.normalize());
+            }
+        }
+
+        /** Update foot meshes to follow ankle joints (position + rotation). */
+        function updateOpFootMeshes() {
+            if (!feetActive || !opPersonGroups.length) return;
+            const { joints } = opPersonGroups[0];
+
+            function syncFoot(g, ankleJoint, kneeJoint) {
+                if (!g || !ankleJoint) return;
+
+                // 1. Rotation: follow shin direction (knee → ankle) so the foot
+                //    rotates when parent joints (hip/knee) move via FK.
+                //    User's manual ankle rotation is applied on top.
+                if (g.userData.initialFootQuaternion) {
+                    let baseQ = g.userData.initialFootQuaternion.clone();
+
+                    if (kneeJoint && g.userData.initialShinDir) {
+                        const kneePos = kneeJoint.getWorldPosition(new THREE.Vector3());
+                        const anklePos = ankleJoint.getWorldPosition(new THREE.Vector3());
+                        const currentShin = new THREE.Vector3().subVectors(anklePos, kneePos);
+                        if (currentShin.lengthSq() > 1e-6) {
+                            currentShin.normalize();
+                            const shinDelta = new THREE.Quaternion().setFromUnitVectors(
+                                g.userData.initialShinDir, currentShin);
+                            baseQ.premultiply(shinDelta);
+                        }
+                    }
+
+                    // Apply user's manual ankle rotation as additional offset
+                    if (g.userData.initialAnkleQuaternion) {
+                        const q0 = g.userData.initialAnkleQuaternion;
+                        const q1 = ankleJoint.getWorldQuaternion(new THREE.Quaternion());
+                        const manualDelta = q1.clone().multiply(q0.clone().invert());
+                        baseQ.premultiply(manualDelta);
+                    }
+
+                    g.quaternion.copy(baseQ);
+                    g.updateMatrixWorld(true);
+                }
+
+                // 2. Position: re-align ankleLocal to ankle joint's world position
+                const desiredAnkleWorld = ankleJoint.getWorldPosition(new THREE.Vector3());
+                if (g.userData.ankleLocal) {
+                    const currentAnkleWorld = g.localToWorld(g.userData.ankleLocal.clone());
+                    const delta = new THREE.Vector3().subVectors(desiredAnkleWorld, currentAnkleWorld);
+                    g.position.add(delta);
+                } else {
+                    g.position.copy(desiredAnkleWorld);
+                }
+            }
+
+            syncFoot(opFeetMeshes.right, joints[10], joints[9]);
+            syncFoot(opFeetMeshes.left, joints[13], joints[12]);
+        }
+
+        // ══════════════════════════════════════════════
+        // WHOLEBODY MODE (MediaPipe body + hands + face)
+        // ══════════════════════════════════════════════
+
+        function clearWholebody() {
+            tcl.detach();
+            if (wbGroup) { scene.remove(wbGroup); wbGroup = null; }
+            jointNodes = jointNodes.filter(n => !n.userData.isWbJoint);
+            boneMeshes = boneMeshes.filter(n => !n.userData.isWbBone);
+            wbJoints = { body: [], leftHand: [], rightHand: [], face: [] };
+            wbBones = [];
+            wbData = null;
+            undoStack = []; redoStack = [];
+        }
+
+        function makeWbSphere(x, y, z, radius, color, userDataExtra) {
+            const mesh = new THREE.Mesh(
+                new THREE.SphereGeometry(radius, 10, 8),
+                new THREE.MeshBasicMaterial({ color, depthTest: false })
+            );
+            mesh.renderOrder = 1;
+            mesh.position.set(x, y, z);
+            mesh.userData.isWbJoint = true;
+            Object.assign(mesh.userData, userDataExtra);
+            jointNodes.push(mesh);
+            return mesh;
+        }
+
+        function makeWbBone(a, b, color) {
+            const bone = makeBoneCylinder(a.position, b.position, 0.006, color);
+            bone.userData.isWbBone = true;
+            boneMeshes.push(bone);
+            return bone;
+        }
+
+        function updateWbBones() {
+            for (const { mesh, jA, jB } of wbBones) {
+                const pA = jA.getWorldPosition(new THREE.Vector3());
+                const pB = jB.getWorldPosition(new THREE.Vector3());
+                const dir = new THREE.Vector3().subVectors(pB, pA);
+                const len = dir.length();
+                mesh.position.copy(new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5));
+                mesh.scale.set(1, Math.max(len, 1e-4), 1);
+                if (len > 1e-5) mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+            }
+        }
+
+        function fingerColorFor(handLandmarkIdx) {
+            // Map hand landmark index to finger color
+            if (handLandmarkIdx <= 4) return HAND_FINGER_COLORS[0]; // thumb
+            if (handLandmarkIdx <= 8) return HAND_FINGER_COLORS[1]; // index
+            if (handLandmarkIdx <= 12) return HAND_FINGER_COLORS[2]; // middle
+            if (handLandmarkIdx <= 16) return HAND_FINGER_COLORS[3]; // ring
+            return HAND_FINGER_COLORS[4]; // pinky
+        }
+
+        function loadWholebodyJSON(data, bgUrl) {
+            clearWholebody();
+            setMode('wholebody');
+            wbData = data;
+            wbGroup = new THREE.Group();
+            wbGroup.name = 'wholebody';
+
+            // ── Body joints ────────────────────────────────────────────────────────
+            const bodyColors = [
+                0xff4444, 0xff8c00, 0xffdd00, 0x88ff44, 0x44ffdd, 0x44aaff, 0x8866ff, 0xff44cc,
+                0xff6666, 0xffaa44, 0xffee66, 0xaaff66, 0x66ffee, 0x66ccff, 0xaa88ff, 0xff66ee,
+                0xff8888, 0xffcc88, 0xffff88, 0xccff88, 0x88ffee, 0x88ddff, 0xccaaff, 0xff88ee,
+                0xffaaaa, 0xffddaa, 0xffffaa, 0xddffaa, 0xaaffff, 0xaaddff, 0xddccff, 0xffaaff,
+                0xffcccc,
+            ];
+            const BODY_R = 0.022;
+            for (let i = 0; i < data.body.length; i++) {
+                const [x, y, z] = data.body[i];
+                const col = bodyColors[i % bodyColors.length];
+                const sp = makeWbSphere(x, y, z, BODY_R, col, { wbKind: 'body', wbIdx: i });
+                wbGroup.add(sp);
+                wbJoints.body.push(sp);
+            }
+            // Body bone cylinders
+            for (const [a, b] of data.body_connections) {
+                if (a >= wbJoints.body.length || b >= wbJoints.body.length) continue;
+                const bone = makeWbBone(wbJoints.body[a], wbJoints.body[b], 0x888888);
+                wbGroup.add(bone);
+                wbBones.push({ mesh: bone, jA: wbJoints.body[a], jB: wbJoints.body[b] });
+            }
+
+            // ── Hand joints ────────────────────────────────────────────────────────
+            const HAND_R = 0.012;
+            function addHand(pts, connList, store, sideColor) {
+                if (!pts || pts.length === 0) return;
+                const spheres = [];
+                for (let i = 0; i < pts.length; i++) {
+                    const [x, y, z] = pts[i];
+                    const col = fingerColorFor(i);
+                    const sp = makeWbSphere(x, y, z, HAND_R, col, { wbKind: store === wbJoints.leftHand ? 'lhand' : 'rhand', wbIdx: i });
+                    wbGroup.add(sp);
+                    spheres.push(sp);
+                    store.push(sp);
+                }
+                for (const [a, b] of connList) {
+                    if (a >= spheres.length || b >= spheres.length) continue;
+                    const col = fingerColorFor(a);
+                    const bone = makeWbBone(spheres[a], spheres[b], col);
+                    wbGroup.add(bone);
+                    wbBones.push({ mesh: bone, jA: spheres[a], jB: spheres[b] });
+                }
+            }
+            addHand(data.left_hand, data.hand_connections, wbJoints.leftHand, 0x4d96ff);
+            addHand(data.right_hand, data.hand_connections, wbJoints.rightHand, 0xffd93d);
+
+            // ── Face key landmarks ─────────────────────────────────────────────────
+            const FACE_R = 0.007;
+            if (data.face && data.face.length > 0) {
+                const faceSpheres = [];
+                for (let i = 0; i < data.face.length; i++) {
+                    const [x, y, z] = data.face[i];
+                    const sp = makeWbSphere(x, y, z, FACE_R, 0xdddddd, { wbKind: 'face', wbIdx: i });
+                    wbGroup.add(sp);
+                    faceSpheres.push(sp);
+                    wbJoints.face.push(sp);
+                }
+                for (const [a, b] of data.face_connections) {
+                    if (a >= faceSpheres.length || b >= faceSpheres.length) continue;
+                    const bone = makeWbBone(faceSpheres[a], faceSpheres[b], 0x888888);
+                    wbGroup.add(bone);
+                    wbBones.push({ mesh: bone, jA: faceSpheres[a], jB: faceSpheres[b] });
+                }
+            }
+
+            scene.add(wbGroup);
+
+            // Auto-frame camera
+            camera.position.set(0, 0.85, 3.5);
+            orbit.target.set(0, 0.85, 0);
+            orbit.update();
+
+            if (bgUrl) loadBg(bgUrl);
+            saveState();
+            window.parent.postMessage({ type: 'MODEL_LOADED' }, '*');
+            showStatus('全身骨骼已加载 — 可直接拖拽调整手指 / 面部关节', 3000);
+        }
+
+        // Update wholebody bones every frame (called from animate loop)
+        function tickWholebodyBones() {
+            if (currentMode !== 'wholebody') return;
+            updateWbBones();
+        }
+
+        // ══════════════════════════════════════════════
+        // UNDO / REDO
+        // ══════════════════════════════════════════════
+        // JOINT LIMB CONSTRAINTS (OpenPose mode)
+        // Prevent each joint from being dragged further from its kinematic parent
+        // than the natural body proportion allows, keeping the OP skeleton in sync
+        // with the mannequin mesh.  Ratios = max_segment / body_height, derived from
+        // T-pose with a ~15 % margin for flexibility.
+        // ══════════════════════════════════════════════
+        // Limb constraints for non-root joints (shoulders → elbows → wrists,
+        // knees → ankles). Root joints (neck=1, hips=8/11) are handled separately
+        // below with non-circular body-height references.
+        const JOINT_LIMB_CONSTRAINTS = {
+            0: { parent: 1, maxRatio: 0.32 },  // Nose      ← Neck
+            2: { parent: 1, maxRatio: 0.45 },  // RShoulder ← Neck
+            5: { parent: 1, maxRatio: 0.45 },  // LShoulder ← Neck
+            3: { parent: 2, maxRatio: 0.65 },  // RElbow    ← RShoulder
+            6: { parent: 5, maxRatio: 0.65 },  // LElbow    ← LShoulder
+            4: { parent: 3, maxRatio: 0.65 },  // RWrist    ← RElbow
+            7: { parent: 6, maxRatio: 0.65 },  // LWrist    ← LElbow
+            9: { parent: 8, maxRatio: 0.90 },  // RKnee     ← RHip
+            12: { parent: 11, maxRatio: 0.90 },  // LKnee     ← LHip
+            10: { parent: 9, maxRatio: 0.93 },  // RAnkle    ← RKnee
+            13: { parent: 12, maxRatio: 0.93 },  // LAnkle    ← LKnee
+        };
+        // Hips (8,11) handled as a rigid pair separately; all others processed root→leaf.
+        const CONSTRAINT_TOPO_ORDER = [0, 2, 5, 3, 6, 9, 12, 4, 7, 10, 13];
+
+        let rigidLengths = null;
+
+        function initRigidSkeletonBaseline() {
+            if (opPersonGroups.length === 0 || opPersonGroups[0].joints.length < 14) return;
+            const j = opPersonGroups[0].joints;
+            const getWP = i => j[i].getWorldPosition(new THREE.Vector3());
+
+            const symMax = (a1, a2, b1, b2) => {
+                const distA = getWP(a1).distanceTo(getWP(a2));
+                const distB = getWP(b1).distanceTo(getWP(b2));
+                return Math.max(distA, distB);
+            };
+
+            const rHip = getWP(8);
+            const lHip = getWP(11);
+            const rSh = getWP(2);
+            const lSh = getWP(5);
+            const neck = getWP(1);
+            const hipMid = rHip.clone().add(lHip).multiplyScalar(0.5);
+
+            rigidLengths = {
+                upperArm: symMax(2, 3, 5, 6),
+                lowerArm: symMax(3, 4, 6, 7),
+                thigh: symMax(8, 9, 11, 12),
+                calf: symMax(9, 10, 12, 13),
+                neck: getWP(1).distanceTo(getWP(0)),
+                bodyH: neck.distanceTo(hipMid),
+                hipSpread: rHip.distanceTo(lHip),
+                shoulderSpread: rSh.distanceTo(lSh)
+            };
+
+            if (typeof handsActive !== 'undefined' && handsActive && typeof opAppendages !== 'undefined') {
+                const initHand = (handSpheres, bodyWristIdx) => {
+                    if (!handSpheres || handSpheres.length === 0) return null;
+                    const getHWP = i => handSpheres[i].getWorldPosition(new THREE.Vector3());
+                    const lengths = [];
+                    for (const [a, b] of OP_HAND_CONNECTIONS) {
+                        lengths.push({a, b, len: getHWP(a).distanceTo(getHWP(b))});
+                    }
+                    const baseOffsets = [1, 5, 9, 13, 17].map(idx => ({ idx, len: getHWP(idx).distanceTo(getHWP(0)) }));
+                    // Distance from body wrist to hand wrist (index 0)
+                    const bodyWristWP = j[bodyWristIdx].getWorldPosition(new THREE.Vector3());
+                    const wristToHand = bodyWristWP.distanceTo(getHWP(0));
+                    return { lengths, baseOffsets, wristToHand, bodyWristIdx };
+                };
+                rigidLengths.rHand = initHand(opAppendages.rightHand, 4);
+                rigidLengths.lHand = initHand(opAppendages.leftHand, 7);
+            }
+
+            enforceRigidLengths(true);
+        }
+
+        function enforceRigidLengths(forceAll = false) {
+            if (currentMode !== 'openpose' || opPersonGroups.length === 0 || !rigidLengths) return;
+            const joints = opPersonGroups[0].joints;
+            if (joints.length < 14) return;
+            
+            const activeIdx = forceAll ? -1 : (typeof draggedJoint !== 'undefined' && draggedJoint ? draggedJoint.userData.jointIdx : _lastDraggedIdx);
+            const getWP = i => joints[i].getWorldPosition(new THREE.Vector3());
+
+            const getOpDesc = (idx, excludeBranches = []) => {
+                const res = [];
+                for (const [a, b] of OP_LIMBS) {
+                    if (a === idx && !excludeBranches.includes(b)) {
+                        res.push(b);
+                        res.push(...getOpDesc(b, excludeBranches));
+                    }
+                }
+                return res;
+            };
+            
+            const translateNodeAndDesc = (idx, deltaWorld, excludeBranches = []) => {
+                if (deltaWorld.lengthSq() < 1e-8) return;
+                const toMove = [idx, ...getOpDesc(idx, excludeBranches)];
+                for (const c of toMove) {
+                    if (c >= joints.length) continue;
+                    const j = joints[c];
+                    const wp = j.getWorldPosition(new THREE.Vector3()).add(deltaWorld);
+                    if (j.parent) j.parent.worldToLocal(wp);
+                    j.position.copy(wp);
+                    j.updateMatrixWorld(true);
+                    
+                    if (c === 4 && typeof opAppendages !== 'undefined' && opAppendages.rightHand) {
+                        opAppendages.rightHand.forEach(s => { s.position.add(deltaWorld); s.updateMatrixWorld(true); });
+                    }
+                    if (c === 7 && typeof opAppendages !== 'undefined' && opAppendages.leftHand) {
+                        opAppendages.leftHand.forEach(s => { s.position.add(deltaWorld); s.updateMatrixWorld(true); });
+                    }
+                }
+            };
+
+            const projectRigid = (childIdx, parentIdx, targetLength) => {
+                if (!forceAll && activeIdx !== childIdx && activeIdx !== parentIdx) return;
+                
+                const parentWP = getWP(parentIdx);
+                const childWP = getWP(childIdx);
+                const currentDist = childWP.distanceTo(parentWP);
+                
+                if (Math.abs(currentDist - targetLength) > 1e-4) {
+                    let dir = new THREE.Vector3().subVectors(childWP, parentWP);
+                    if (dir.lengthSq() < 1e-6) dir.set(0, -1, 0);
+                    else dir.normalize();
+                    
+                    const newWP = parentWP.clone().addScaledVector(dir, targetLength);
+                    const delta = new THREE.Vector3().subVectors(newWP, childWP);
+                    translateNodeAndDesc(childIdx, delta);
+                }
+            };
+
+            // Hips
+            {
+                const rHipWP = getWP(8), lHipWP = getWP(11);
+                const hipMidC = rHipWP.clone().add(lHipWP).multiplyScalar(0.5);
+                const targetSpread = rigidLengths.hipSpread;
+                const currentSpread = rHipWP.distanceTo(lHipWP);
+                if (Math.abs(currentSpread - targetSpread) > 1e-4) {
+                    if (!forceAll && activeIdx === 8) {
+                        const newWP = lHipWP.clone().addScaledVector(new THREE.Vector3().subVectors(rHipWP, lHipWP).normalize() || new THREE.Vector3(1,0,0), targetSpread);
+                        translateNodeAndDesc(8, new THREE.Vector3().subVectors(newWP, rHipWP));
+                    } else if (!forceAll && activeIdx === 11) {
+                        const newWP = rHipWP.clone().addScaledVector(new THREE.Vector3().subVectors(lHipWP, rHipWP).normalize() || new THREE.Vector3(-1,0,0), targetSpread);
+                        translateNodeAndDesc(11, new THREE.Vector3().subVectors(newWP, lHipWP));
+                    } else {
+                        const scale = targetSpread / Math.max(currentSpread, 1e-5);
+                        [8, 11].forEach(idx => {
+                            const wp = getWP(idx);
+                            const newWP = hipMidC.clone().addScaledVector(new THREE.Vector3().subVectors(wp, hipMidC), scale);
+                            translateNodeAndDesc(idx, new THREE.Vector3().subVectors(newWP, wp));
+                        });
+                    }
+                }
+            }
+
+            // Shoulders
+            {
+                const rShWP = getWP(2), lShWP = getWP(5);
+                const shMidC = rShWP.clone().add(lShWP).multiplyScalar(0.5);
+                const targetSpread = rigidLengths.shoulderSpread;
+                const currentSpread = rShWP.distanceTo(lShWP);
+                if (Math.abs(currentSpread - targetSpread) > 1e-4) {
+                    if (!forceAll && activeIdx === 2) {
+                        const newWP = lShWP.clone().addScaledVector(new THREE.Vector3().subVectors(rShWP, lShWP).normalize() || new THREE.Vector3(1,0,0), targetSpread);
+                        translateNodeAndDesc(2, new THREE.Vector3().subVectors(newWP, rShWP));
+                    } else if (!forceAll && activeIdx === 5) {
+                        const newWP = rShWP.clone().addScaledVector(new THREE.Vector3().subVectors(lShWP, rShWP).normalize() || new THREE.Vector3(-1,0,0), targetSpread);
+                        translateNodeAndDesc(5, new THREE.Vector3().subVectors(newWP, lShWP));
+                    } else {
+                        const scale = targetSpread / Math.max(currentSpread, 1e-5);
+                        [2, 5].forEach(idx => {
+                            const wp = getWP(idx);
+                            const newWP = shMidC.clone().addScaledVector(new THREE.Vector3().subVectors(wp, shMidC), scale);
+                            translateNodeAndDesc(idx, new THREE.Vector3().subVectors(newWP, wp));
+                        });
+                    }
+                }
+            }
+            
+            // Neck to HipMid
+            {
+                const hipMidWP = getWP(8).clone().add(getWP(11)).multiplyScalar(0.5);
+                const neckWP = getWP(1);
+                const targetH = rigidLengths.bodyH;
+                const currentH = neckWP.distanceTo(hipMidWP);
+                if (Math.abs(currentH - targetH) > 1e-4) {
+                    if (!forceAll && activeIdx === 1) { 
+                        // Dragged Neck: move Hips
+                        const newWP = neckWP.clone().addScaledVector(new THREE.Vector3().subVectors(hipMidWP, neckWP).normalize() || new THREE.Vector3(0,-1,0), targetH);
+                        const delta = new THREE.Vector3().subVectors(newWP, hipMidWP);
+                        translateNodeAndDesc(8, delta);
+                        translateNodeAndDesc(11, delta);
+                    } else {
+                        // Dragged Hip (or other): move Neck & Upper Body, EXCLUDING Hips
+                        const newWP = hipMidWP.clone().addScaledVector(new THREE.Vector3().subVectors(neckWP, hipMidWP).normalize() || new THREE.Vector3(0,1,0), targetH);
+                        translateNodeAndDesc(1, new THREE.Vector3().subVectors(newWP, neckWP), [8, 11]);
+                    }
+                }
+            }
+
+            // Head
+            projectRigid(0, 1, rigidLengths.neck);
+
+            // Arms
+            projectRigid(3, 2, rigidLengths.upperArm);
+            projectRigid(6, 5, rigidLengths.upperArm);
+            projectRigid(4, 3, rigidLengths.lowerArm);
+            projectRigid(7, 6, rigidLengths.lowerArm);
+
+            // Legs
+            projectRigid(9, 8, rigidLengths.thigh);
+            projectRigid(12, 11, rigidLengths.thigh);
+            projectRigid(10, 9, rigidLengths.calf);
+            projectRigid(13, 12, rigidLengths.calf);
+
+            // Hand rigid constraints
+            if (typeof handsActive !== 'undefined' && handsActive && (rigidLengths.rHand || rigidLengths.lHand)) {
+                const processHand = (handSpheres, handLengths) => {
+                    const getHWP = i => handSpheres[i].getWorldPosition(new THREE.Vector3());
+                    
+                    const translateHandDesc = (idx, delta) => {
+                        if (delta.lengthSq() < 1e-8) return;
+                        const toMove = [idx];
+                        let changed = true;
+                        while(changed) {
+                            changed = false;
+                            for (const [a, b] of OP_HAND_CONNECTIONS) {
+                                if (toMove.includes(a) && !toMove.includes(b)) {
+                                    toMove.push(b);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        for (const c of toMove) {
+                            const sp = handSpheres[c];
+                            const wp = sp.getWorldPosition(new THREE.Vector3()).add(delta);
+                            if (sp.parent) sp.parent.worldToLocal(wp);
+                            sp.position.copy(wp);
+                            sp.updateMatrixWorld(true);
+                        }
+                    };
+
+                    const projectHandRigid = (childIdx, parentIdx, targetLength) => {
+                        if (!forceAll && typeof draggedJoint !== 'undefined' && draggedJoint !== handSpheres[childIdx] && draggedJoint !== handSpheres[parentIdx]) return;
+                        
+                        const parentWP = getHWP(parentIdx);
+                        const childWP = getHWP(childIdx);
+                        const currentDist = childWP.distanceTo(parentWP);
+                        
+                        if (Math.abs(currentDist - targetLength) > 1e-4) {
+                            let dir = new THREE.Vector3().subVectors(childWP, parentWP);
+                            if (dir.lengthSq() < 1e-6) dir.set(0, -1, 0);
+                            else dir.normalize();
+                            
+                            const newWP = parentWP.clone().addScaledVector(dir, targetLength);
+                            const delta = new THREE.Vector3().subVectors(newWP, childWP);
+                            translateHandDesc(childIdx, delta);
+                        }
+                    };
+
+                    for (const {idx, len} of handLengths.baseOffsets) {
+                        projectHandRigid(idx, 0, len);
+                    }
+                    
+                    for (const {a, b, len} of handLengths.lengths) {
+                        projectHandRigid(b, a, len);
+                    }
+                };
+                
+                if (opAppendages.rightHand && opAppendages.rightHand.length > 0) processHand(opAppendages.rightHand, rigidLengths.rHand);
+                if (opAppendages.leftHand && opAppendages.leftHand.length > 0) processHand(opAppendages.leftHand, rigidLengths.lHand);
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        function saveState() {
+            const state = jointNodes.map(j => ({ x: j.position.x, y: j.position.y, z: j.position.z }));
+            undoStack.push(state);
+            redoStack = [];
+        }
+        function applyState(state) {
+            for (let i = 0; i < jointNodes.length && i < state.length; i++)
+                jointNodes[i].position.set(state[i].x, state[i].y, state[i].z);
+            updateOpBones();
+            updateOpAppendageBones();
+        }
+        function undo() { if (undoStack.length > 1) { redoStack.push(undoStack.pop()); applyState(undoStack[undoStack.length - 1]); } }
+        function redo() { if (redoStack.length > 0) { const s = redoStack.pop(); undoStack.push(s); applyState(s); } }
+
+        // ══════════════════════════════════════════════
+        // BACKGROUND SETUP (for alignment)
+        // ══════════════════════════════════════════════
+        function setupBackground(tex) {
+            if (bgMesh) scene.remove(bgMesh);
+            if (gridHelper) { scene.remove(gridHelper); gridHelper = null; }
+            if (axesHelper) { scene.remove(axesHelper); axesHelper = null; }
+            scene.background = new THREE.Color(0x181818);
+            const w = tex.image.width, h = tex.image.height;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            bgImageWidth = w; bgImageHeight = h;
+            const fovR = 55 * Math.PI / 180;
+            const focal = Math.max(w, h) / (2 * Math.tan(fovR / 2));
+            const vFovR = 2 * Math.atan(h / (2 * focal));
+            const vFovD = vFovR * 180 / Math.PI;
+            const z_bg = -2000;
+            const bgH = 2 * Math.abs(z_bg) * Math.tan(vFovR / 2);
+            const bgW = bgH * (w / h);
+            bgMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(bgW, bgH),
+                new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, depthTest: false, depthWrite: false })
+            );
+            bgMesh.position.set(0, 0, z_bg); bgMesh.renderOrder = -1;
+            scene.add(bgMesh);
+
+            // Update existing camera instead of creating a new one
+            camera.fov = vFovD;
+            camera.aspect = w / h;
+            camera.near = 0.1;
+            camera.far = 100000;
+            camera.position.set(0, 0, 0);
+            camera.updateProjectionMatrix();
+
+            // Update existing OrbitControls
+            orbit.target.set(0, 0, -2000);
+            // orbit.enableRotate stays false; screen-space rotation is always active
+            orbit.update();
+
+            onResize();
+        }
+
+        // ══════════════════════════════════════════════
+        // EXPORT
+        // ══════════════════════════════════════════════
+
+        /** Project 3D OpenPose joints through current camera → render 2D skeleton PNG */
+        function renderOpenPoseFrom3D(W, H) {
+            if (jointNodes.length === 0) return null;
+            const canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+            // Sizes calibrated against 512px ref. Bone middle full-width = `stickwidth`
+            // (Canvas ctx.ellipse radiusY is a half-extent → use stickwidth*0.5 below).
+            // Joint diameter is set to match that same full-width so dots don't look
+            // oversized relative to limbs.
+            const ref = 512;
+            const stickwidth = Math.max(2, Math.round(4 * Math.max(W, H) / ref));
+            const jointR = Math.max(2, Math.round(stickwidth * 0.5));
+
+            // Process each person group
+            const persons = opPersonGroups;
+
+            for (const { joints } of persons) {
+                if (!joints || joints.length < 2) continue;
+                // Project all joints to 2D
+                const kp = joints.map(j => {
+                    const wp = j.getWorldPosition(new THREE.Vector3());
+                    wp.project(camera);          // → NDC [-1, 1]
+                    return {
+                        x: (wp.x * 0.5 + 0.5) * W,
+                        y: (-wp.y * 0.5 + 0.5) * H,
+                        visible: j.visible && wp.z <= 1      // behind camera if z > 1
+                    };
+                });
+                // Draw limbs as tapered ellipses (matches cv2.ellipse + fillConvexPoly
+                // used by upstream OpenPose util.py — fat in middle, points at joints).
+                ctx.globalAlpha = 0.6;
+                for (let li = 0; li < OP_LIMBS.length; li++) {
+                    const [a, b] = OP_LIMBS[li];
+                    if (a >= kp.length || b >= kp.length) continue;
+                    if (!kp[a].visible || !kp[b].visible) continue;
+                    const x1 = kp[a].x, y1 = kp[a].y;
+                    const x2 = kp[b].x, y2 = kp[b].y;
+                    const dx = x2 - x1, dy = y2 - y1;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    if (len < 1) continue;
+                    const mx = (x1 + x2) * 0.5, my = (y1 + y2) * 0.5;
+                    const angle = Math.atan2(dy, dx);
+                    const c = OP_LIMB_COLORS[li];
+                    const r = (c >> 16) & 0xff, g = (c >> 8) & 0xff, bl = c & 0xff;
+                    ctx.fillStyle = `rgb(${r},${g},${bl})`;
+                    ctx.beginPath();
+                    // major radius = length/2 along bone, minor radius = stickwidth/2
+                    ctx.ellipse(mx, my, len * 0.5, stickwidth * 0.5, angle, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // Draw joints
+                ctx.globalAlpha = 1.0;
+                for (let i = 0; i < kp.length; i++) {
+                    if (!kp[i].visible) continue;
+                    const c = OP_JOINT_COLORS[i];
+                    const r = (c >> 16) & 0xff, g = (c >> 8) & 0xff, bl = c & 0xff;
+                    ctx.beginPath(); ctx.arc(kp[i].x, kp[i].y, jointR, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgb(${r},${g},${bl})`; ctx.fill();
+                }
+            }
+            // ── Appendage hands ────────────────────────────────────────────────────
+            if (currentMode === 'openpose') {
+                function drawOpHand(joints, alpha) {
+                    if (!joints || joints.length === 0) return;
+                    const pts = joints.map(j => {
+                        const wp = j.getWorldPosition(new THREE.Vector3());
+                        wp.project(camera);
+                        return { x: (wp.x * 0.5 + 0.5) * W, y: (-wp.y * 0.5 + 0.5) * H, vis: wp.z <= 1 };
+                    });
+                    ctx.globalAlpha = alpha;
+                    for (const [a, b] of OP_HAND_CONNECTIONS) {
+                        if (!pts[a]?.vis || !pts[b]?.vis) continue;
+                        const [r, g, bl] = [(fingerColorFor(a) >> 16) & 0xff, (fingerColorFor(a) >> 8) & 0xff, fingerColorFor(a) & 0xff];
+                        ctx.strokeStyle = `rgb(${r},${g},${bl})`; ctx.lineWidth = Math.max(1, stickwidth * 0.4);
+                        ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke();
+                    }
+                    ctx.globalAlpha = 1;
+                    for (let i = 0; i < pts.length; i++) {
+                        if (!pts[i]?.vis) continue;
+                        const [r, g, bl] = [(fingerColorFor(i) >> 16) & 0xff, (fingerColorFor(i) >> 8) & 0xff, fingerColorFor(i) & 0xff];
+                        ctx.beginPath(); ctx.arc(pts[i].x, pts[i].y, Math.max(2, jointR * 0.6), 0, Math.PI * 2);
+                        ctx.fillStyle = `rgb(${r},${g},${bl})`; ctx.fill();
+                    }
+                }
+                drawOpHand(opAppendages.rightHand, 0.9);
+                drawOpHand(opAppendages.leftHand, 0.9);
+
+                // Feet: render only foot meshes to an offscreen RT, then composite via 'screen'
+                // blending so the black background becomes transparent.
+                const hasFeet = opFeetMeshes.left || opFeetMeshes.right;
+                if (hasFeet) {
+                    const rt = new THREE.WebGLRenderTarget(W, H);
+                    // Hide everything except foot meshes
+                    const hidden = [];
+                    scene.traverse(obj => {
+                        if (!obj.isMesh) return;
+                        const isFoot = (opFeetMeshes.left && isDescendant(obj, opFeetMeshes.left)) ||
+                            (opFeetMeshes.right && isDescendant(obj, opFeetMeshes.right)) ||
+                            obj === opFeetMeshes.left || obj === opFeetMeshes.right;
+                        if (!isFoot) { hidden.push(obj); obj.visible = false; }
+                    });
+                    const oldBg = scene.background;
+                    scene.background = new THREE.Color(0x000000);
+                    tcl.visible = false;
+                    renderer.setRenderTarget(rt);
+                    renderer.render(scene, camera);
+                    renderer.setRenderTarget(null);
+                    tcl.visible = true;
+                    scene.background = oldBg;
+                    hidden.forEach(o => o.visible = true);
+
+                    const buf = new Uint8Array(W * H * 4);
+                    renderer.readRenderTargetPixels(rt, 0, 0, W, H, buf);
+                    rt.dispose();
+
+                    // Flip Y into ImageData
+                    const img = new Uint8ClampedArray(W * H * 4);
+                    for (let row = 0; row < H; row++) {
+                        const srcRow = (H - 1 - row) * W * 4;
+                        for (let col = 0; col < W; col++) {
+                            const s = srcRow + col * 4, d = (row * W + col) * 4;
+                            img[d] = buf[s]; img[d + 1] = buf[s + 1]; img[d + 2] = buf[s + 2]; img[d + 3] = 255;
+                        }
+                    }
+                    const fc = document.createElement('canvas'); fc.width = W; fc.height = H;
+                    fc.getContext('2d').putImageData(new ImageData(img, W, H), 0, 0);
+
+                    // 'screen' blend: black pixels (bg) become transparent, foot pixels shine through
+                    ctx.globalAlpha = 1;
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.drawImage(fc, 0, 0);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+            }
+
+            return canvas.toDataURL('image/png');
+        }
+
+        function isDescendant(obj, ancestor) {
+            let cur = obj.parent;
+            while (cur) { if (cur === ancestor) return true; cur = cur.parent; }
+            return false;
+        }
+
+        /**
+         * Render depth map via two passes:
+         *  Pass 1 — normal scene render to DepthTexture (Three.js handles SkinnedMesh automatically).
+         *  Pass 2 — full-screen quad converts NDC depth → linear grayscale (near=white, far=black).
+         * Skeleton joints/bones are hidden; only mannequin + feet appear.
+         */
+        function renderDepthMap(W, H) {
+            if (jointNodes.length === 0 && !mannequinGroup) return null;
+
+            // ── Bounds from joint positions (reflect current pose) ──────────────────
+            let minZ = Infinity, maxZ = -Infinity;
+            const _bbox = new THREE.Box3();
+            const _corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(),
+            new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+            function expandBoundsFromObject(obj) {
+                _bbox.setFromObject(obj);
+                if (_bbox.isEmpty()) return;
+                const mn = _bbox.min, mx = _bbox.max;
+                _corners[0].set(mn.x, mn.y, mn.z); _corners[1].set(mx.x, mn.y, mn.z);
+                _corners[2].set(mn.x, mx.y, mn.z); _corners[3].set(mx.x, mx.y, mn.z);
+                _corners[4].set(mn.x, mn.y, mx.z); _corners[5].set(mx.x, mn.y, mx.z);
+                _corners[6].set(mn.x, mx.y, mx.z); _corners[7].set(mx.x, mx.y, mx.z);
+                _corners.forEach(c => {
+                    c.applyMatrix4(camera.matrixWorldInverse);
+                    const dv = -c.z;
+                    if (dv < minZ) minZ = dv;
+                    if (dv > maxZ) maxZ = dv;
+                });
+            }
+            [...jointNodes, ...boneMeshes].forEach(expandBoundsFromObject);
+            if (opFeetMeshes.left) expandBoundsFromObject(opFeetMeshes.left);
+            if (opFeetMeshes.right) expandBoundsFromObject(opFeetMeshes.right);
+            opAppendages.leftHand.forEach(expandBoundsFromObject);
+            opAppendages.rightHand.forEach(expandBoundsFromObject);
+
+            const pad = mannequinGroup ? 0.8 : 0.3;
+
+            // shaderNear/shaderFar: tight range around the body → good depth contrast in the output image
+            const shaderNear = (minZ !== Infinity) ? Math.max(0.01, minZ - pad) : 0.1;
+            const shaderFar = (maxZ !== -Infinity) ? maxZ + pad : 20;
+
+            // Camera clip planes: VERY generous so no part of the mannequin is ever clipped.
+            // perspectiveDepthToViewZ in the quad shader must use these same values to unpack correctly.
+            const oldNear = camera.near, oldFar = camera.far;
+            camera.near = 0.01;
+            camera.far = Math.max(shaderFar + 2.0, 20);
+            camera.updateProjectionMatrix();
+            const camNear = camera.near, camFar = camera.far;
+
+            // ── Hide skeleton; show mannequin only (if loaded) ───────────────────────
+            const hiddenForDepth = [];
+            if (mannequinGroup) {
+                [...jointNodes, ...boneMeshes].forEach(obj => {
+                    if (obj.visible) { obj.visible = false; hiddenForDepth.push(obj); }
+                });
+                for (const b of opAppendageBones) {
+                    if (b.mesh.visible) { b.mesh.visible = false; hiddenForDepth.push(b.mesh); }
+                }
+            }
+
+            scene.remove(tcl);
+            const oldBg = scene.background;
+            scene.background = new THREE.Color(0x000000);
+            if (bgMesh) bgMesh.visible = false;
+
+            // ── Pass 1: normal render → DepthTexture ─────────────────────────────────
+            const depthTex = new THREE.DepthTexture(W, H);
+            depthTex.minFilter = THREE.NearestFilter;
+            depthTex.magFilter = THREE.NearestFilter;
+            const rtDepth = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true, depthTexture: depthTex });
+
+            renderer.setRenderTarget(rtDepth);
+            renderer.render(scene, camera);
+            renderer.setRenderTarget(null);
+
+            // ── Pass 2: depth → linear grayscale via full-screen quad ────────────────
+            const rtColor = new THREE.WebGLRenderTarget(W, H);
+            const quadMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    tDepth: { value: depthTex },
+                    camNear: { value: camNear },  // actual projection near — for correct NDC→viewZ unpack
+                    camFar: { value: camFar },  // actual projection far
+                    shaderNear: { value: shaderNear }, // tight body range — for brightness contrast
+                    shaderFar: { value: shaderFar }
+                },
+                depthTest: false, depthWrite: false,
+                vertexShader: `
+            varying vec2 vUv;
+            void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+        `,
+                fragmentShader: `
+            #include <packing>
+            varying vec2 vUv;
+            uniform sampler2D tDepth;
+            uniform float camNear;
+            uniform float camFar;
+            uniform float shaderNear;
+            uniform float shaderFar;
+            void main() {
+                float d = texture2D(tDepth, vUv).r;
+                if (d >= 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+                float viewZ = perspectiveDepthToViewZ(d, camNear, camFar);
+                float t     = clamp((-viewZ - shaderNear) / (shaderFar - shaderNear), 0.0, 1.0);
+                gl_FragColor = vec4(vec3(1.0 - t), 1.0);
+            }
+        `
+            });
+            const quadGeo = new THREE.PlaneGeometry(2, 2);
+            const quadMesh = new THREE.Mesh(quadGeo, quadMat);
+            quadMesh.frustumCulled = false;
+            const quadScene = new THREE.Scene();
+            quadScene.add(quadMesh);
+
+            renderer.setRenderTarget(rtColor);
+            renderer.render(quadScene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1));
+            renderer.setRenderTarget(null);
+
+            // ── Restore ──────────────────────────────────────────────────────────────
+            camera.near = oldNear; camera.far = oldFar; camera.updateProjectionMatrix();
+            scene.background = oldBg; scene.add(tcl);
+            if (bgMesh) bgMesh.visible = true;
+            hiddenForDepth.forEach(obj => { obj.visible = true; });
+
+            // ── Readback + flip Y ────────────────────────────────────────────────────
+            const buf = new Uint8Array(W * H * 4);
+            renderer.readRenderTargetPixels(rtColor, 0, 0, W, H, buf);
+            rtDepth.dispose(); rtColor.dispose(); depthTex.dispose();
+            quadMat.dispose(); quadGeo.dispose();
+
+            const img = new Uint8ClampedArray(W * H * 4);
+            for (let row = 0; row < H; row++) {
+                const srcRow = (H - 1 - row) * W * 4;
+                for (let col = 0; col < W; col++) {
+                    const s = srcRow + col * 4, d2 = (row * W + col) * 4;
+                    img[d2] = buf[s]; img[d2 + 1] = buf[s]; img[d2 + 2] = buf[s]; img[d2 + 3] = 255;
+                }
+            }
+            const c = document.createElement('canvas'); c.width = W; c.height = H;
+            c.getContext('2d').putImageData(new ImageData(img, W, H), 0, 0);
+            return c.toDataURL('image/png');
+        }
+
+        /** Render wholebody OpenPose-style 2D image from current 3D joint positions */
+        function renderWholebodyFrom3D(W, H) {
+            const canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+            function project(mesh) {
+                const wp = mesh.getWorldPosition(new THREE.Vector3());
+                wp.project(camera);
+                return { x: (wp.x * 0.5 + 0.5) * W, y: (-wp.y * 0.5 + 0.5) * H, vis: wp.z <= 1 };
+            }
+            function hexToRGB(hex) { return [(hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff]; }
+
+            // ── Body (subset → COCO-18 for FLUX compatibility) ─────────────────────
+            if (wbJoints.body.length >= 33) {
+                // Build COCO-18 keypoints
+                const coco = new Array(18).fill(null);
+                for (const [bpIdx, cocoIdx] of BP_COCO18) {
+                    if (bpIdx < wbJoints.body.length) coco[cocoIdx] = project(wbJoints.body[bpIdx]);
+                }
+                // Neck = avg of shoulders
+                const rs = project(wbJoints.body[12]), ls = project(wbJoints.body[11]);
+                coco[1] = { x: (rs.x + ls.x) / 2, y: (rs.y + ls.y) / 2, vis: rs.vis && ls.vis };
+
+                // Draw body limbs
+                ctx.globalAlpha = 0.75;
+                for (let li = 0; li < OP_LIMBS.length; li++) {
+                    const [a, b] = OP_LIMBS[li];
+                    if (!coco[a]?.vis || !coco[b]?.vis) continue;
+                    const [r, g, bl] = hexToRGB(OP_LIMB_COLORS[li]);
+                    ctx.strokeStyle = `rgb(${r},${g},${bl})`; ctx.lineWidth = 4;
+                    ctx.beginPath(); ctx.moveTo(coco[a].x, coco[a].y); ctx.lineTo(coco[b].x, coco[b].y); ctx.stroke();
+                }
+                // Draw body joints
+                ctx.globalAlpha = 1;
+                for (let i = 0; i < 18; i++) {
+                    if (!coco[i]?.vis) continue;
+                    const [r, g, bl] = hexToRGB(OP_JOINT_COLORS[i % OP_JOINT_COLORS.length]);
+                    ctx.beginPath(); ctx.arc(coco[i].x, coco[i].y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgb(${r},${g},${bl})`; ctx.fill();
+                }
+            }
+
+            // ── Hands ──────────────────────────────────────────────────────────────
+            function drawHand(joints, connections, alpha) {
+                if (!joints || joints.length === 0) return;
+                const pts = joints.map(j => project(j));
+                ctx.globalAlpha = alpha;
+                for (const [a, b] of connections) {
+                    if (!pts[a]?.vis || !pts[b]?.vis) continue;
+                    const [r, g, bl] = hexToRGB(fingerColorFor(a));
+                    ctx.strokeStyle = `rgb(${r},${g},${bl})`; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
+                for (let i = 0; i < pts.length; i++) {
+                    if (!pts[i]?.vis) continue;
+                    const [r, g, bl] = hexToRGB(fingerColorFor(i));
+                    ctx.beginPath(); ctx.arc(pts[i].x, pts[i].y, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgb(${r},${g},${bl})`; ctx.fill();
+                }
+            }
+            const handConns = wbData?.hand_connections || [];
+            drawHand(wbJoints.leftHand, handConns, 0.85);
+            drawHand(wbJoints.rightHand, handConns, 0.85);
+
+            // ── Face outline ───────────────────────────────────────────────────────
+            if (wbJoints.face.length > 0 && wbData?.face_connections) {
+                const fps = wbJoints.face.map(j => project(j));
+                ctx.globalAlpha = 0.7;
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+                for (const [a, b] of wbData.face_connections) {
+                    if (!fps[a]?.vis || !fps[b]?.vis) continue;
+                    ctx.beginPath(); ctx.moveTo(fps[a].x, fps[a].y); ctx.lineTo(fps[b].x, fps[b].y); ctx.stroke();
+                }
+                ctx.globalAlpha = 1; ctx.fillStyle = '#cccccc';
+                for (const pt of fps) {
+                    if (!pt.vis) continue;
+                    ctx.beginPath(); ctx.arc(pt.x, pt.y, 1.5, 0, Math.PI * 2); ctx.fill();
+                }
+            }
+
+            ctx.globalAlpha = 1;
+            return canvas.toDataURL('image/png');
+        }
+
+        function exportAll() {
+            const W = bgImageWidth > 0 ? bgImageWidth : window.innerWidth;
+            const H = bgImageHeight > 0 ? bgImageHeight : window.innerHeight;
+
+            const depthDataUrl = renderDepthMap(W, H);
+
+            if (currentMode === 'wholebody') {
+                const dataUrl = renderWholebodyFrom3D(W, H);
+                const wbJointData = {
+                    body: wbJoints.body.map(j => { const p = j.getWorldPosition(new THREE.Vector3()); return [p.x, p.y, p.z]; }),
+                    leftHand: wbJoints.leftHand.map(j => { const p = j.getWorldPosition(new THREE.Vector3()); return [p.x, p.y, p.z]; }),
+                    rightHand: wbJoints.rightHand.map(j => { const p = j.getWorldPosition(new THREE.Vector3()); return [p.x, p.y, p.z]; }),
+                    face: wbJoints.face.map(j => { const p = j.getWorldPosition(new THREE.Vector3()); return [p.x, p.y, p.z]; }),
+                };
+                window.parent.postMessage({
+                    type: 'GLB_EXPORTED',
+                    data: JSON.stringify({ mode: 'wholebody', joints: wbJointData }),
+                    dataUrl,
+                    depthDataUrl,
+                }, '*');
+                return;
+            }
+
+            // Render OpenPose 2D skeleton
+            const dataUrl = renderOpenPoseFrom3D(W, H);
+
+            const personsData = opPersonGroups.map(({ joints }) =>
+                joints.map(j => { 
+                    if (!j.visible) return { x: 0, y: 0, z: 0 };
+                    const p = j.getWorldPosition(new THREE.Vector3()); 
+                    return { x: p.x, y: p.y, z: p.z }; 
+                })
+            );
+            const toXYZ = j => { const p = j.getWorldPosition(new THREE.Vector3()); return [p.x, p.y, p.z]; };
+            const footTransform = (group) => {
+                if (!group) return null;
+                const p = new THREE.Vector3(); group.getWorldPosition(p);
+                const q = new THREE.Quaternion(); group.getWorldQuaternion(q);
+                return { position: [p.x, p.y, p.z], quaternion: [q.x, q.y, q.z, q.w] };
+            };
+            const appendagesData = {
+                rightHand: opAppendages.rightHand.map(toXYZ),
+                leftHand: opAppendages.leftHand.map(toXYZ),
+                rightFoot: footTransform(opFeetMeshes.right),
+                leftFoot: footTransform(opFeetMeshes.left),
+            };
+            window.parent.postMessage({
+                type: 'GLB_EXPORTED',
+                data: JSON.stringify({ mode: 'openpose', persons: personsData, appendages: appendagesData }),
+                dataUrl,
+                depthDataUrl,
+            }, '*');
+        }
+
+        // ══════════════════════════════════════════════
+        // CAMERA RESET
+        // ══════════════════════════════════════════════
+        function resetCamera() {
+            camera.up.set(0, 1, 0);
+            if (bgImageWidth > 0 && bgImageHeight > 0) {
+                camera.position.set(0, 0, 0);
+                orbit.target.set(0, 0, -2000);
+            } else {
+                camera.position.set(0, 0.85, 3.5);
+                orbit.target.set(0, 0.85, 0);
+            }
+            orbit.update();
+        }
+
+        // ══════════════════════════════════════════════
+        // MESSAGE HANDLER
+        // ══════════════════════════════════════════════
+        function onMessage(e) {
+            const msg = e.data;
+            if (!msg?.type) return;
+
+            switch (msg.type) {
+                case 'INIT_MODE': {
+                    // msg.mode: 'openpose' | 'wholebody'   msg.bgUrl?: string
+                    const mode = msg.mode || 'openpose';
+                    setMode(mode);
+                    if (mode === 'openpose' && opPersonGroups.length === 0) {
+                        addOpenPosePerson(0);
+                        saveState();
+                    }
+                    if (msg.bgUrl) loadBg(msg.bgUrl);
+                    break;
+                }
+                case 'LOAD_OPENPOSE_FROM_SCAIL': {
+                    // Extract 3D joint positions from SCAIL GLB → re-map to OpenPose COCO-18 joints
+                    const lid = ++currentLoadId;
+                    showStatus('提取姿势中...');
+                    if (msg.bgUrl) {
+                        new THREE.TextureLoader().load(msg.bgUrl, tex => {
+                            bgTexture = tex; bgImageWidth = tex.image.width; bgImageHeight = tex.image.height;
+                            setupBackground(tex);
+                            loadScailIntoOpenPose(msg.url, lid);
+                        });
+                    } else {
+                        loadScailIntoOpenPose(msg.url, lid);
+                    }
+                    break;
+                }
+
+                case 'LOAD_OPENPOSE_JSON': {
+                    // Restore a previously saved edited openpose skeleton (msg.data = exportAll JSON)
+                    const jd = msg.data;
+                    if (!jd?.persons) break;
+                    // Clear all existing persons cleanly
+                    while (opPersonGroups.length > 0) {
+                        const { group, joints, connections } = opPersonGroups.pop();
+                        jointNodes = jointNodes.filter(n => !joints.includes(n));
+                        opConnections = opConnections.filter(c => !connections.includes(c));
+                        const groupBoneSet = new Set();
+                        group.traverse(obj => { if (obj.userData?.isOpBone) groupBoneSet.add(obj); });
+                        boneMeshes = boneMeshes.filter(b => !groupBoneSet.has(b));
+                        scene.remove(group);
+                    }
+                    tcl.detach();
+                    setMode('openpose');
+                    console.log('[LOAD_OPENPOSE_JSON] persons:', JSON.stringify(jd.persons).slice(0, 200));
+                    jd.persons.forEach((personData, idx) => {
+                        const joints = addOpenPosePerson(idx * 2);
+                        const personGroup = opPersonGroups[opPersonGroups.length - 1];
+                        // Support { joints:[...] } object OR raw array
+                        const jointArr = Array.isArray(personData) ? personData : personData?.joints;
+                        if (!Array.isArray(jointArr)) {
+                            console.warn('[LOAD_OPENPOSE_JSON] unexpected personData format:', personData);
+                            return;
+                        }
+                        jointArr.forEach((pt, i) => {
+                            if (!joints[i]) return;
+                            const [x, y, z] = Array.isArray(pt) ? pt : [pt.x, pt.y, pt.z];
+                            joints[i].position.set(x, y, z);
+                        });
+                        // Restore visual scale from skeleton world extent (same logic as loadScailIntoOpenPose)
+                        const box = new THREE.Box3();
+                        joints.forEach(j => box.expandByPoint(j.position));
+                        const size = box.getSize(new THREE.Vector3());
+                        const sf = Math.max(size.x, size.y, size.z, 1e-5) / 1.7;
+                        personGroup.scaleFactor = sf;
+                        joints.forEach(j => j.scale.setScalar(sf));
+                    });
+                    updateOpBones();
+                    if (msg.bgUrl) loadBg(msg.bgUrl);
+                    initRigidSkeletonBaseline();   // record actual proportions as constraint target
+                    saveState();
+                    window.parent.postMessage({ type: 'MODEL_LOADED' }, '*');
+                    break;
+                }
+
+                case 'LOAD_WHOLEBODY_JSON': {
+                    // msg.data: parsed JSON from MediaPipe wholebody extractor
+                    // msg.bgUrl?: background image URL
+                    showStatus('加载全身骨骼...');
+                    loadWholebodyJSON(msg.data, msg.bgUrl || null);
+                    break;
+                }
+                case 'LOAD_BG_URL':
+                    loadBg(msg.url);
+                    break;
+                case 'EXPORT_GLB':
+                    exportAll();
+                    break;
+                case 'RESET_CAMERA':
+                    resetCamera();
+                    break;
+            }
+        }
+
+        function loadBg(url) {
+            new THREE.TextureLoader().load(url, tex => {
+                bgTexture = tex;
+                setupBackground(tex);
+            });
+        }
+
+        // ══════════════════════════════════════════════
+        // KEYBOARD
+        // ══════════════════════════════════════════════
+        function onKeyDown(e) {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z') { e.shiftKey ? redo() : undo(); }
+                else if (e.key === 'y') redo();
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        // RESIZE
+        // ══════════════════════════════════════════════
+        function onResize() {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (camera.isPerspectiveCamera) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+            }
+        }
+
+        // ══════════════════════════════════════════════
+        // STATUS
+        // ══════════════════════════════════════════════
+        function showStatus(txt, hideMs = 0) {
+            const el = document.getElementById('status');
+            el.textContent = txt; el.style.display = 'block'; el.style.opacity = '1';
+            if (hideMs > 0) setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.style.display = 'none', 300); }, hideMs);
+        }
+
+        // NLF joint index → COCO-18 joint index (from nlf_render.py process_data_to_COCO_format)
+        // NLF has 24 joints (0-23); SCAIL GLB names them joint_N where N = NLF index
+        const NLF_TO_COCO18 = {
+            15: 0,  // Nose (NLF head)
+            12: 1,  // Neck
+            17: 2,  // R.Shoulder  (NLF calls this "left shoulder" in body frame — mirrored)
+            19: 3,  // R.Elbow
+            21: 4,  // R.Wrist
+            16: 5,  // L.Shoulder
+            18: 6,  // L.Elbow
+            20: 7,  // L.Wrist
+            2: 8,  // R.Hip
+            5: 9,  // R.Knee
+            8: 10, // R.Ankle
+            1: 11, // L.Hip
+            4: 12, // L.Knee
+            7: 13, // L.Ankle
+        };
+
+
+        /**
+         * Load a SCAIL GLB, silently extract joint positions, map to COCO-18, then
+         * position the OpenPose sphere joints accordingly. The SCAIL model itself is
+         * never shown — we only use its joint coordinates.
+         */
+        function loadScailIntoOpenPose(url, lid) {
+            new GLTFLoader().load(url, (gltf) => {
+                if (lid !== currentLoadId) return;
+                clearOpAppendages(); // clear stale hand/foot joints from previous pose
+
+                // The SCAIL model coordinates are perfectly aligned with the camera frustum
+                // (with focal length matching the image width/height).
+                // DO NOT center or scale the model, otherwise it will lose alignment!
+                const dummyScene = gltf.scene;
+                const box = new THREE.Box3().setFromObject(dummyScene);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+
+                console.log(`[SCAIL Extract] Original Bounding Box Size:`, size);
+
+                // Ensure the scene's world matrix is updated before extraction
+                dummyScene.updateMatrixWorld(true);
+
+                // OpenPose joints are designed for a 1.7 unit tall person.
+                // Since the extracted person is `maxDim` units tall, we need to scale the
+                // visual size of the spheres and bones so they are visible and clickable!
+                const scaleFactor = maxDim / 1.7;
+                console.log(`[SCAIL Extract] Visual Scale Factor for joints: ${scaleFactor}`);
+
+                // Collect bones from the scaled model
+                const boneNodes = {}; // idx -> node
+                dummyScene.traverse(node => {
+                    if (!node.name.startsWith('bone_')) return;
+                    const idxStr = node.name.slice(5); // 'bone_12' → '12'
+                    const idx = parseInt(idxStr, 10);
+                    if (!isNaN(idx)) {
+                        boneNodes[idx] = node;
+                    }
+                });
+
+                console.log(`[SCAIL Extract] Found ${Object.keys(boneNodes).length} bone nodes`);
+
+                // Helper to extract a bone endpoint (type 0 = start, 1 = end)
+                const getBonePoint = (boneIdx, type) => {
+                    const b = boneNodes[boneIdx];
+                    if (!b) {
+                        console.warn(`[SCAIL Extract] Bone ${boneIdx} not found!`);
+                        return null;
+                    }
+                    // Missing bones have scale.y = 0 or close to 0
+                    if (b.scale.y < 1e-4) {
+                        console.warn(`[SCAIL Extract] Bone ${boneIdx} is missing (scale.y = ${b.scale.y})`);
+                        return null;
+                    }
+
+                    if (type === 0) {
+                        // start = world position of bone
+                        const wp = new THREE.Vector3();
+                        b.getWorldPosition(wp);
+                        return wp;
+                    } else {
+                        // end = start + direction * length
+                        // The bone is a cylinder from (0,0,0) to (0,1,0) in local space
+                        // The matrixWorld already applies scale, rotation, and translation
+                        const localEnd = new THREE.Vector3(0, 1, 0);
+                        return localEnd.applyMatrix4(b.matrixWorld);
+                    }
+                };
+
+                // Reconstruct COCO-18 mapped joints directly from bone endpoints
+                const mapped = {}; // cocoIdx → THREE.Vector3
+                const setMapped = (cocoIdx, boneIdx, type) => {
+                    const wp = getBonePoint(boneIdx, type);
+                    if (wp) {
+                        mapped[cocoIdx] = wp;
+                        console.log(`[SCAIL Extract] Mapped COCO[${cocoIdx}] from Bone[${boneIdx}] Type[${type}] ->`, wp);
+                    }
+                };
+
+                // Map according to draw_seq in ComfyUI-SCAIL-Pose
+                // 0: Neck -> R. Shoulder
+                setMapped(1, 0, 0); // Neck
+                setMapped(2, 0, 1); // R. Shoulder
+                // 1: R. Shoulder -> R. Elbow
+                setMapped(3, 1, 1); // R. Elbow
+                // 2: R. Elbow -> R. Wrist
+                setMapped(4, 2, 1); // R. Wrist
+                // 3: Neck -> L. Shoulder
+                setMapped(5, 3, 1); // L. Shoulder
+                // 4: L. Shoulder -> L. Elbow
+                setMapped(6, 4, 1); // L. Elbow
+                // 5: L. Elbow -> L. Wrist
+                setMapped(7, 5, 1); // L. Wrist
+                // 6: Neck -> R. Hip
+                setMapped(8, 6, 1); // R. Hip
+                // 7: R. Hip -> R. Knee
+                setMapped(9, 7, 1); // R. Knee
+                // 8: R. Knee -> R. Ankle
+                setMapped(10, 8, 1); // R. Ankle
+                // 9: Neck -> L. Hip
+                setMapped(11, 9, 1); // L. Hip
+                // 10: L. Hip -> L. Knee
+                setMapped(12, 10, 1); // L. Knee
+                // 11: L. Knee -> L. Ankle
+                setMapped(13, 11, 1); // L. Ankle
+                // 12: Neck -> Nose
+                setMapped(0, 12, 1); // Nose
+
+                // Fallback: if SCAIL didn't provide R/L ankle bones, derive ankle from
+                // knee and hip positions. This keeps the ankle away from the T-pose
+                // default near the camera origin, so foot meshes are placed in a
+                // reasonable position instead of at the lens.
+                const deriveAnkle = (ankleCoco, kneeCoco, hipCoco) => {
+                    if (mapped[ankleCoco]) return;
+                    const knee = mapped[kneeCoco];
+                    if (!knee) return;
+                    const hip = mapped[hipCoco];
+                    let dir;
+                    let extendDistance;
+
+                    if (hip) {
+                        const hipToKnee = new THREE.Vector3().subVectors(knee, hip);
+                        if (hipToKnee.lengthSq() > 1e-6) {
+                            dir = hipToKnee.clone().normalize();
+                            // Use the actual hip→knee length as a proxy for knee→ankle.
+                            // Actual leg proportions are close enough that this produces
+                            // a reasonable ankle position for missing ankle bones.
+                            extendDistance = hipToKnee.length() * 0.95;
+                        }
+                    }
+
+                    if (!dir) {
+                        dir = new THREE.Vector3(0, -1, 0);
+                        extendDistance = 0.44 * scaleFactor;
+                    }
+
+                    const ankle = knee.clone().addScaledVector(dir, extendDistance);
+                    mapped[ankleCoco] = ankle;
+                    console.log(`[SCAIL Extract] Derived ankle COCO[${ankleCoco}] from knee/hip →`, {
+                        hip: hip ? hip.toArray() : null,
+                        knee: knee.toArray(),
+                        dir: dir.toArray(),
+                        extendDistance,
+                        ankle: ankle.toArray(),
+                    });
+                };
+                deriveAnkle(10, 9, 8);    // R.Ankle ← R.Knee, R.Hip
+                deriveAnkle(13, 12, 11);  // L.Ankle ← L.Knee, L.Hip
+
+                // Ensure at least one OpenPose person exists
+                if (opPersonGroups.length === 0) addOpenPosePerson(0);
+
+                const personGroup = opPersonGroups[0];
+                const { joints } = personGroup;
+                personGroup.scaleFactor = scaleFactor; // Save for bone scaling
+
+                // Apply mapped joints to spheres and scale them visually
+                for (const [cocoIdxStr, wp] of Object.entries(mapped)) {
+                    const cocoIdx = parseInt(cocoIdxStr, 10);
+                    joints[cocoIdx].position.copy(wp);
+                }
+                for (const joint of joints) {
+                    joint.scale.setScalar(scaleFactor);
+                }
+
+                // ── Reconstruct face joints (Nose, Eyes, Ears) ────────────────────
+                // SCAIL often gives no/degenerate face data, and even when bone_12
+                // exists its direction is near-axial to the camera, so deriving the
+                // face scale from neck→nose distance produces offsets smaller than
+                // the joint sphere radius (JOINT_R_OP × scaleFactor) → 5 spheres pile
+                // onto one point. Drive face proportions from `scaleFactor` itself,
+                // mirroring the calibrated T-pose offsets (eye 5cm/5cm, ear 9cm) in
+                // the same units the sphere radii live in.
+                let nose = mapped[0];
+                const neck = mapped[1];
+                const rshldr = mapped[2];
+                const lshldr = mapped[5];
+                const rhip = mapped[8];
+                const lhip = mapped[11];
+
+                if (neck) {
+                    // upDir: nose→neck if face data exists, otherwise extrapolate
+                    // along the spine (midHip → neck).
+                    let upDir = null;
+                    if (nose) {
+                        const d = new THREE.Vector3().subVectors(nose, neck);
+                        if (d.lengthSq() > 1e-6) upDir = d.normalize();
+                    }
+                    if (!upDir && rhip && lhip) {
+                        const midHip = new THREE.Vector3().addVectors(rhip, lhip).multiplyScalar(0.5);
+                        const d = new THREE.Vector3().subVectors(neck, midHip);
+                        if (d.lengthSq() > 1e-6) upDir = d.normalize();
+                    }
+                    if (!upDir) upDir = new THREE.Vector3(0, 1, 0);
+
+                    // sideDir: right shoulder → left shoulder (OpenPose convention)
+                    let sideDir;
+                    if (rshldr && lshldr) {
+                        const d = new THREE.Vector3().subVectors(rshldr, lshldr);
+                        sideDir = d.lengthSq() > 1e-6 ? d.normalize() : new THREE.Vector3(1, 0, 0);
+                    } else {
+                        sideDir = new THREE.Vector3(1, 0, 0);
+                    }
+                    // Orthonormalize side against up
+                    sideDir.addScaledVector(upDir, -sideDir.dot(upDir));
+                    if (sideDir.lengthSq() < 1e-6) sideDir.set(1, 0, 0);
+                    sideDir.normalize();
+
+                    // forwardDir = side × up (the direction the person faces)
+                    const forwardDir = new THREE.Vector3().crossVectors(sideDir, upDir).normalize();
+
+                    // Synthesize nose 15cm above neck along the spine if missing
+                    if (!nose) {
+                        nose = neck.clone().add(upDir.clone().multiplyScalar(0.15 * scaleFactor));
+                        joints[0].position.copy(nose);
+                        mapped[0] = nose;
+                        console.log('[SCAIL Extract] Synthesized Nose from spine -> ', nose);
+                    }
+
+                    // T-pose proportions: eye (±0.05, +0.05) ear (±0.09, 0), with a
+                    // small forward bias on the eyes and slight back bias on the ears.
+                    const u = scaleFactor;
+                    const rEye = nose.clone()
+                        .add(upDir.clone().multiplyScalar(0.05 * u))
+                        .add(sideDir.clone().multiplyScalar(0.05 * u))
+                        .add(forwardDir.clone().multiplyScalar(0.02 * u));
+                    const lEye = nose.clone()
+                        .add(upDir.clone().multiplyScalar(0.05 * u))
+                        .sub(sideDir.clone().multiplyScalar(0.05 * u))
+                        .add(forwardDir.clone().multiplyScalar(0.02 * u));
+                    const rEar = nose.clone()
+                        .add(sideDir.clone().multiplyScalar(0.09 * u))
+                        .sub(forwardDir.clone().multiplyScalar(0.03 * u));
+                    const lEar = nose.clone()
+                        .sub(sideDir.clone().multiplyScalar(0.09 * u))
+                        .sub(forwardDir.clone().multiplyScalar(0.03 * u));
+
+                    joints[14].position.copy(rEye);
+                    joints[15].position.copy(lEye);
+                    joints[16].position.copy(rEar);
+                    joints[17].position.copy(lEar);
+                    console.log('[SCAIL Extract] Face reconstructed (scaleFactor=' + u.toFixed(1) + ')');
+                }
+
+                // Force bone refresh
+                updateOpBones();
+                initRigidSkeletonBaseline();   // record actual proportions as constraint target
+                saveState();
+
+                const nMapped = Object.keys(mapped).length;
+                showStatus(`已从 SCAIL 导入 ${nMapped}/14 个关节点`, 3000);
+                window.parent.postMessage({ type: 'MODEL_LOADED' }, '*');
+            }, undefined, err => {
+                console.error('loadScailIntoOpenPose error:', err);
+                showStatus('骨骼导入失败', 3000);
+                window.parent.postMessage({ type: 'MODEL_ERROR', error: err.message }, '*');
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (currentMode === 'wholebody') tickWholebodyBones();
+            else updateOpBones();
+            updateOpAppendageBones();
+            updateOpFootMeshes();
+            if (showMannequin && currentMode === 'openpose') poseMannequinFromJoints();
+            renderer.render(scene, camera);
+        }
+
+
+        // ══════════════════════════════════════════════
+        // BOOT
+        // ══════════════════════════════════════════════
+        init();
+        preloadFootFbx();    // non-blocking; foot.fbx ready before user clicks "脚"
+        preloadMannequin();  // non-blocking; anime_basic_female.fbx ready before user clicks "人偶"
+
+        // Default: OpenPose mode with one T-pose person
+        setMode('openpose');
+        addOpenPosePerson(0);
+        initRigidSkeletonBaseline();
+        saveState();
+
+        // Signal ready
+        window.parent.postMessage({ type: 'VIEWER_READY' }, '*');
+    </script>
+</body>
+
+</html>

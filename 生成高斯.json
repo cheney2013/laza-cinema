@@ -1,0 +1,75 @@
+{
+  "1": {
+    "inputs": {
+      "precision": "auto",
+      "checkpoint_path": ""
+    },
+    "class_type": "LoadSharpModel",
+    "_meta": {
+      "title": "Load SHARP Model"
+    }
+  },
+  "2": {
+    "inputs": {
+      "focal_length_mm": 0,
+      "output_prefix": "sharp",
+      "model": [
+        "1",
+        0
+      ],
+      "image": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "SharpPredict",
+    "_meta": {
+      "title": "SHARP Predict (Image to PLY)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "將影像縮放至總像素數"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": ""
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "載入圖片"
+    }
+  },
+  "5": {
+    "inputs": {
+      "preview_gaussian_v2": "",
+      "ply_path": [
+        "2",
+        0
+      ],
+      "extrinsics": [
+        "2",
+        1
+      ],
+      "intrinsics": [
+        "2",
+        2
+      ]
+    },
+    "class_type": "GaussianViewer",
+    "_meta": {
+      "title": "GaussianViewer"
+    }
+  }
+}

@@ -1,0 +1,58 @@
+diff --git a/__init__.py b/__init__.py
+index 33b93ba..c8f0002 100644
+--- a/__init__.py
++++ b/__init__.py
+@@ -14,6 +14,25 @@ except ModuleNotFoundError:
+ else:
+     from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+ 
++    # LOCAL EDIT (ai-cinema, 2026-09-16): this pack re-registers four class
++    # names that comfyui-h3-motion-context already provides, and every finished
++    # TLOU chain in the canvas is built on THAT node's semantics (its
++    # context_length is an enum of 22/5/39/56; this one's is a free INT with
++    # modes). Whichever pack loads last would silently win and change what a
++    # re-render of an accepted shot does. The new capabilities — keyframes,
++    # AV noise masks, interior inserts, the extension controllers — do not
++    # collide and are what this pack was installed for, so only the collisions
++    # are dropped. Remove this block to evaluate its motion-context node, and
++    # disable the other pack while doing so.
++    for _taken in (
++        "MiniMaxH3MotionContext",
++        "MiniMaxH3MotionContextTrim",
++        "MiniMaxH3MotionContextSaveLatent",
++        "MiniMaxH3MotionContextLoadLatent",
++    ):
++        NODE_CLASS_MAPPINGS.pop(_taken, None)
++        NODE_DISPLAY_NAME_MAPPINGS.pop(_taken, None)
++
+ WEB_DIRECTORY = "./js"
+ 
+ __all__ = [
+diff --git a/nodes.py b/nodes.py
+index 5a77aa6..6538fcd 100644
+--- a/nodes.py
++++ b/nodes.py
+@@ -1725,10 +1725,19 @@ NODE_CLASS_MAPPINGS = {
+     "MiniMaxH3Validate24FPSVideo": MiniMaxH3Validate24FPSVideo,
+     "MiniMaxH3AVBridgeTiming": MiniMaxH3AVBridgeTiming,
+     "MiniMaxH3AssembleBridgeAudio": MiniMaxH3AssembleBridgeAudio,
+-    "MiniMaxH3MotionContext": MiniMaxH3MotionContext,
+-    "MiniMaxH3MotionContextTrim": MiniMaxH3MotionContextTrim,
+-    "MiniMaxH3MotionContextSaveLatent": MiniMaxH3MotionContextSaveLatent,
+-    "MiniMaxH3MotionContextLoadLatent": MiniMaxH3MotionContextLoadLatent,
++    # LOCAL EDIT (ai-cinema, 2026-09-16): these four names already belong to
++    # comfyui-h3-motion-context, which every finished TLOU chain was built on,
++    # and the two implementations take different inputs (that pack's Trim takes
++    # audio_fps/trim_audio, this one's takes fps/match_tail). Whichever pack
++    # loads last wins, so leaving both registered silently breaks a re-render of
++    # an accepted shot. The same four are also popped in __init__.py; that guard
++    # turned out to be bypassed for Trim, so they are removed at the source here.
++    # To evaluate this pack's own motion context, restore these four lines and
++    # disable comfyui-h3-motion-context for that run.
++    #   "MiniMaxH3MotionContext": MiniMaxH3MotionContext,
++    #   "MiniMaxH3MotionContextTrim": MiniMaxH3MotionContextTrim,
++    #   "MiniMaxH3MotionContextSaveLatent": MiniMaxH3MotionContextSaveLatent,
++    #   "MiniMaxH3MotionContextLoadLatent": MiniMaxH3MotionContextLoadLatent,
+     "MiniMaxH3CustomKeyframes": MiniMaxH3CustomKeyframes,
+     "MiniMaxH3CustomKeyframesMasked": MiniMaxH3CustomKeyframesMasked,
+     "MiniMaxH3ExistingVideoMaskedContext": MiniMaxH3ExistingVideoMaskedContext,

@@ -1,0 +1,302 @@
+{
+  "comfyui": {
+    "remote": "https://github.com/Comfy-Org/ComfyUI.git",
+    "commit": "f1072eb0350638a3390ddb6afbcaa8c6b237c6fd",
+    "local_commits_over_origin_master": [],
+    "uncommitted_files": [],
+    "version": "0.38.0"
+  },
+  "custom_nodes": [
+    {
+      "name": "aicinema-live-preview",
+      "required": true,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
+      "name": "aicinema_audio_lock",
+      "required": true,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-CrossViewWarp",
+      "required": true,
+      "size_mb": 4.1,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/cseti007/ComfyUI-CrossViewWarp",
+      "commit": "3266a83a84eaa6833a9ebc38ac7cdd8789e44f5b",
+      "modified_files": []
+    },
+    {
+      "name": "comfyui-easy-use",
+      "required": false,
+      "size_mb": 5.7,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-Fantastic-MiniMaxH3-PromptBuilder",
+      "required": false,
+      "size_mb": 5.1,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-FL-MiniMaxH3",
+      "required": true,
+      "size_mb": 1.0,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/filliptm/ComfyUI-FL-MiniMaxH3.git",
+      "commit": "4af2faad32f1a96669e91b657a3304be6f921c31",
+      "modified_files": [
+        "odes/FL_MiniMaxH3TemporalReshot.py",
+        "nodes/FL_MiniMaxH3TemporalReshot.py.bak_20260911",
+        "nodes/FL_MiniMaxH3TemporalReshot.py.bak_20260922"
+      ]
+    },
+    {
+      "name": "ComfyUI-Frame-Interpolation",
+      "required": true,
+      "size_mb": 16.9,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-GaussianPack",
+      "required": false,
+      "size_mb": 82.8,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/PozzettiAndrea/ComfyUI-GaussianPack",
+      "commit": "059313a53ffa7ecc8697eddc02d2cee4727e5085",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-GeometryPack",
+      "required": false,
+      "size_mb": 77.1,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/PozzettiAndrea/ComfyUI-GeometryPack",
+      "commit": "1cbd14431bc88df27e5368f3e375b6bafd09006e",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-H3-AudioRefine",
+      "required": true,
+      "size_mb": 0.2,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-H3-FunControl",
+      "required": false,
+      "size_mb": 0.2,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/wyzborrero/ComfyUI-H3-FunControl.git",
+      "commit": "22a7ec38c4d16a76a8dea53b6e0faa0356f4f220",
+      "modified_files": []
+    },
+    {
+      "name": "comfyui-h3-motion-context",
+      "required": true,
+      "size_mb": 0.4,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/NikoDemon80/ComfyUI-H3-Motion-Context",
+      "commit": "f80e36bc1d7887a143b12e6645313fd6b9cd2aee",
+      "modified_files": [
+        "odes.py"
+      ]
+    },
+    {
+      "name": "ComfyUI-H3-Motion-Context-MultiRef",
+      "required": true,
+      "size_mb": 22.0,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/seitanism/ComfyUI-H3-Motion-Context-MultiRef.git",
+      "commit": "361624fb406b63eb6694442eac6c895fc1533a70",
+      "modified_files": [
+        "_init__.py",
+        "nodes.py"
+      ]
+    },
+    {
+      "name": "ComfyUI-H3-SLA-Attention",
+      "required": false,
+      "size_mb": 0.1,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-HyperFlow-H3",
+      "required": true,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui-itools",
+      "required": false,
+      "size_mb": 5.8,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui-kjnodes",
+      "required": true,
+      "size_mb": 2.7,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-MiniMax-H3-Promptor",
+      "required": false,
+      "size_mb": 0.4,
+      "source": "copy"
+    },
+    {
+      "name": "Comfyui-MMH3-UltimateUpscale",
+      "required": true,
+      "size_mb": 0.3,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale.git",
+      "commit": "8d98e6841dfab65577dcdfe41c15dc731459a90f",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-MoGe2",
+      "required": false,
+      "size_mb": 0.7,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/PozzettiAndrea/ComfyUI-MoGe2",
+      "commit": "6ef48db2c09cce4003571a6f6c8611d91b700da1",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-NLF-Minimal",
+      "required": true,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-PanoPack",
+      "required": false,
+      "size_mb": 71.4,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/PozzettiAndrea/ComfyUI-PanoPack",
+      "commit": "f03bdf7b7d7e1fdc0685c7fd615e299dcdd4ee5f",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-SCAIL-Pose",
+      "required": true,
+      "size_mb": 0.1,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-Sharp",
+      "required": true,
+      "size_mb": 20.4,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/PozzettiAndrea/ComfyUI-Sharp",
+      "commit": "92c0015af61b71e6fd88301cfb336e7034f19796",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-sol-attn",
+      "required": true,
+      "size_mb": 0.2,
+      "source": "git",
+      "remote_reachable": false,
+      "remote": "https://github.com/Saganaki22/ComfyUI-sol-attn.git",
+      "commit": "930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf",
+      "modified_files": []
+    },
+    {
+      "name": "comfyui-spectrum-minimax-h3",
+      "required": false,
+      "size_mb": 0.5,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui-videohelpersuite",
+      "required": true,
+      "size_mb": 0.4,
+      "source": "copy"
+    },
+    {
+      "name": "ComfyUI-Viggle-Animate-H3",
+      "required": true,
+      "size_mb": 4.4,
+      "source": "git",
+      "remote_reachable": false,
+      "remote": "https://github.com/Saganaki22/ComfyUI-Viggle-Animate-H3",
+      "commit": "6ae081af5b3175f99ef7cddebd5dfaf93390ab70",
+      "modified_files": []
+    },
+    {
+      "name": "ComfyUI-WanAnimatePreprocess",
+      "required": true,
+      "size_mb": 0.8,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui-workflow-encrypt",
+      "required": false,
+      "size_mb": 0.3,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui_controlnet_aux",
+      "required": true,
+      "size_mb": 46.6,
+      "source": "copy"
+    },
+    {
+      "name": "comfyui_layerstyle",
+      "required": false,
+      "size_mb": 61.5,
+      "source": "copy"
+    },
+    {
+      "name": "Comfyui_Minimax_h3_latent_Upscaler",
+      "required": false,
+      "size_mb": 8.7,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler.git",
+      "commit": "d7c01b9011f2e8439493f6c02c29995a27df276f",
+      "modified_files": []
+    },
+    {
+      "name": "comfyui_nvidia_rtx_nodes",
+      "required": false,
+      "size_mb": 0.1,
+      "source": "copy"
+    },
+    {
+      "name": "MiniMax_H3_Semantic_Bridge",
+      "required": false,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
+      "name": "muse-minimax-director-seed-hunt",
+      "required": false,
+      "size_mb": 0.3,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/muse-collective-26/MiniMaxH3-Director-Seed-Hunt",
+      "commit": "d07e8408f3809af7d1406a653da3fb44152b0af6",
+      "modified_files": []
+    },
+    {
+      "name": "muse-minimax-refine",
+      "required": false,
+      "size_mb": 0.0,
+      "source": "copy"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# The canvas MCP server (canvas_mcp_server.py) runs on its own Python: mcp needs pydantic 2.11+,
+# which the backend's pins (requirements.txt) rule out. start.ps1 builds .venv-mcp from this file
+# unless AI_CINEMA_MCP_PYTHON in .env names another interpreter that already has these.
+mcp==1.26.0
+httpx>=0.28

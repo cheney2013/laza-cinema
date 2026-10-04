@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3a55"/><stop offset="1" stop-color="#0f1620"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="20" fill="url(#g)"/>
+  <!-- 放大镜：挑逻辑漏洞的老克 -->
+  <circle cx="41" cy="41" r="19" fill="none" stroke="#e8b04b" stroke-width="5"/>
+  <circle cx="41" cy="41" r="19" fill="#e8b04b" opacity="0.12"/>
+  <line x1="55" y1="55" x2="74" y2="74" stroke="#e8b04b" stroke-width="7" stroke-linecap="round"/>
+  <!-- 镜中的一个 bug -->
+  <path d="M34 41h14M41 34v14" stroke="#7fd1c1" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="41" cy="41" r="5.5" fill="none" stroke="#7fd1c1" stroke-width="3"/>
+</svg>
