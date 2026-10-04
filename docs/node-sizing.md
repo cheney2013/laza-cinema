@@ -1,3 +1,21 @@
+# 2026-10-04 更新：高度由卡片自己的排版决定（已迁移的节点）
+
+这份文档下面写的"方程 + 实测控件区高度"是旧模型。黑边、悬浮才恢复、外部写入的高度（整理、MCP、旧存档）留在节点上，都出在它：高度被存下来，又靠一个钩子维护，谁绕过钩子写了值，卡片就停在错的高度上。
+
+新模型（`hooks/useAutoHeightNode.ts` + `NodeShell` 的 `autoHeight`）：
+
+- 节点只存宽度 `data.userWidth`。高度从不存：钩子发现节点上有高度就清掉，交给 React Flow 按排版去量。
+- 画面放在 `aspect-ratio` 等于画面自己比例的盒子里，所以卡片不可能比画面高或矮；控件区、标签、设置抽屉是流内的行，按内容自然排布；编辑视图按内容自然高度，设上下限，超出滚动。
+- 比例来源：已加载媒体自己的尺寸 → `data.width/height` → 16:9。
+- 缩放手柄只改宽度。设置抽屉打开且有画面时，画面隐藏（`mediaHidden`）。
+- MCP 的 `_apply_size` 对这些类型只写宽度（`AUTO_HEIGHT_TYPES`）。
+- 缩小到轮廓模式时，底板用 `cover` 铺封面（`contain` 会因为底板是整张卡片而留黑边）。
+
+已迁移：`charswap`、`video`、`videoEdit`、`image`（上传）、`qwenImage`、`preview`、`imageUpscale`、`videoUpscale`、`videoInterpolate`。
+还在旧模型上（靠 `useAutoFitNode` 监听存的尺寸兜底）：`prompt`、`audioGen`、`audioRefine`、`chainPreview`、`characterSheet`、`depthVideo`、`gaussian`、`gaussianViewer`、`inpaint`、`pose`、`reangle`、`videoCompare`、`videoTrim`、`wardrobeSwap`。其中带画布交互的（遮罩、姿态、高斯预览）迁移前要先确认交互在自然高度下还成立。
+
+---
+
 # 节点尺寸系统重构设计
 
 ## 0. 术语

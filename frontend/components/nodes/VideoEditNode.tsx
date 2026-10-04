@@ -12,7 +12,7 @@ import { useStore } from '@/lib/store';
 import { cardBody, header, label, selectedShadow, defaultShadow } from './PromptNode';
 import NodeShell from './NodeShell';
 import { NodeHeaderIconButton } from './nodeChrome';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import GeneratingLine from './GeneratingLine';
 import VideoPreviewModal from './VideoPreviewModal';
 import { useConnectedInputs } from '@/hooks/useConnectedInputs';
@@ -714,19 +714,17 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
   // 不让长提示词把表单撑成竖条（2026-09-19）
   const firstRender = data.status === 'generating' && !data.generatedUrl;
 
-  const sizing = useNodeSizing({
+  // Only the width is kept. The picture sits in an aspect-ratio box, the editor view is as tall as its content (capped,
+  // then it scrolls), and the settings drawer is a row in the flow: the card's own layout is its height.
+  const sizing = useAutoHeightNode({
     id,
-    type: 'videoEdit',
-    rows: ['header', 'actions', 'settings'],
-    activeRows: [...(showsMedia ? ['header'] : ['header', 'actions']), ...(showSettings ? ['settings'] : [])],
-    paddingX: 0,
-    paddingY: showsMedia ? 0 : 24,
     ratioSources: [
       { width: data.width as number | undefined, height: data.height as number | undefined },
     ],
     hasMedia: showsMedia || firstRender,
+    mediaHidden: showsMedia && showSettings,
     userWidth: data.userWidth as number | undefined,
-    deps: [viewMode, firstRender, showSettings],
+    defaultW: 360,
   });
 
   return (
@@ -735,7 +733,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       {/* 功能区与设置抽屉。抽屉是流内一行：打开撑高节点，关上还原 */}
       <div className="node-shell-headwrap" style={{ position: 'relative', flex: '0 0 auto' }}>
@@ -880,7 +878,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
 
       {/* Main Body */}
       {data.generatedUrl && viewMode === 'preview' ? (
-        <div data-node-media style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
           <div
             style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
             onMouseEnter={() => setIsHovered(true)}
@@ -979,13 +977,13 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
           />
         </div>
       ) : (
-        <div data-node-media={firstRender ? '' : undefined} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media={firstRender ? '' : undefined} style={{ position: 'relative', flex: '0 0 auto', ...(firstRender ? { aspectRatio: String(sizing.ratio) } : null) }}>
           <div
-            style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            style={{ ...cardBody, width: '100%', height: firstRender ? '100%' : 'auto', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
           >
-            <div data-shell-content className="relative z-10 w-full flex-1 min-h-0 p-3.5 flex flex-col justify-between overflow-y-auto space-y-2.5">
+            <div data-shell-content className="relative z-10 w-full flex-1 min-h-[220px] max-h-[640px] p-3.5 flex flex-col justify-between overflow-y-auto space-y-2.5">
               <div>
                 {/* Mode & Config Badges + Preview Toggle */}
                 <div className="flex items-center justify-between mb-2">

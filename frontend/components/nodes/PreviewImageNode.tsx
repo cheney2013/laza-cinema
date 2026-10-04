@@ -6,7 +6,7 @@ import IconHandle from './IconHandle';
 import NodeShell from './NodeShell';
 import { cardBody, header, label, selectedShadow, defaultShadow } from './PromptNode';
 import { useConnectedInputs } from '@/hooks/useConnectedInputs';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import { BACKEND_URL as API_BASE } from '@/lib/config';
 import { t } from '@/lib/i18n';
 
@@ -17,15 +17,13 @@ function PreviewImageNode({ id, data, selected }: NodeProps) {
   const imageUrl = connectedImageNode ? (connectedImageNode.generatedUrl || connectedImageNode.url) : null;
   const currentShadow = selected ? selectedShadow : defaultShadow;
 
-  const sizing = useNodeSizing({
+  const sizing = useAutoHeightNode({
     id,
-    type: 'preview',
-    rows: ['header'],
-    paddingX: 0,
     ratioSources: [
       { width: data.width as number | undefined, height: data.height as number | undefined },
     ],
     userWidth: data.userWidth as number | undefined,
+    defaultW: 320,
   });
 
   // 图片的自然尺寸写进 data，既是比例来源也是下游节点的分辨率依据
@@ -55,7 +53,7 @@ function PreviewImageNode({ id, data, selected }: NodeProps) {
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       <div style={header} data-chrome-row="header" className="node-shell-header">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-zinc-300">
@@ -64,7 +62,7 @@ function PreviewImageNode({ id, data, selected }: NodeProps) {
         </div>
       </div>
 
-      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+      <div style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
         <div style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent' }}>
           <div className="node-shell-media" style={{ position: 'relative', borderRadius: 20, boxShadow: currentShadow, background: 'rgba(0,0,0,0.2)' }}>
             {imageUrl ? (

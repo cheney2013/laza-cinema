@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { useStore } from '@/lib/store';
 import { cardBody, header, label, selectedShadow, defaultShadow } from './PromptNode';
 import NodeShell from './NodeShell';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import GeneratingLine from './GeneratingLine';
 import VideoPreviewModal from './VideoPreviewModal';
 import { useConnectedInputs } from '@/hooks/useConnectedInputs';
@@ -333,15 +333,14 @@ function VideoInterpolateNode({ id, data, selected }: NodeProps<VideoInterpolate
     borderRadius: '6px', transition: 'background 0.2s, color 0.2s',
   };
 
-  const sizing = useNodeSizing({
+  // Only the width is kept; the picture's box has the video's own ratio (hooks/useAutoHeightNode).
+  const sizing = useAutoHeightNode({
     id,
-    type: 'videoInterpolate',
-    rows: ['header', 'settings'],
-    activeRows: showSettings ? ['header', 'settings'] : ['header'],
-    paddingX: 0,
     ratioSources: [{ width: connectedVideoData?.width, height: connectedVideoData?.height }],
     hasMedia: Boolean(data.generatedUrl || sourceVideoUrl),
+    mediaHidden: showSettings,
     userWidth: data.userWidth as number | undefined,
+    defaultW: 320,
   });
 
   return (
@@ -350,7 +349,7 @@ function VideoInterpolateNode({ id, data, selected }: NodeProps<VideoInterpolate
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       <div style={header} data-chrome-row="header" className="node-shell-header">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-zinc-300">
@@ -375,7 +374,7 @@ function VideoInterpolateNode({ id, data, selected }: NodeProps<VideoInterpolate
 
       {data.generatedUrl ? (
         // ── Result view ──────────────────────────────────────────────────────────
-        <div data-node-media style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
           <div
             style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent' }}
             onMouseEnter={() => setIsHovered(true)}
@@ -455,7 +454,7 @@ function VideoInterpolateNode({ id, data, selected }: NodeProps<VideoInterpolate
         </div>
       ) : (
         // ── Idle / no result view ─────────────────────────────────────────────────
-        <div data-node-media style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
           <div
             style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: sourceVideoUrl ? 'transparent' : cardBody.background }}
             onMouseEnter={() => setIsHovered(true)}

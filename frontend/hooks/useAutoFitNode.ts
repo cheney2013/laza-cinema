@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, type MutableRefObject } from 'react';
-import { useReactFlow } from '@xyflow/react';
+import { useReactFlow, useStore as useFlowStore } from '@xyflow/react';
 import { clampNodeSize, solveNodeSize, type NodeSizeSpec } from '@/lib/nodeSizing';
 
 export interface UseAutoFitNodeOptions {
@@ -36,6 +36,16 @@ export function useAutoFitNode(
   { userWidth, contentH = 0, deps = [], enabled = true, growToContent = false, shrinkOnceRef }: UseAutoFitNodeOptions = {},
 ) {
   const { setNodes } = useReactFlow();
+
+  // The size the node carries right now. The effect below runs when the equation's inputs change, so a size written
+  // from outside (a tidy, a canvas edit over MCP, a reload of a saved canvas whose heights were guessed) was never put
+  // back: the card kept a height that did not match its picture, black bars until something else (hovering swaps the
+  // poster for the <video>) re-ran the effect. Watching the stored size re-runs it; once the size is right the string
+  // stops changing and the effect has nothing to do.
+  const storedSize = useFlowStore((s) => {
+    const n = s.nodeLookup.get(id)?.internals.userNode;
+    return n ? `${n.width ?? ''}x${n.height ?? ''}` : '';
+  });
 
   // deps 折成一个定长的 key，而不是 `...deps` 展开进依赖数组。
   // 展开写法有两个毛病：调用方传的数组长度一变就报 "changed size between renders"，
@@ -93,6 +103,7 @@ export function useAutoFitNode(
     enabled,
     growToContent,
     depsKey,
+    storedSize,
   ]);
 }
 

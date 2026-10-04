@@ -595,3 +595,22 @@ class CharswapEngineTests(unittest.TestCase):
         self.assertEqual([t["image_url"] for t in sent["targets"]], ["/uploads/p1.png", "/uploads/p2.png"])
         self.assertEqual(sent["face_frame_seconds"], 0.5)
 
+
+
+class AutoHeightSizeTests(unittest.TestCase):
+    def test_a_swap_node_keeps_only_its_width(self):
+        import canvas_mcp_server as m
+        swap = {"type": "charswap", "data": {"width": 1376, "height": 768}}
+        m._apply_size(swap, {"width": 240, "aspect_ratio": 1.79})
+        self.assertEqual(swap["width"], 240)
+        self.assertNotIn("height", swap)
+        self.assertEqual(swap["data"]["userWidth"], 240)
+        video = {"type": "video", "data": {"width": 1376, "height": 768}}
+        m._apply_size(video, {"width": 360})
+        self.assertNotIn("height", video)
+        image = {"type": "image", "data": {"width": 1376, "height": 768}}
+        m._apply_size(image, {"width": 240})
+        self.assertNotIn("height", image)
+        text = {"type": "prompt", "data": {}}
+        m._apply_size(text, {"width": 240, "height": 180})
+        self.assertEqual(text["height"], 180)          # a text card's height is the user's: still stored

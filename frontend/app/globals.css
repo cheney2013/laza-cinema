@@ -736,7 +736,9 @@ video::-internal-media-controls-picture-in-picture-button {
   z-index: 30;
   border-radius: 18px;
   /* The card's picture (--lod-thumb, set by NodeShell), so cards can be told apart. */
-  background: var(--lod-thumb, none) center / contain no-repeat, #16161d;
+  /* cover, not contain: the plate is the whole card (chrome rows and picture), whose ratio is never the picture's, so contain
+     left black bars above and below or at the sides. */
+  background: var(--lod-thumb, none) center / cover no-repeat, #16161d;
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
 }
 /* An unset alias shows as a "+ 别名" button on the selected card; zoomed out it is
@@ -752,7 +754,7 @@ video::-internal-media-controls-picture-in-picture-button {
 .canvas-lod .node-shell .node-alias-tag,
 .canvas-lod .node-shell .node-bible-tab { z-index: 31 !important; }
 .canvas-lod .react-flow__node.selected .node-shell::after {
-  background: var(--lod-thumb, none) center / contain no-repeat, #1d1d27;
+  background: var(--lod-thumb, none) center / cover no-repeat, #1d1d27;
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.9);
 }
 /* Audio strips keep a working play button zoomed out: as tall as the node, over
@@ -880,3 +882,4 @@ video::-internal-media-controls-picture-in-picture-button {
   .react-flow__panel.bottom { margin-bottom: 68px; }
   .react-flow__minimap { transform: scale(0.62); transform-origin: right bottom; }
 }
+

@@ -12,7 +12,7 @@ import { cardBody, header, label, selectedShadow, defaultShadow } from './Prompt
 import NodeShell from './NodeShell';
 import { NodeHeaderIconButton } from './nodeChrome';
 import { BoltIcon, GearIcon, SparkIcon } from '@/components/ui/icons';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import GeneratingLine from './GeneratingLine';
 import VideoPreviewModal from './VideoPreviewModal';
 import { useConnectedInputs } from '@/hooks/useConnectedInputs';
@@ -382,21 +382,18 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
   const currentShadow = selected ? selectedShadow : defaultShadow;
   const showOverlay = isHovered || isFocused;
 
-  const sizing = useNodeSizing({
+  // Only the width is kept; the result sits in a box with its own ratio, the idle view is as tall as its content
+  // (hooks/useAutoHeightNode).
+  const sizing = useAutoHeightNode({
     id,
-    type: 'videoUpscale',
-    rows: ['header', 'actions', 'settings'],
-    // Once there is a result, the settings row is gone and its controls are an
-    // overlay on the picture. Still reserving its height is what left the video
-    // letterboxed inside the node instead of filling it.
-    activeRows: [...(data.generatedUrl ? ['header'] : ['header', 'actions']), ...(showSettings ? ['settings'] : [])],
-    paddingX: 0,
     ratioSources: [
       { width: data.width as number | undefined, height: data.height as number | undefined },
       { width: connectedVideoWidth, height: connectedVideoHeight },
     ],
     hasMedia: Boolean(data.generatedUrl),
+    mediaHidden: showSettings,
     userWidth: data.userWidth as number | undefined,
+    defaultW: 320,
   });
 
   const handleCancel = useCallback(async () => {
@@ -655,7 +652,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       {/* 功能区与设置抽屉。抽屉是流内一行：打开撑高节点，关上还原 */}
       <div className="node-shell-headwrap" style={{ position: 'relative', flex: '0 0 auto' }}>
@@ -722,7 +719,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
 
       {data.generatedUrl ? (
         // ── Result view ──────────────────────────────────────────────────────────
-        <div data-node-media style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
           <div
             style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}
             onMouseEnter={() => setIsHovered(true)}
@@ -792,8 +789,8 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
         </div>
       ) : (
         // ── Empty / Idle / Generating view ───────────────────────────────────────
-        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-          <div data-shell-content style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'relative', flex: '0 0 auto', minHeight: 220 }}>
+          <div data-shell-content style={{ ...cardBody, width: '100%', height: 'auto', minHeight: 220, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{
               position: 'relative', flex: 1, borderRadius: 20,
               background: '#18181b', padding: '14px',

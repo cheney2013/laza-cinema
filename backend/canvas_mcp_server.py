@@ -556,6 +556,11 @@ CHROME_FLOOR_BY_TYPE: dict[str, int] = {
 }
 
 
+# Node types whose height is the card's own layout (frontend hooks/useAutoHeightNode): only the width is kept, so a height
+# written here would just be taken off again by the studio.
+AUTO_HEIGHT_TYPES = {"charswap", "video", "videoEdit", "image", "qwenImage", "preview", "imageUpscale", "videoUpscale", "videoInterpolate"}
+
+
 def _apply_size(node: dict[str, Any], operation: dict[str, Any]) -> None:
     """Write React Flow's top-level width/height.
 
@@ -580,6 +585,12 @@ def _apply_size(node: dict[str, Any], operation: dict[str, Any]) -> None:
     if width is None and height is None and aspect is None:
         return
     w = int(width) if width is not None else DEFAULT_NODE_WIDTH
+    if node.get("type") in AUTO_HEIGHT_TYPES:
+        node["width"] = w
+        node.pop("height", None)
+        if "userWidth" not in data:
+            data["userWidth"] = w
+        return
     if height is not None:
         h = int(height)
     elif aspect:

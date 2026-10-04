@@ -10,7 +10,7 @@ import NodeShell from './NodeShell';
 import AudioPlayer from './AudioPlayer';
 import VideoAssetPlayer from './VideoAssetPlayer';
 import VideoPreviewModal from './VideoPreviewModal';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import { AUDIO_CONTENT_H } from '@/lib/nodeSizing';
 import { UploadNode as UploadNodeType } from '@/lib/types';
 import { api } from '@/lib/api';
@@ -92,16 +92,14 @@ function UploadNode({ id, data, selected }: NodeProps<UploadNodeType>) {
   // Sound has nothing to look at: an audio clip is a strip (header + one player
   // row), not a media card sized by an aspect ratio.
   const isAudio = mediaType === 'audio' && Boolean(data.url);
-  const sizing = useNodeSizing({
+  // Only the width is kept; a picture or video sits in a box with its own ratio, an audio strip has a fixed height
+  // (hooks/useAutoHeightNode).
+  const sizing = useAutoHeightNode({
     id,
-    type: 'image',
-    rows: ['header'],
-    paddingX: 0,
     ratioSources: [{ width: data.width, height: data.height }],
     hasMedia: Boolean(data.url) && !isAudio,
-    contentMinH: isAudio ? AUDIO_CONTENT_H : undefined,
     userWidth: data.userWidth,
-    deps: [data.url, isAudio],
+    defaultW: 280,
   });
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const audioToggleRef = useRef<(() => void) | null>(null);
@@ -268,7 +266,7 @@ function UploadNode({ id, data, selected }: NodeProps<UploadNodeType>) {
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
       className={data.bibleId ? 'node-bible' : undefined}
     >
       {Boolean(data.bibleId) && <BibleTab />}
@@ -353,7 +351,7 @@ function UploadNode({ id, data, selected }: NodeProps<UploadNodeType>) {
       </div>
 
       <div
-        style={{ position: 'relative', flex: 1, minHeight: 0 }}
+        style={{ position: 'relative', flex: '0 0 auto', ...(isAudio ? { height: AUDIO_CONTENT_H } : { aspectRatio: String(sizing.ratio) }) }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >

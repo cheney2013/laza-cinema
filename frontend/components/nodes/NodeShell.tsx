@@ -44,6 +44,11 @@ export interface NodeShellProps {
   /** 必须是 useCallback 的结果，否则拖拽会在第一帧断掉。见 docs/node-sizing.md §5.1 */
   onResizeEnd?: OnResizeEnd;
   resizerVisible?: boolean;
+  /**
+   * The node's height is the card's own (see hooks/useAutoHeightNode): no height on the node, resize handles that change the
+   * width only, and none of the height bookkeeping below (edit growth, open panels, fit-to-content).
+   */
+  autoHeight?: boolean;
   /** 来自 useChromeMetrics，测量时用它找到各功能区行 */
   shellRef?: (el: HTMLDivElement | null) => void;
   children: ReactNode;
@@ -154,6 +159,7 @@ function NodeShell({
   selected,
   onResizeEnd,
   resizerVisible,
+  autoHeight,
   shellRef,
   children,
   className,
@@ -189,6 +195,8 @@ function NodeShell({
   const checkRef = useRef<(() => void) | null>(null);
   const specRef = useRef(spec);
   specRef.current = spec;
+  const autoHeightRef = useRef(Boolean(autoHeight));
+  autoHeightRef.current = Boolean(autoHeight);
 
   const commonResizerProps = {
     nodeId,
@@ -237,6 +245,7 @@ function NodeShell({
   // 双击任意一个 resize 手柄 = 适配内容。对齐窗口管理器的直觉，不额外占用界面
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (autoHeightRef.current) return;
       if (!(e.target as HTMLElement).closest?.('.react-flow__resize-control')) return;
       e.stopPropagation();
       fitToContent();
@@ -274,7 +283,7 @@ function NodeShell({
       el.style.setProperty('--shell-top-inset', `${inset}px`);
       // Panels first: a panel that just opened makes the content overflow until
       // its height is added, and the sticky edit growth must not take that.
-      const editing = !specRef.current.hasMedia;
+      const editing = !specRef.current.hasMedia && !autoHeightRef.current;
       const panels = editing ? openPanelsHeight(el) : 0;
       if (Math.abs(panels - panelExtraRef.current) >= 1) {
         panelExtraRef.current = panels;
@@ -333,7 +342,7 @@ function NodeShell({
     rootRef.current?.querySelectorAll<HTMLMediaElement>('[data-node-media] video, [data-node-media] audio').forEach((m) => m.pause());
   }, [spec.mediaHidden]);
 
-  const extra = spec.hasMedia ? 0 : editExtra + panelExtra;
+  const extra = spec.hasMedia || autoHeight ? 0 : editExtra + panelExtra;
   const extended = extra > 0;
   // The picture the outline mode (zoomed out) paints on this card's plate, as a
   // CSS variable: only the URL is subscribed, so the card re-renders when its
@@ -352,10 +361,33 @@ function NodeShell({
       className={`node-shell group${className ? ` ${className}` : ''}`}
       data-edit-extended={extended ? '' : undefined}
       data-media-hidden={spec.mediaHidden ? '' : undefined}
-      style={{ ...shellStyle, ...(extended ? { height: `calc(100% + ${extra}px)` } : null), ...(lodThumb ? { ['--lod-thumb' as string]: `url(${JSON.stringify(lodThumb)})` } : null), ...style }}
+      style={{ ...shellStyle, ...(autoHeight ? { height: 'auto' } : null), ...(extended ? { height: `calc(100% + ${extra}px)` } : null), ...(lodThumb ? { ['--lod-thumb' as string]: `url(${JSON.stringify(lodThumb)})` } : null), ...style }}
       onDoubleClick={handleDoubleClick}
     >
-      {showResizer &&
+      {showResizer && autoHeight && (
+        <>
+          {H_LINES.map((position) => (
+            <NodeResizeControl
+              key={position}
+              {...commonResizerProps}
+              position={position}
+              variant={ResizeControlVariant.Line}
+              resizeDirection="horizontal"
+              style={LINE_STYLE}
+            />
+          ))}
+          {CORNERS.map((position) => (
+            <NodeResizeControl
+              key={position}
+              {...commonResizerProps}
+              position={position}
+              resizeDirection="horizontal"
+              style={HANDLE_STYLE}
+            />
+          ))}
+        </>
+      )}
+      {showResizer && !autoHeight &&
         (spec.hasMedia ? (
           /*
            * 有媒体：边线要按轴向拆开。NodeResizer 不暴露 resizeDirection，

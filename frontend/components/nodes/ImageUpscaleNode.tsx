@@ -23,7 +23,7 @@ import { showAlert } from '@/components/ui/Dialog';
 import { cardBody, defaultShadow, header, label, selectedShadow } from './PromptNode';
 import { useConnectedInputs } from '@/hooks/useConnectedInputs';
 import { useJobResult } from '@/hooks/useJobPoller';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import { useSyncedText } from '@/hooks/useSyncedText';
 import { api } from '@/lib/api';
 import { BACKEND_URL as API_BASE } from '@/lib/config';
@@ -120,21 +120,20 @@ function ImageUpscaleNode({ id, data, selected }: NodeProps<ImageUpscaleNodeType
     updateNodeData(id, { status: 'idle', jobId: undefined });
   }, [data.jobId, id, updateNodeData]);
 
-  const sizing = useNodeSizing({
+  // Only the width is kept; the picture's box has the picture's own ratio (hooks/useAutoHeightNode).
+  const sizing = useAutoHeightNode({
     id,
-    type: 'imageUpscale',
-    rows: ['header', 'settings'],
-    activeRows: showSettings ? ['header', 'settings'] : ['header'],
-    paddingX: 0,
     ratioSources: [{ width: data.width as number | undefined, height: data.height as number | undefined }],
     hasMedia: Boolean(data.generatedUrl),
+    mediaHidden: showSettings,
     userWidth: data.userWidth,
+    defaultW: 320,
   });
 
   const imageUrl = data.generatedUrl ? abs(data.generatedUrl as string) : null;
 
   return (
-    <NodeShell nodeId={id} spec={sizing.spec} selected={selected} onResizeEnd={sizing.onResizeEnd} shellRef={sizing.shellRef}>
+    <NodeShell nodeId={id} spec={sizing.spec} selected={selected} onResizeEnd={sizing.onResizeEnd} autoHeight>
       <div className="node-shell-headwrap" style={{ position: 'relative', flex: '0 0 auto' }}>
         <div style={header} data-chrome-row="header" className="node-shell-header flex items-center justify-between">
           <div className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-zinc-300">
@@ -227,7 +226,7 @@ function ImageUpscaleNode({ id, data, selected }: NodeProps<ImageUpscaleNodeType
       </div>
 
       <div data-node-media
-        style={{ ...cardBody, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', boxShadow: selected ? selectedShadow : defaultShadow }}
+        style={{ ...cardBody, flex: '0 0 auto', aspectRatio: String(sizing.ratio), display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', boxShadow: selected ? selectedShadow : defaultShadow }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >

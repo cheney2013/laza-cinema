@@ -10,7 +10,7 @@ import { useStore } from '@/lib/store';
 import { CharswapNode as CharswapNodeType } from '@/lib/types';
 import { cardBody, header, label, selectedShadow, defaultShadow } from './PromptNode';
 import NodeShell from './NodeShell';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import GeneratingLine from './GeneratingLine';
 import VideoAssetPlayer from './VideoAssetPlayer';
 import { NodeActionButton, NodeActionRow } from './nodeChrome';
@@ -145,16 +145,16 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
 
   const [isHovered, setIsHovered] = useState(false);
 
-  const sizing = useNodeSizing({
+  // The card's height is its own layout (chrome rows at their natural height, the picture in an aspect-ratio box); only the
+  // width is kept. See hooks/useAutoHeightNode.
+  const sizing = useAutoHeightNode({
     id,
-    type: 'charswap',
-    rows: ['header', 'mode'],
-    paddingX: 0,
     ratioSources: [
       { width: data.width as number | undefined, height: data.height as number | undefined },
     ],
     hasMedia: Boolean(data.generatedUrl),
     userWidth: data.userWidth as number | undefined,
+    defaultW: 451,
   });
 
   return (
@@ -163,7 +163,7 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
       spec={sizing.spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       <div className="node-shell-headwrap" style={{ position: 'relative', flex: '0 0 auto' }}>
       <div style={header} data-chrome-row="header" className="node-shell-header">
@@ -359,11 +359,13 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
       </div>
 
       <div
-        style={{ ...cardBody, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        style={{ ...cardBody, flex: '0 0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden',
                  boxShadow: selected ? selectedShadow : defaultShadow }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
+        {/* The picture's box has the picture's own ratio, so the card is exactly as tall as its media needs. */}
+        <div style={{ aspectRatio: String(sizing.ratio), display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {data.generatedUrl ? (
           <VideoAssetPlayer
             nodeId={id}
@@ -388,6 +390,7 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
             </div>
           </div>
         )}
+        </div>
 
         <GeneratingLine active={busy} jobId={data.jobId as string | undefined} statusText={batchInfo || '生成中'} onCancel={cancel} />
         <NodeErrorBanner error={data.error as string | undefined} onClear={() => updateNodeData(id, { error: undefined })} />

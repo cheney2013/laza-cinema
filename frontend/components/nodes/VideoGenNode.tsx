@@ -19,7 +19,7 @@ import { promptDialogue } from '@/lib/promptDialogue';
 import NodeShell from './NodeShell';
 import { NodeHeaderIconButton } from './nodeChrome';
 import { BoltIcon, GearIcon } from '@/components/ui/icons';
-import { useNodeSizing } from '@/hooks/useNodeSizing';
+import { useAutoHeightNode } from '@/hooks/useAutoHeightNode';
 import GeneratingLine from './GeneratingLine';
 import VideoPreviewModal from './VideoPreviewModal';
 import { useConnectedInputs, ConnectedInput } from '@/hooks/useConnectedInputs';
@@ -299,23 +299,17 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
   // 例外：首次生成时还没有成片，但目标分辨率已定、整块被生成遮罩盖住，按成片比例占位
   const firstRender = data.status === 'generating' && !data.generatedUrl;
 
-  const sizing = useNodeSizing({
+  // Only the width is kept. The picture sits in an aspect-ratio box, the editor view is as tall as its content (capped, then
+  // it scrolls), and the label, header, actions and settings drawer are rows in the flow: the card's own layout is its height.
+  const sizing = useAutoHeightNode({
     id,
-    type: 'video',
-    rows: ['header', 'actions', 'label', 'settings'],
-    activeRows: [
-      ...(showsMedia
-        ? (hasLabelRow ? ['label', 'header'] : ['header'])
-        : (hasLabelRow ? ['label', 'header', 'actions'] : ['header', 'actions'])),
-      ...(showSettings ? ['settings'] : []),
-    ],
-    paddingY: showsMedia ? 0 : 28,
     ratioSources: [
       { width: data.width as number | undefined, height: data.height as number | undefined },
     ],
     hasMedia: showsMedia || firstRender,
+    mediaHidden: showsMedia && showSettings,
     userWidth: data.userWidth as number | undefined,
-    deps: [viewMode, data.label, editingLabel, dialogueKey, showsMedia, firstRender, showSettings],
+    defaultW: 360,
   });
   const spec = sizing.spec;
 
@@ -1178,7 +1172,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
       spec={spec}
       selected={selected}
       onResizeEnd={sizing.onResizeEnd}
-      shellRef={sizing.shellRef}
+      autoHeight
     >
       {/* 功能区与设置抽屉。抽屉是流内一行：打开撑高节点，关上还原 */}
       <div className="node-shell-headwrap" style={{ position: 'relative', flex: '0 0 auto' }}>
@@ -1763,7 +1757,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
 
       {/* Main Body */}
       {data.generatedUrl && viewMode === 'preview' ? (
-        <div data-node-media style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media style={{ position: 'relative', flex: '0 0 auto', aspectRatio: String(sizing.ratio) }}>
           <TakeNavigator
             nodeId={id}
             data={data as Record<string, unknown>}
@@ -1869,15 +1863,15 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
           />
         </div>
       ) : (
-        <div data-node-media={firstRender ? '' : undefined} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div data-node-media={firstRender ? '' : undefined} style={{ position: 'relative', flex: '0 0 auto', ...(firstRender ? { aspectRatio: String(sizing.ratio) } : null) }}>
           <div
-            style={{ ...cardBody, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            style={{ ...cardBody, width: '100%', height: firstRender ? '100%' : 'auto', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
           >
-            <div className="relative z-10 w-full h-full p-3.5 flex flex-col justify-between min-h-0 overflow-hidden">
+            <div className={`relative z-10 w-full ${firstRender ? 'h-full' : ''} p-3.5 flex flex-col justify-between min-h-0 overflow-hidden`}>
               {/* Scrollable Upper Area (Header + Badges + Strip + Prompt Editor) */}
-              <div data-shell-content className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-2 pr-0.5">
+              <div data-shell-content className="flex-1 min-h-[200px] max-h-[640px] overflow-y-auto no-scrollbar flex flex-col gap-2 pr-0.5">
                 <div className="flex items-center justify-between flex-shrink-0">
                   <div className="flex items-center gap-1.5 overflow-hidden">
                     <span className="text-[10px] text-zinc-300 font-mono font-medium truncate">
