@@ -12,6 +12,8 @@ import { BACKEND_URL, resolveAssetUrl } from '@/lib/config';
 import { nativeDownloadUrl } from '@/lib/download';
 import { probeVideo, useVideoProbe } from '@/lib/videoProbe';
 import { Compositor } from '@/lib/editor/compositor';
+import { DROP_LIMIT, QUALITY_LEVELS, dropRate, effectiveLevel, isQualityChoice } from '@/lib/editor/previewLevels';
+import { ensureProxies, previewUrl, restoreChoice, usePreviewQuality } from '@/lib/editor/previewQuality';
 import { timelineToSrt } from '@/lib/editor/srt';
 import { languageName, subtitleLangOf, subtitleLangsOf, switchSubtitleLang } from '@/lib/editor/subtitleLang';
 import { namesLiveOnCanvases, ownedByProject, unusedLibraryItems } from '@/lib/editor/unusedAssets';
@@ -149,6 +151,10 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
   // MSE is exact for a single uninterrupted lane of plain hard cuts. Anything
   // composited or transformed stays on the canvas path so preview remains an
   // honest representation of export.
+  // Preview quality: what the monitor plays (the export never uses these).
+  const qualityChoice = usePreviewQuality((s) => s.choice);
+  const qualityLevel = usePreviewQuality((s) => effectiveLevel(s.choice, s.displayHeight, s.autoCap));
+  const qualityBuilt = usePreviewQuality((s) => s.built);
   const msePlan = useMemo(() => {
     const videoTracks = playedTimeline.tracks.filter((track) => track.kind === 'video' && !track.muted && !track.bypassed);
     const audioClips = playedTimeline.clips.filter((clip) => {
@@ -175,14 +181,15 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       if (!plain) return null;
       const frames = clipLength(clip);
       sequence.push({
-        url: asset.proxyUrl || asset.url,
+        url: previewUrl(asset),
         start: clip.inFrame / playedTimeline.fps,
         duration: frames / playedTimeline.fps,
       });
       cursor += frames;
     }
     return sequence;
-  }, [playedTimeline]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playedTimeline, qualityLevel, qualityBuilt]);
   const msePlanKey = msePlan?.map((clip) => `${clip.url}@${clip.start}:${clip.duration}`).join('|') ?? '';
 
   useEffect(() => {
@@ -539,6 +546,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
 
     const compositor = new Compositor(canvas);
     compositorRef.current = compositor;
+    compositor.setPreviewUrl(previewUrl);
     lastTickRef.current = performance.now();
 
     const tick = (now: number) => {
@@ -588,6 +596,55 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       compositorRef.current = null;
     };
   }, [isOpen, msePlanKey, mseFailed]);
+
+  // ── Preview quality: the saved choice, the monitor's size, the proxies a level needs, drops ──
+  useEffect(() => {
+    restoreChoice();
+  }, []);
+
+  // Auto picks the level from how big the picture really is on screen.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!isOpen || !canvas) return;
+    const measure = () => usePreviewQuality.getState().setDisplayHeight(canvas.clientHeight * (window.devicePixelRatio || 1));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [isOpen]);
+
+  // The videos on the timeline get their proxy at this level; the monitor switches to each as it lands.
+  const videoAssets = useMemo(
+    () => Object.values(playedTimeline.assets).filter((asset) => asset.kind === 'video'),
+    [playedTimeline.assets]
+  );
+  useEffect(() => {
+    if (isOpen) void ensureProxies(videoAssets, qualityLevel);
+  }, [isOpen, videoAssets, qualityLevel]);
+
+  // Auto only: a machine that drops frames while playing gets the next level down, and stays there.
+  useEffect(() => {
+    if (!isOpen || qualityChoice !== 'auto') return;
+    let before = { total: 0, dropped: 0 };
+    const timer = window.setInterval(() => {
+      const compositor = compositorRef.current;
+      if (!compositor) return;
+      const now = compositor.playbackStats();
+      if (!useCutRoom.getState().playing) {
+        before = now;
+        return;
+      }
+      const rate = dropRate(before, now);
+      if (rate === null) {
+        // Too few frames yet: keep counting, unless an element was replaced and the counters restarted.
+        if (now.total < before.total || now.dropped < before.dropped) before = now;
+        return;
+      }
+      before = now;
+      if (rate > DROP_LIMIT) usePreviewQuality.getState().stepAutoDown();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [isOpen, qualityChoice]);
 
   useEffect(() => {
     if (!scratch || !intent || exportStatus !== 'completed' || !exportUrl) return;
@@ -1383,6 +1440,26 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
                 </button>
               ))}
             </div>
+            <label
+              className="flex items-center gap-1 text-[11px] text-zinc-500"
+              title={t('预览画质：只影响剪辑台播放，导出始终用原片。自动按监视器大小选择，卡顿时自动降一档')}
+            >
+              {t('画质')}
+              <select
+                value={String(qualityChoice)}
+                onChange={(event) => {
+                  const value = event.target.value === 'auto' ? 'auto' : Number(event.target.value);
+                  if (isQualityChoice(value)) usePreviewQuality.getState().setChoice(value);
+                  event.target.blur();
+                }}
+                className="rounded border border-white/10 bg-[#15151c] px-1 py-0.5 text-[11px] text-zinc-200"
+              >
+                <option value="auto">{t('自动')} · {qualityLevel}p</option>
+                {QUALITY_LEVELS.map((level) => (
+                  <option key={level} value={level}>{level}p</option>
+                ))}
+              </select>
+            </label>
             <span className="font-mono text-xs text-emerald-300 tabular-nums">
               {formatTimecode(playhead, timeline.fps)}
             </span>

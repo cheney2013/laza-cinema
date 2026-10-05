@@ -1436,6 +1436,14 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  /** One video's cut-room preview proxy at a lower height (built once, on first use). */
+  buildProxyLevel: (url: string, height: number) =>
+    request<{ proxy_url: string; height: number }>('/timeline/proxy-level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, height }),
+    }),
+
   /** One batch of consecutive subtitle lines translated by the Qwen3-VL text encoder; '' marks a line it skipped. */
   translateSubtitles: (req: { lines: string[]; source_lang: string; target_lang: string }) =>
     request<{ lines: string[] }>('/subtitles/translate', {

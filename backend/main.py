@@ -6528,19 +6528,26 @@ def _probe_media(path: Path) -> dict:
             "fps": fps, "frames": frames, "duration": duration, "has_audio": has_audio}
 
 
-def _build_proxy(src: Path, stem: str) -> str:
+def _build_proxy(src: Path, stem: str, height: int = PROXY_HEIGHT) -> str:
     """
-    540p all-keyframe copy for the monitor. `-g 1` is the entire point: seeking a
+    All-keyframe copy for the monitor. `-g 1` is the entire point: seeking a
     generated mp4 backwards by one frame otherwise decodes from a keyframe that
     can be seconds earlier, which is what makes scrubbing feel broken.
+
+    `height` is the preview quality level: the standard proxy is PROXY_HEIGHT (sharp, and
+    heavy to play when the picture is HD); lower levels are built on demand
+    (/timeline/proxy-level) for monitors that cannot keep up or are small anyway.
     """
-    out = PROXY_DIR / f"{stem}_proxy_v{PROXY_VERSION}.mp4"
+    suffix = "" if height >= PROXY_HEIGHT else f"_{height}p"
+    out = PROXY_DIR / f"{stem}_proxy_v{PROXY_VERSION}{suffix}.mp4"
     if out.exists():
         return f"/uploads/proxies/{out.name}"
-    # Whatever an earlier recipe left behind is dead weight now.
+    # Whatever an earlier recipe left behind is dead weight now (other levels of this recipe stay).
     for stale in PROXY_DIR.glob(f"{stem}_proxy*.mp4"):
-        if stale != out:
+        if not stale.name.startswith(f"{stem}_proxy_v{PROXY_VERSION}"):
             stale.unlink(missing_ok=True)
+    # Written beside and renamed: a half-built file must never be taken for a proxy.
+    partial = out.with_name(out.stem + ".partial.tmp")
     result = subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-i", str(src),
          # `min(ih, cap)` never enlarges: a 768p master stays 768p instead of
@@ -6551,13 +6558,16 @@ def _build_proxy(src: Path, stem: str) -> str:
          # setpts: a source whose picture starts after its sound (a fragmented
          # mp4 with B-frames and no edit list starts at 2/fps) would keep that
          # offset, and the monitor, seeking to frame n at n/fps, showed n-2.
-         "-vf", rf"setpts=PTS-STARTPTS,scale=-2:2*trunc(min(ih\,{PROXY_HEIGHT})/2)",
-         "-c:v", "libx264", "-crf", str(PROXY_CRF), "-preset", "veryfast", "-g", "1",
-         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(out)],
+         "-vf", rf"setpts=PTS-STARTPTS,scale=-2:2*trunc(min(ih\,{height})/2)",
+         "-c:v", "libx264", "-crf", str(PROXY_CRF if height >= PROXY_HEIGHT else PROXY_CRF + 3),
+         "-preset", "veryfast", "-g", "1",
+         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-f", "mp4", str(partial)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
+        partial.unlink(missing_ok=True)
         raise RuntimeError(f"proxy encode failed: {result.stderr.strip()[-400:]}")
+    partial.replace(out)
     return f"/uploads/proxies/{out.name}"
 
 
@@ -6757,6 +6767,36 @@ async def prepare_timeline_asset(req: PrepareAssetRequest):
 
     _ASSET_PROBE_CACHE[cache_key] = result
     return result
+
+
+class ProxyLevelRequest(BaseModel):
+    url: str
+    height: int = Field(ge=180, le=PROXY_HEIGHT)
+
+
+_PROXY_LEVEL_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+@app.post("/timeline/proxy-level")
+async def build_proxy_level(req: ProxyLevelRequest):
+    """One video's preview proxy at a lower height (the cut room's quality menu). Built once, on first
+    use; the answer is the proxy's URL. The master and the export are not touched."""
+    try:
+        path = await resolve_upload(req.url)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"Missing media: {req.url}") from exc
+    try:
+        cache_key = f"{path}:{path.stat().st_mtime_ns}"
+    except OSError:
+        cache_key = str(path)
+    stem = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()[:16]
+    lock = _PROXY_LEVEL_LOCKS.setdefault(f"{stem}:{req.height}", asyncio.Lock())
+    async with lock:
+        try:
+            proxy_url = await asyncio.to_thread(_build_proxy, path, stem, req.height)
+        except (RuntimeError, subprocess.SubprocessError) as exc:
+            raise HTTPException(500, f"Proxy build failed: {exc}") from exc
+    return {"proxy_url": proxy_url, "height": req.height}
 
 
 # ── Export ────────────────────────────────────────────────────────────────────

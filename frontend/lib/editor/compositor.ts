@@ -77,6 +77,26 @@ export class Compositor {
     this.canvas = canvas;
   }
 
+  /** Which file the monitor plays for a video: the preview quality level decides (previewQuality.ts). */
+  private previewUrlOf: (asset: EditorAsset) => string = (asset) => asset.proxyUrl || asset.url;
+  setPreviewUrl(resolver: (asset: EditorAsset) => string): void {
+    this.previewUrlOf = resolver;
+  }
+
+  /** Frames shown and dropped so far by the video elements that are playing, for judging whether the machine keeps up. */
+  playbackStats(): { total: number; dropped: number } {
+    let total = 0;
+    let dropped = 0;
+    this.pool.forEach((entry) => {
+      const element = entry.element as HTMLVideoElement;
+      if (element.paused || typeof element.getVideoPlaybackQuality !== 'function') return;
+      const quality = element.getVideoPlaybackQuality();
+      total += quality.totalVideoFrames;
+      dropped += quality.droppedVideoFrames;
+    });
+    return { total, dropped };
+  }
+
   /** Transport rate (1, ½, ¼): multiplies every clip's own speed while playing. */
   private rate = 1;
   setRate(rate: number): void {
@@ -365,7 +385,7 @@ export class Compositor {
   private acquire(clip: Clip, asset: EditorAsset, audioOnly: boolean): PoolEntry | null {
     // Preview always prefers the all-keyframe proxy; the original is the
     // fallback for assets whose proxy could not be built.
-    const url = resolveAssetUrl(asset.kind === 'video' ? asset.proxyUrl || asset.url : asset.url);
+    const url = resolveAssetUrl(asset.kind === 'video' ? this.previewUrlOf(asset) : asset.url);
     const existing = this.pool.get(clip.id);
     if (existing && existing.url === url) {
       existing.lastUsed = this.tick;
