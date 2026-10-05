@@ -124,6 +124,7 @@ const NODE_TITLES: Record<string, string> = {
   videoFrames: '首尾帧补中间',
   videoInterpolate: '补帧视频',
   imageUpscale: '图片超清',
+  titleBlock: '标题块',
   videoTrim: '剪切视频',
   depthVideo: '深度视频',
   audioGen: '配音',

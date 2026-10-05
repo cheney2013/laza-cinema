@@ -3980,6 +3980,70 @@ async def upscale_image(req: ImageUpscaleRequest):
     )
 
 
+class TitleBlockRequest(BaseModel):
+    logo_url: str
+    line: str = ""
+    height: int = Field(1536, ge=256, le=4096)
+    margin: int = Field(104, ge=0, le=1024)
+    content_width: int = Field(620, ge=16, le=4096)
+    # Width of the small line; 0 = as wide as the logo. Wider means bigger text.
+    line_width: int = Field(0, ge=0, le=4096)
+    line_height_scale: float = Field(1.0, ge=0.5, le=3.0)
+    # A clean cover plate to set the block on, at its left or right edge. Without one the answer is the block itself.
+    plate_url: str = ""
+    side: str = Field("left", pattern="^(left|right)$")
+
+
+def _build_title_block(path: Path, req: TitleBlockRequest, plate_path: Path | None = None) -> tuple[bytes, dict]:
+    import io
+    import sys
+    from PIL import Image
+    tools_dir = str(_BACKEND_DIR.parent / "tools")
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    import title_block
+    with Image.open(path) as logo:
+        block, layout = title_block.build_block(
+            logo, req.line, req.height, req.margin, req.content_width,
+            line_width=req.line_width or None, line_height_scale=req.line_height_scale,
+        )
+    if plate_path is not None:
+        with Image.open(plate_path) as plate:
+            card = title_block.place_block(plate, block, req.side)
+        layout["width"], layout["height"] = card.size
+        block = card
+    out = io.BytesIO()
+    block.save(out, "PNG")
+    return out.getvalue(), layout
+
+
+@app.post("/title-block/build")
+async def build_title_block(req: TitleBlockRequest):
+    """A transparent title block (logo on top, one line of real text at the bottom, equal margins).
+    Takes a fraction of a second, so it answers directly instead of going through the job queue."""
+    try:
+        path = await resolve_upload(req.logo_url)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, f"Missing media: {req.logo_url}") from exc
+    plate_path = None
+    if req.plate_url:
+        try:
+            plate_path = await resolve_upload(req.plate_url)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, f"Missing media: {req.plate_url}") from exc
+    try:
+        data, layout = await asyncio.to_thread(_build_title_block, path, req, plate_path)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    key = hashlib.sha1(
+        f"{path}:{path.stat().st_mtime_ns}:{plate_path}:{plate_path.stat().st_mtime_ns if plate_path else 0}:"
+        f"{req.model_dump_json()}".encode("utf-8")).hexdigest()[:16]
+    name = f"titleblock_{key}.png"
+    (UPLOAD_DIR / name).write_bytes(data)
+    return {"url": f"/uploads/{name}", "width": layout["width"], "height": layout["height"],
+            "gap": layout.get("gap")}
+
+
 # ── Video upscale helpers ──────────────────────────────────────────────────────
 
 def get_video_frame_count(video_path: Path) -> tuple[int, float]:

@@ -290,6 +290,19 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "inputs": ["in-video", "in-ref-image"],
         "outputs": ["out-video"],
     },
+    "titleBlock": {
+        "label": "标题块",
+        # tools/title_block.py `build`: a transparent PNG as tall as the cover, the logo (the picture on
+        # in-image) on top and one line of real text at the bottom, the same margin on every side.
+        # lineWidth 0 = as wide as the logo; wider means bigger text. lineHeightScale stretches the
+        # line vertically at the same width. run_canvas_node answers directly: no job to refresh.
+        "defaults": {"line": "FILM 1【中字】", "blockHeight": 1536, "margin": 104, "contentWidth": 600,
+                     "lineWidth": 800, "lineHeightScale": 1.5, "side": "left", "generatedUrl": None, "status": "idle"},
+        # in-plate (optional): a clean cover plate. With one, the block is set on its left or right edge
+        # (side) and the node's picture is the finished card; without, the transparent block itself.
+        "inputs": ["in-image", "in-plate"],
+        "outputs": ["out-image"],
+    },
     "qwenImage": {
         # Qwen-Image-2.1. One node for both routes: with nothing on in-ref it is
         # text-to-image at width x height; with references it edits against them
@@ -563,7 +576,7 @@ CHROME_FLOOR_BY_TYPE: dict[str, int] = {
 
 # Node types whose height is the card's own layout (frontend hooks/useAutoHeightNode): only the width is kept, so a height
 # written here would just be taken off again by the studio.
-AUTO_HEIGHT_TYPES = {"charswap", "video", "videoEdit", "image", "qwenImage", "preview", "imageUpscale", "videoUpscale", "videoInterpolate"}
+AUTO_HEIGHT_TYPES = {"charswap", "video", "videoEdit", "image", "qwenImage", "preview", "imageUpscale", "titleBlock", "videoUpscale", "videoInterpolate"}
 
 
 def _apply_size(node: dict[str, Any], operation: dict[str, Any]) -> None:
@@ -2398,6 +2411,8 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         return _run_character_sheet_locked(resolved, canvas, node)
     if node.get("type") == "qwenImage":
         return _run_qwen_image_locked(resolved, canvas, node)
+    if node.get("type") == "titleBlock":
+        return _run_title_block_locked(resolved, canvas, node)
     if node.get("type") == "gaussian":
         return _run_gaussian_locked(resolved, canvas, node)
     if node.get("type") in EDIT_TYPES:
@@ -2405,7 +2420,7 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
     if node.get("type") == "audioGen":
         return _run_audio_gen_locked(resolved, canvas, node)
     if node.get("type") != "video":
-        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, depthVideo, charswap, videoReangle, audioRefine, characterSheet, qwenImage, gaussian and audioGen "
+        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, depthVideo, charswap, videoReangle, audioRefine, characterSheet, qwenImage, titleBlock, gaussian and audioGen "
                          f"nodes, got {node.get('type')!r}.")
     data = node.setdefault("data", {})
     if data.get("status") == "generating" and data.get("jobId"):
@@ -2788,6 +2803,38 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     if prompt_synced:
         result["prompt_synced_from"] = prompt_synced
     return result
+
+
+def _run_title_block_locked(resolved: dict[str, Any], canvas: dict[str, Any],
+                            node: dict[str, Any]) -> dict[str, Any]:
+    """Build a 标题块 node: POST /title-block/build from its fields and the logo on in-image.
+
+    The backend answers directly, so the node is finished when this returns."""
+    node_id = node["id"]
+    data = node.setdefault("data", {})
+    sources = _incoming_nodes(canvas, node_id, "in-image")
+    if not sources or not _node_url(sources[0]):
+        raise ValueError(f"titleBlock node {node_id} needs a finished logo picture on in-image.")
+    plates = _incoming_nodes(canvas, node_id, "in-plate")
+    if plates and not _node_url(plates[0]):
+        raise ValueError(f"titleBlock node {node_id}: the plate on in-plate has no file yet.")
+    built = _request("POST", "/title-block/build", json={
+        "logo_url": _node_url(sources[0]),
+        "plate_url": _node_url(plates[0]) if plates else "",
+        "side": "right" if data.get("side") == "right" else "left",
+        "line": str(data.get("line") or ""),
+        "height": int(data.get("blockHeight") or 1536),
+        "margin": int(data.get("margin") if data.get("margin") is not None else 104),
+        "content_width": int(data.get("contentWidth") or 600),
+        "line_width": int(data.get("lineWidth") or 0),
+        "line_height_scale": float(data.get("lineHeightScale") or 1.5),
+    }, project_id=resolved["id"])
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "done", "generatedUrl": built["url"], "width": built["width"],
+        "height": built["height"], "error": None}, canvas)
+    return {"project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
+            "status": "done", "url": built["url"], "width": built["width"], "height": built["height"],
+            "gap": built.get("gap"), "revision": revision}
 
 
 ANY_ANGLE_LORA = "QI2.1_AnyAngle.safetensors"

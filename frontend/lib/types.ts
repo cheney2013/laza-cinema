@@ -303,6 +303,27 @@ export interface ImageUpscaleNodeData extends SizedNodeData {
 
 export type ImageUpscaleNode = Node<ImageUpscaleNodeData, 'imageUpscale'>;
 
+export interface TitleBlockNodeData extends SizedNodeData {
+  /** The small line of real text under the logo. */
+  line: string;
+  /** Block height in pixels (a cover plate's height). */
+  blockHeight: number;
+  margin: number;
+  /** Width of the logo; 0 keeps the default. */
+  contentWidth: number;
+  /** Width of the small line; 0 = as wide as the logo. Wider means bigger text. */
+  lineWidth: number;
+  /** Stretches the small line vertically at the same width. */
+  lineHeightScale: number;
+  /** Which edge of the plate (in-plate) the block is set on. */
+  side?: 'left' | 'right';
+  generatedUrl: string | null;
+  status: 'idle' | 'generating' | 'done' | 'error';
+  error?: string;
+}
+
+export type TitleBlockNode = Node<TitleBlockNodeData, 'titleBlock'>;
+
 export interface GaussianNodeData extends SizedNodeData {
   plyUrl: string | null;          // /uploads/gaussian_xxx.ply
   plyFilename: string | null;     // gaussian_xxx.ply (as stored on server)

@@ -39,6 +39,7 @@ import UploadNode from './nodes/UploadNode';
 import InpaintNode from './nodes/InpaintNode';
 import QwenImageNode from './nodes/QwenImageNode';
 import ImageUpscaleNode from './nodes/ImageUpscaleNode';
+import TitleBlockNode from './nodes/TitleBlockNode';
 import DepthVideoNode from './nodes/DepthVideoNode';
 import WardrobeSwapNode from './nodes/WardrobeSwapNode';
 import GaussianNode from './nodes/GaussianNode';
@@ -167,6 +168,7 @@ const nodeTypes = {
   inpaint: InpaintNode,
   qwenImage: QwenImageNode,
   imageUpscale: ImageUpscaleNode,
+  titleBlock: TitleBlockNode,
   wardrobeSwap: WardrobeSwapNode,
   characterSheet: CharacterSheetNode,
   gaussian: GaussianNode,

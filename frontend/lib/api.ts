@@ -823,6 +823,18 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  buildTitleBlock: (req: {
+    logo_url: string; line?: string; height?: number; margin?: number;
+    content_width?: number; line_width?: number; line_height_scale?: number;
+    /** A clean cover plate: the block is set on it at `side` and the result is the card. */
+    plate_url?: string; side?: 'left' | 'right';
+  }) =>
+    request<{ url: string; width: number; height: number; gap: number | null }>('/title-block/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   generateWorldGaussian: (req: {
     image_url: string;
     prompt?: string;
