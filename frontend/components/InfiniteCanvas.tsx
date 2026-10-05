@@ -871,8 +871,7 @@ function Canvas() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // The cut room is a full-screen mode with its own bindings for these very
-      // keys. Without this, Space opens the node palette on top of the editor
-      // and Ctrl+Z undoes a canvas edit instead of the cut.
+      // keys. Without this, Ctrl+Z would undo a canvas edit instead of the cut.
       if (useCutRoom.getState().open) return;
 
       if (e.key === 'Escape') {
@@ -895,10 +894,6 @@ function Canvas() {
       if (isShift && isL) {
         e.preventDefault();
         window.dispatchEvent(new Event('triggerAutoLayout'));
-      } else if (e.code === 'Space' || e.key === ' ') {
-        e.preventDefault();
-        setPaletteCoords(null);
-        setIsPaletteOpen(true);
       } else if (isCtrl && isA) {
         e.preventDefault();
         selectAllNodesRef.current();
@@ -1351,7 +1346,7 @@ function Canvas() {
               </p>
               <p className="text-zinc-500 text-xs font-mono">
                 
-                {t('双击空白画布快速添加节点 · 拖动输出端口自动连线 · 空格键呼出节点面板')}
+                {t('双击空白画布快速添加节点 · 拖动输出端口自动连线')}
               </p>
             </div>
           </Panel>
