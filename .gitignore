@@ -59,6 +59,7 @@ backend/.upscaler_rollback_commit
 !/backend/previs/render_plate_camera.py
 !/backend/previs/render_camera_move.py
 !/backend/previs/plate_coverage.py
+!/backend/previs/plate_coverage_splat.py
 !/backend/previs/scene_config.py
 !/backend/previs/vendor/
 /models/
