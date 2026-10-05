@@ -22,6 +22,7 @@ function DeletableEdge({
   targetPosition,
   style = {},
   markerEnd,
+  data,
 }: EdgeProps) {
   const { setEdges, screenToFlowPosition, getInternalNode, getViewport, setCenter } = useReactFlow();
   const [isHovered, setIsHovered] = useState(false);
@@ -178,6 +179,60 @@ function DeletableEdge({
 
     setMousePos({ x: best.x, y: best.y });
   }, [screenToFlowPosition, hideNow]);
+
+  // A lit edge (wired to the selection) runs behind the nodes it crosses, and a node takes the pointer from
+  // the line, so the stretch under a dimmed node never saw a hover. The line's own hit stroke cannot be
+  // raised above the nodes (a raised edge layer flickered, see InfiniteCanvas displayEdges) and a copy of
+  // it in the label layer would take clicks and drags from the nodes under it. So a lit edge listens on the
+  // document instead: when the pointer is within a few pixels of the line, wherever it is, the same hover
+  // opens. Nothing is put in front of anything.
+  const lit = Boolean((data as { lit?: boolean } | undefined)?.lit);
+  const proximityHover = useRef(false);
+  useEffect(() => {
+    if (!lit) return;
+    let frame = 0;
+    let last: MouseEvent | null = null;
+    const check = () => {
+      frame = 0;
+      const e = last;
+      const path = groupRef.current?.querySelector<SVGPathElement>('.react-flow__edge-path');
+      if (!e || !path) return;
+      const onCard = (e.target as Element | null)?.closest?.('.edge-delete-btn, .edge-offscreen-preview');
+      if (e.buttons !== 0 || onCard) return;
+      const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const scale = getViewport().zoom || 1;
+      let nearest = Infinity;
+      const length = path.getTotalLength();
+      // Steps of 20 flow units, as handleMouseMove does; the reach covers the gap between samples.
+      for (let at = 0; at <= length; at += 20) {
+        const point = path.getPointAtLength(at);
+        nearest = Math.min(nearest, Math.hypot(point.x - flow.x, point.y - flow.y));
+      }
+      if (nearest * scale <= 14) {
+        // Every time, not just the first: leaving the line's own stroke for the node over it starts the
+        // hide timer, and this cancels it while the pointer is still on the line.
+        show();
+        if (!proximityHover.current) {
+          proximityHover.current = true;
+          findOffscreenEnds();
+        }
+        handleMouseMove(e as unknown as React.MouseEvent);
+      } else if (proximityHover.current) {
+        proximityHover.current = false;
+        hideSoon();
+      }
+    };
+    const onMove = (e: MouseEvent) => {
+      last = e;
+      if (!frame) frame = requestAnimationFrame(check);
+    };
+    document.addEventListener('mousemove', onMove, { passive: true });
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      if (frame) cancelAnimationFrame(frame);
+      proximityHover.current = false;
+    };
+  }, [lit, screenToFlowPosition, getViewport, show, findOffscreenEnds, handleMouseMove, hideSoon]);
 
   return (
     <>

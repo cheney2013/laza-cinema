@@ -1094,6 +1094,8 @@ function Canvas() {
       return {
         ...e,
         className: `${base} edge-highlight-connected`.trim(),
+        // DeletableEdge answers the pointer where the line runs behind another node (see `lit` there).
+        data: { ...(e.data as object | undefined), lit: true },
         animated: false,
       };
     });
