@@ -339,7 +339,15 @@ export interface GaussianNodeData extends SizedNodeData {
   worldTrajectory?: 'ring' | 'orbit' | 'pan';
   worldPrompt?: string;
   worldJobId?: string;
+  /** What worldJobId runs: unset = FlashWorld, 'routeTurn' = turn videos added to the route splat. */
+  worldJobKind?: 'routeTurn';
   worldVideoUrl?: string;
+  /** The route splat (route_*.ply) without turns: turns are added to it again, never on top of a result. */
+  routeBasePly?: string;
+  /** Ids of the turn videos the current splat was made with. */
+  routeTurns?: string[];
+  /** Their clip files: a turn re-rendered in place keeps its node id, so this is what says the splat is stale. */
+  routeTurnUrls?: string[];
 }
 
 export type GaussianNode = Node<GaussianNodeData, 'gaussian'>;

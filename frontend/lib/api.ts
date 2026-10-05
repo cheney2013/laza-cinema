@@ -867,6 +867,14 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  /** Turn videos (pans from a frame of the route) added to a route splat, bent onto its street (route_gs.py). */
+  appendRouteTurn: (req: { route_ply_url: string; turn_clip_urls: string[]; min_angle?: number }) =>
+    request<{ job_id: string; status: string }>('/append-route-turn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   // `ids` asks the backend for a definitive answer about those jobs: each comes
   // back under `tracked` in whatever state it is in, or in `missing` when the
   // backend has no record of it (restart, history pruned).

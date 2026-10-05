@@ -267,7 +267,7 @@ class CanvasMcpProtocolTests(unittest.IsolatedAsyncioTestCase):
              "transcribe_media", "get_media_transcription", "extract_audio",
              "get_media_frames", "add_media_still", "render_gaussian_view", "redo_audio",
              "upscale_chain", "upscale_chain_status", "cancel_upscale_chain", "cleanup_canvas",
-             "canvas_progress", "inspect_charswap_inputs"},
+             "canvas_progress", "inspect_charswap_inputs", "build_route_gaussian", "append_route_turn"},
         )
 
 

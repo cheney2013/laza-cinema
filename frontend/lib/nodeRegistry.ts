@@ -579,6 +579,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     color: '#14b8a6',
     inputs: [
       { id: 'in-image', portType: 'image', label: '渲染参考图', acceptedTypes: ['image', 'character'] },
+      // H3 pans that start on a frame of the route splat this node holds: added to it, bent onto the route's street
+      { id: 'in-video', portType: 'video', label: '转身视频（接到路线高斯上）', acceptedTypes: ['video'] },
     ],
     outputs: [
       { id: 'out-image', portType: 'image', label: '当前视图截图', providesTypes: ['image'] },

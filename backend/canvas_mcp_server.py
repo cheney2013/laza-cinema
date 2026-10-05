@@ -447,7 +447,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "defaults": {"plyUrl": None, "plyFilename": None, "plyOriginalName": None,
                      "generatedUrl": None, "status": "idle", "engine": "sharp",
                      "worldTrajectory": "ring", "worldPrompt": ""},
-        "inputs": ["in-image"],
+        # in-video: generated turns (H3 pans that start on a frame of the route) to add to the route splat
+        # this node holds -- run_canvas_node / append_route_turn bend them onto the route's street.
+        "inputs": ["in-image", "in-video"],
         "outputs": ["out-image", "out-gaussian"],  # out-image: the screenshot of the current view; out-gaussian: the point cloud
     },
     "preview": {
@@ -2914,6 +2916,71 @@ ANY_ANGLE_LORA = "QI2.1_AnyAngle.safetensors"
 MAX_TAKES = 200
 
 
+def _start_route_turn(resolved: dict[str, Any], canvas: dict[str, Any], node: dict[str, Any],
+                      turns: list[dict[str, Any]], min_angle: float = 40.0) -> dict[str, Any]:
+    """Queue POST /append-route-turn for the route splat on a gaussian node; the result lands on the same node.
+    The route without turns is kept in data.routeBasePly, so running again replaces the turns."""
+    node_id, data = node["id"], node.setdefault("data", {})
+    urls = []
+    for t in turns:
+        url = _node_url(t)
+        if not url:
+            raise ValueError(f"{t.get('id')} has no finished clip yet.")
+        urls.append(url)
+    base = data.get("routeBasePly") or data.get("plyUrl")
+    if not base or "/route_" not in str(base):
+        raise ValueError(f"gaussian node {node_id} holds no route splat (route_*.ply) to add the turn to; "
+                         "build one with build_route_gaussian first.")
+    submitted = _request("POST", "/append-route-turn", json={
+        "route_ply_url": base, "turn_clip_urls": urls, "min_angle": float(min_angle)}, project_id=resolved["id"])
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "loading", "worldJobId": submitted["job_id"], "worldJobKind": "routeTurn",
+        "routeBasePly": base, "routeTurns": [t.get("id") for t in turns], "routeTurnUrls": urls, "error": None}, canvas)
+    return {"project_id": resolved["id"], "node_id": node_id, "job_id": submitted["job_id"],
+            "status": submitted.get("status", "queued"), "revision": revision, "route": "route-turn",
+            "turns": len(urls)}
+
+
+@_tool
+def append_route_turn(project: str, node_id: str, turn_clip_node_ids: list[str] | None = None,
+                      scene: str = "", min_angle: float = 40.0) -> dict[str, Any]:
+    """Add generated turns to the route splat on a gaussian node, in place.
+
+    A turn is a video that pans from one frame of the route (an H3 clip made from that frame, asked to turn and
+    look back along the street): WorldMirror reconstructs it, its first frame is found among the route's frames
+    automatically, and its splat is bent onto the route's street (H3 turns the camera less than the street it
+    shows at the end) before it is merged (backend/route_gs.py append_route_turn). Several minutes and most of
+    the GPU; poll refresh_canvas_node until plyUrl changes. The result's sidecar (<ply>.json, "turns") says where
+    each turn was anchored and the measured bend.
+
+    turn_clip_node_ids: video nodes; they are wired into the node's in-video if they are not yet. Without them the
+    node's in-video inputs are used. The route without turns is kept in data.routeBasePly, so running again
+    replaces the turns rather than stacking them. min_angle: only what lies at least this far round from the
+    start frame's view is added (the route already holds the rest).
+    """
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    node = _find_node(canvas["nodes"], node_id)
+    if node.get("type") != "gaussian":
+        raise ValueError(f"{node_id} is a {node.get('type')} node, not a gaussian node.")
+    if (node.get("data") or {}).get("worldJobId"):
+        return {"project_id": resolved["id"], "node_id": node_id,
+                "job_id": node["data"]["worldJobId"], "status": "already_generating"}
+    if turn_clip_node_ids:
+        wired = {n.get("id") for n in _incoming_nodes(canvas, node_id, "in-video")}
+        missing = [f"{tid}>{node_id}.in-video" for tid in turn_clip_node_ids if tid not in wired]
+        if missing:
+            apply_canvas_operations(project, [{"op": "add_edges", "edges": missing}], scene=scene)
+            canvas = _canvas(resolved["id"])
+            node = _find_node(canvas["nodes"], node_id)
+        turns = [_find_node(canvas["nodes"], tid) for tid in turn_clip_node_ids]
+    else:
+        turns = _incoming_nodes(canvas, node_id, "in-video")
+    if not turns:
+        raise ValueError(f"wire the turn video(s) into {node_id}'s in-video, or pass turn_clip_node_ids.")
+    return _start_route_turn(resolved, canvas, node, turns, min_angle)
+
+
 def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                          node: dict[str, Any]) -> dict[str, Any]:
     """Start a 高斯模型 node from the picture on its in-image edge.
@@ -2927,6 +2994,9 @@ def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     if data.get("worldJobId"):
         return {"project_id": resolved["id"], "node_id": node_id,
                 "job_id": data["worldJobId"], "status": "already_generating"}
+    turns = _incoming_nodes(canvas, node_id, "in-video")
+    if turns:
+        return _start_route_turn(resolved, canvas, node, turns)
     sources = _incoming_nodes(canvas, node_id, "in-image")
     if not sources or not _node_url(sources[0]):
         raise ValueError(f"gaussian node {node_id} needs a finished picture on in-image.")
@@ -4681,12 +4751,14 @@ def refresh_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str
         if status == "done":
             ply = (job.get("result") or {}).get("url")
             with _hold_lock(resolved["id"], 30, f"refresh {node_id}"):
+                result = job.get("result") or {}
                 revision = _save_node_data(resolved["id"], node_id, {
                     "plyUrl": ply, "plyFilename": (ply or "").rsplit("/", 1)[-1] or None,
-                    "plyOriginalName": (job.get("result") or {}).get("name")
+                    "plyOriginalName": result.get("name")
                     or f"FlashWorld · {data.get('worldTrajectory') or 'ring'}",
-                    "worldVideoUrl": (job.get("result") or {}).get("video_url"),
-                    "status": "loading", "worldJobId": None, "error": None}, canvas)
+                    "worldVideoUrl": result.get("video_url"),
+                    "routeBasePly": result.get("base_url") or data.get("routeBasePly"),
+                    "status": "loading", "worldJobId": None, "worldJobKind": None, "error": None}, canvas)
             return {"project_id": resolved["id"], "node_id": node_id, "status": "done",
                     "ply_url": ply, "revision": revision}
         if status in {"error", "cancelled"}:

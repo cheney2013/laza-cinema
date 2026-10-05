@@ -69,15 +69,18 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
       updateNodeData(id, {
         plyUrl: url,
         plyFilename: url.split('/').pop() || null,
-        plyOriginalName: `FlashWorld · ${data.worldTrajectory ?? 'ring'}`,
+        // route jobs name their result ("WorldMirror · 路线 + 转身补洞"); a FlashWorld run is named by its trajectory
+        plyOriginalName: ((worldResult as any).name as string) || `FlashWorld · ${data.worldTrajectory ?? 'ring'}`,
         worldVideoUrl: (worldResult as any).video_url,
+        ...((worldResult as any).base_url ? { routeBasePly: (worldResult as any).base_url as string } : {}),
         status: 'loading',
         worldJobId: undefined,
+        worldJobKind: undefined,
       });
     } else if (worldResult.status === 'error') {
-      updateNodeData(id, { status: 'error', error: (worldResult.error as string) || t('生成失败'), worldJobId: undefined });
+      updateNodeData(id, { status: 'error', error: (worldResult.error as string) || t('生成失败'), worldJobId: undefined, worldJobKind: undefined });
     } else if (worldResult.status === 'cancelled') {
-      updateNodeData(id, { status: 'idle', worldJobId: undefined, error: undefined });
+      updateNodeData(id, { status: 'idle', worldJobId: undefined, worldJobKind: undefined, error: undefined });
     }
   }, [worldResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -103,6 +106,18 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   // Get input image URL
   const connectedImageNode = connected.find((n) => n.type === 'image' || n.type === 'gaussian' || n.type === 'inpaint' || n.type === 'preview');
   const targetImageUrl = connectedImageNode ? (connectedImageNode.generatedUrl || connectedImageNode.url) : null;
+
+  // Turn videos on in-video: pans that start on a frame of the route splat this node holds. The backend finds that
+  // frame, bends each turn onto the route's street and adds it (route_gs.append_route_turn). They always go onto
+  // the route without turns (routeBasePly), so running again replaces the turns instead of stacking them.
+  const turnInputs = connected.filter((n) => n.targetHandle === 'in-video' && (n.generatedUrl || n.url));
+  const turnClips = turnInputs.map((n) => (n.generatedUrl || n.url) as string);
+  const turnIds = turnInputs.map((n) => n.id);
+  const routeBase = (data.routeBasePly as string | undefined)
+    || (typeof data.plyUrl === 'string' && data.plyUrl.includes('/route_') ? data.plyUrl : undefined);
+  // compared by clip file, not node id: a turn re-rendered in place keeps its id
+  const turnsPending = turnClips.length > 0 && Boolean(routeBase) && !data.worldJobId
+    && (data.routeTurnUrls ?? []).join('|') !== turnClips.join('|');
 
   // Backfill sourceImageUrl for existing nodes
   useEffect(() => {
@@ -195,6 +210,17 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
     }
   }, [id, targetImageUrl, updateNodeData, isWorld, data.worldPrompt, data.worldTrajectory, data.worldDistance, data.worldDegrees]);
 
+  const handleAppendTurn = useCallback(async () => {
+    if (!routeBase || turnClips.length === 0) return;
+    updateNodeData(id, { status: 'loading', error: undefined });
+    try {
+      const { job_id } = await api.appendRouteTurn({ route_ply_url: routeBase, turn_clip_urls: turnClips });
+      updateNodeData(id, { worldJobId: job_id, worldJobKind: 'routeTurn', routeBasePly: routeBase, routeTurns: turnIds, routeTurnUrls: turnClips });
+    } catch (err: any) {
+      updateNodeData(id, { status: 'error', error: err.message });
+    }
+  }, [id, routeBase, turnClips, turnIds, updateNodeData]);
+
   const handleCancel = useCallback(async () => {
     cancelledRef.current = true;
     for (const jobId of [data.worldJobId, data.sharpJobId]) {
@@ -202,7 +228,7 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         try { await api.cancelJob(jobId as string); } catch {}
       }
     }
-    updateNodeData(id, { status: 'ready', worldJobId: undefined, sharpJobId: undefined, error: undefined });
+    updateNodeData(id, { status: 'ready', worldJobId: undefined, worldJobKind: undefined, sharpJobId: undefined, error: undefined });
   }, [id, updateNodeData, data.worldJobId, data.sharpJobId]);
 
   const handleGenerate = useCallback(() => {
@@ -319,6 +345,16 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
           >
             {data.plyUrl ? t('重新生成高斯模型') : t('生成高斯模型')}
           </button>
+          {turnClips.length > 0 && (
+            <button
+              onClick={() => { setShowSettings(false); void handleAppendTurn(); }}
+              disabled={!routeBase || data.status === 'loading' || Boolean(data.worldJobId || data.sharpJobId)}
+              className={`mt-2 w-full rounded-lg px-3 py-1.5 text-xs font-medium ${routeBase ? 'border border-white/15 bg-white/10 text-white hover:bg-white/20' : 'cursor-not-allowed bg-white/5 text-zinc-600'}`}
+              title={routeBase ? t('连着的转身视频会自动找到它在路线上的起始帧，掰正后接进这条路线高斯（约 5 分钟）') : t('这个节点还没有路线高斯（route_*.ply）')}
+            >
+              {t('接转身视频（补身后）')}
+            </button>
+          )}
         </div>
       )}
       </div>
@@ -413,6 +449,30 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               </div>
             )}
 
+            {turnsPending && !isOutdated && (
+              <div style={{
+                position: 'absolute', top: 12, left: 0, right: 0, zIndex: 45,
+                display: 'flex', justifyContent: 'center', pointerEvents: 'none'
+              }}>
+                <button
+                  className="nodrag"
+                  onClick={handleAppendTurn}
+                  disabled={data.status === 'loading' || isCapturing}
+                  title={t('连着的转身视频会自动找到它在路线上的起始帧，掰正后接进这条路线高斯（约 5 分钟）')}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, pointerEvents: 'auto',
+                    background: 'rgba(20,184,166,0.95)', color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.2)', fontSize: 12, fontWeight: 500,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
+                    cursor: (data.status === 'loading' || isCapturing) ? 'not-allowed' : 'pointer',
+                    opacity: (data.status === 'loading' || isCapturing) ? 0.7 : 1, transition: 'all 0.2s',
+                  }}
+                >
+                  {t('接转身视频（补身后）')}
+                </button>
+              </div>
+            )}
+
             {(data.status === 'loading' || isCapturing) && (
               <div style={{
                 position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
@@ -421,7 +481,10 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               }}>
                 <Spinner />
                 <span style={{ fontSize: 12, color: '#aaa' }}>
-                  {isCapturing ? t('正在截图中...') : data.worldJobId ? t('FlashWorld 生成中，约 5 分钟...') : data.sharpJobId ? t('正在生成高斯模型...') : t('正在加载模型...')}
+                  {isCapturing ? t('正在截图中...')
+                    : data.worldJobId && data.worldJobKind === 'routeTurn' ? t('转身视频重建、掰正后接到路线上，约 5 分钟...')
+                    : data.worldJobId ? t('FlashWorld 生成中，约 5 分钟...')
+                    : data.sharpJobId ? t('正在生成高斯模型...') : t('正在加载模型...')}
                 </span>
                 {/* queue position, progress, 置顶 and cancel for the model job */}
                 {Boolean(data.worldJobId || data.sharpJobId) && (
@@ -507,6 +570,7 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
           </div>
 
           <IconHandle type="target" id="in-image" portType="image" nodeId={id} style={{ top: '50%' }} />
+          <IconHandle type="target" id="in-video" portType="video" nodeId={id} style={{ top: '72%' }} title={t('转身视频（接到路线高斯上）')} />
           <IconHandle type="source" id="out-image" portType="image" nodeId={id} style={{ top: '35%' }} title={t('当前视图截图')} />
           <IconHandle type="source" id="out-gaussian" portType="gaussian" nodeId={id} style={{ top: '65%' }} title={t('高斯点云')} />
         </div>

@@ -418,6 +418,7 @@ _REPLAYABLE: dict[str, tuple[str, str]] = {
     "image_upscale": ("ImageUpscaleRequest", "_run_image_upscale_job"),
     "world_gaussian": ("WorldGaussianRequest", "_run_world_gaussian_job"),
     "route_gaussian": ("RouteGaussianRequest", "_run_route_gaussian_job"),
+    "route_turn": ("RouteTurnRequest", "_run_route_turn_job"),
     "gaussian_model": ("GaussianModelRequest", "_run_gaussian_model_job"),
     "interpolate": ("VideoInterpolateRequest", "_run_video_interpolate_job"),
     "upscale": ("VideoUpscaleRequest", "_run_video_upscale_job"),
@@ -8805,6 +8806,74 @@ async def _run_route_gaussian_job(job: dict, req: RouteGaussianRequest) -> dict:
         shutil.rmtree(UPLOAD_DIR / f"_{stem}", ignore_errors=True)    # work dir; clips live in _route_cache
     return {"url": f"/uploads/{stem}.ply", "meta_url": f"/uploads/{stem}.json",
             "name": f"WorldMirror · 路线拼接（{len(clips)} 段）", **result}
+
+
+class RouteTurnRequest(BaseModel):
+    """Generated turns (videos that pan from one frame of a route, e.g. H3 asked to look back along the street)
+    added to a finished route splat (route_gs.append_route_turn): each turn is reconstructed with WorldMirror,
+    its first frame is found among the route's frames, and its splat is bent onto the route's street.
+
+    route_ply_url: a route splat (route_*.ply). A splat made by this job names its route as its base, and the
+    turns are then added to that route again rather than on top of the earlier result.
+    """
+    route_ply_url: str
+    turn_clip_urls: list[str]
+    min_angle: float = 40.0     # only what lies at least this far round from the start frame's view is added
+
+
+async def _route_manifest(ply: Path) -> dict:
+    """The route's manifest (written by build_route_gaussian); for a route built before that, rebuilt from its
+    build job's request (still in the job history) and the reconstruction cache."""
+    import route_gs
+    mf = ply.with_name(ply.stem + "_route.json")
+    if mf.exists():
+        return json.loads(mf.read_text(encoding="utf-8"))
+    url = f"/uploads/{ply.name}"
+    job = next((j for j in reversed(_history) if j.get("type") == "route_gaussian"
+                and (j.get("result") or {}).get("url") == url), None)
+    if not job or not job.get("request"):
+        raise RuntimeError(f"{ply.name} has no route manifest and its build is no longer in the job history; "
+                           "build the route again (build_route_gaussian), which writes one")
+    r = job["request"]
+    clips = [await resolve_upload(u) for u in r["clip_urls"]]
+    manifest = await asyncio.to_thread(
+        route_gs.manifest_from_cache, clips, UPLOAD_DIR / "_route_cache",
+        frame_step=r.get("frame_step") or 9, shared=r.get("shared_frames") or 5, max_frames=r.get("max_frames") or 36,
+        adaptive=True if r.get("adaptive_frames") is None else bool(r["adaptive_frames"]),
+        mask_people=bool(r.get("mask_people")), mask_fallback=bool(r.get("mask_fallback")),
+        frame_width=r.get("frame_width") or 704, metres_per_unit=r.get("metres_per_unit") or 30.5)
+    mf.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
+
+
+async def _run_route_turn_job(job: dict, req: RouteTurnRequest) -> dict:
+    import route_gs
+    route_ply = await resolve_upload(req.route_ply_url)
+    manifest = await _route_manifest(route_ply)
+    if manifest.get("base_ply"):           # an earlier result of this job: start again from its route
+        route_ply = route_ply.with_name(manifest["base_ply"])
+    turns = [await resolve_upload(u) for u in req.turn_clip_urls]
+    await comfyui.free_memory(unload_models=True, free_memory=True)       # WorldMirror needs the card
+    stem = f"route_turn_{job['id']}"
+
+    def cancelled() -> bool:
+        return job.get("status") == "cancelled"
+
+    try:
+        result = await asyncio.to_thread(
+            route_gs.append_route_turn, route_ply, turns, UPLOAD_DIR / f"{stem}.ply", UPLOAD_DIR / "_route_cache",
+            manifest, min_angle=req.min_angle, should_stop=cancelled)
+    except route_gs.RouteCancelled:
+        return {}
+    return {"url": f"/uploads/{stem}.ply", "meta_url": f"/uploads/{stem}.json", "base_url": f"/uploads/{route_ply.name}",
+            "name": f"WorldMirror · 路线 + 转身补洞（{len(turns)} 段）", **result}
+
+
+@app.post("/append-route-turn")
+async def append_route_turn(req: RouteTurnRequest):
+    if not req.turn_clip_urls:
+        raise HTTPException(400, "turn_clip_urls is empty")
+    return await submit_job("route_turn", lambda job: _run_route_turn_job(job, req), request=req)
 
 
 @app.post("/generate-route-gaussian")

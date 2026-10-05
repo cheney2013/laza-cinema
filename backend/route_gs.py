@@ -90,16 +90,20 @@ def pick_frame_indices(total: int, count: int, motion: Optional[np.ndarray] = No
 
 
 def sample_frames(video: Path, out_dir: Path, step: int, max_frames: int, width: int = 704,
-                  adaptive: bool = True) -> list[Path]:
+                  adaptive: bool = True, ends: bool = False) -> list[Path]:
     """About total/step frames (at most `max_frames`), as PNG files of the given width. With `adaptive` the
-    frames follow the clip's motion instead of a fixed step. ffmpeg does the decoding: the backend's venv has
-    no video reader of its own."""
+    frames follow the clip's motion instead of a fixed step; with `ends` they are evenly spaced from the very first
+    frame to the last (a turn made from a picture has to start on that picture). ffmpeg does the decoding: the
+    backend's venv has no video reader of its own."""
     out_dir.mkdir(parents=True, exist_ok=True)
     total = _frame_count(video)
     if not total:
         raise RuntimeError(f"cannot read {video.name}")
     count = min(max_frames, math.ceil(total / step))
-    idx = pick_frame_indices(total, count, _motion_profile(video, total) if adaptive else None)
+    if ends:
+        idx = sorted(set(int(round(i)) for i in np.linspace(0, total - 1, count)))
+    else:
+        idx = pick_frame_indices(total, count, _motion_profile(video, total) if adaptive else None)
     expr = "+".join(f"eq(n\\,{i})" for i in idx)
     proc = subprocess.run(
         [os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-i", str(video), "-vf",
@@ -398,19 +402,401 @@ def move_splat(data: np.ndarray, names: list[str], s: float, R: np.ndarray, t: n
     return data
 
 
+def _fit_ground(q: np.ndarray, az_lo: float, az_hi: float, rng, r_lo=0.05, r_hi=0.9):
+    """Ground plane (unit normal pointing up = -y, distance from the camera) of points in the anchor camera frame
+    (x right, y down, z forward), from the points below the camera in an azimuth range; RANSAC then least squares."""
+    az = np.degrees(np.arctan2(q[:, 0], q[:, 2]))
+    r = np.hypot(q[:, 0], q[:, 2])
+    pts = q[(q[:, 1] > 0) & (r > r_lo) & (r < r_hi) & (az > az_lo) & (az < az_hi)]
+    if len(pts) < 3000:
+        return None
+    pts = pts[rng.integers(0, len(pts), min(len(pts), 40000))]
+    best = None
+    for _ in range(300):
+        a, b, c = pts[rng.integers(0, len(pts), 3)]
+        n = np.cross(b - a, c - a)
+        nn = float(np.linalg.norm(n))
+        if nn < 1e-9:
+            continue
+        n = n / nn
+        if n[1] > 0:
+            n = -n
+        if abs(n[1]) < 0.8:
+            continue
+        inl = int((np.abs((pts - a) @ n) < 0.004).sum())
+        if best is None or inl > best[0]:
+            best = (inl, n, a)
+    if best is None:
+        return None
+    _, n, a = best
+    P = pts[np.abs((pts - a) @ n) < 0.004]
+    if len(P) < 1500:
+        return None
+    cen = P.mean(0)
+    n = np.linalg.svd(P - cen, full_matrices=False)[2][2]
+    if n[1] > 0:
+        n = -n
+    return n.astype(np.float64), abs(float(cen @ n))
+
+
+def _street_direction(P: np.ndarray, around: float, half: float = 60.0, radius: float = 1.0,
+                      samples: int = 6000, seed: int = 0) -> tuple[Optional[float], int]:
+    """The direction most walls in plan points P run along: (degrees of azimuth, folded into around +- 90, or None;
+    number of line-like neighbourhoods).  P is (n, 2): x right, z forward, metres.  A histogram of the principal
+    directions of line-like `radius` neighbourhoods, so the long facades of a street win over jogs, steps and cross
+    walls (a straight-line fit through the same points swung by 5-8 degrees with the window)."""
+    from scipy.spatial import cKDTree
+    rng = np.random.default_rng(seed)
+    if len(P) > 150_000:
+        P = P[rng.choice(len(P), 150_000, replace=False)]
+    if len(P) < 50:
+        return None, 0
+    tree = cKDTree(P)
+    angs, wts = [], []
+    for nb in tree.query_ball_point(P[rng.choice(len(P), min(samples, len(P)), replace=False)], radius, workers=-1):
+        if len(nb) < 8:
+            continue
+        X = P[nb] - P[nb].mean(0)
+        ev, vec = np.linalg.eigh(X.T @ X)
+        lin = 1 - ev[0] / max(ev[1], 1e-12)
+        if lin < 0.85:
+            continue
+        angs.append((math.degrees(math.atan2(vec[0, 1], vec[1, 1])) - around + 90) % 180 - 90)
+        wts.append(lin)
+    if len(angs) < 200:
+        return None, len(angs)
+    angs, wts = np.array(angs), np.array(wts)
+    keep = np.abs(angs) <= half
+    if wts[keep].sum() <= 0:
+        return None, len(angs)
+    h, e = np.histogram(angs[keep], bins=np.arange(-half, half + 0.5, 0.5), weights=wts[keep])
+    k = int(np.argmax(np.convolve(h, np.ones(7) / 7, "same")))
+    peak = (e[k] + e[k + 1]) / 2
+    m = keep & (np.abs(angs - peak) < 3)
+    return around + float(np.average(angs[m], weights=wts[m])), len(angs)
+
+
+def _mode(x: np.ndarray, lo: float, hi: float, step: float) -> float:
+    """Densest value of x (a 3-bin running sum of a histogram), e.g. the wall among the parked cars and poles."""
+    h, e = np.histogram(x, bins=np.arange(lo, hi + step, step))
+    k = int(np.argmax(np.convolve(h, np.ones(3), "same")))
+    return float((e[k] + e[k + 1]) / 2)
+
+
+def _bend_turn(data: np.ndarray, names: list[str], anchor_ply: Path, anchor_cam: np.ndarray, new_cams: list,
+               new_intr: list, metres_per_unit: float) -> tuple[np.ndarray, dict]:
+    """Bend the splat of a generated turn (already placed at the anchor camera) onto the route's street.
+
+    Measured on an H3 pan that was asked to turn until it looked back along the street (2026-10-06): the frames fit a
+    pure rotation to under a pixel, the rotation chained from them is 146 deg (focal length self-calibrated per third
+    of the clip: 666 / 698 / 658 px) and WorldMirror gets 149 deg, yet the last frame looks straight down a street.
+    H3 turns the camera less than the street around it: it bends the space it invents.  The reconstruction is right
+    about the video; what has to change is the video's world.  In the anchor's frame levelled on the route's ground:
+
+      * the first frame's own content (azimuth up to its half field of view) is the anchor frame: kept;
+      * the last frame's content (azimuth from the last heading minus its half field of view) is one coherent street
+        view: turned about the anchor's vertical axis by alpha = route street direction - that street's direction,
+        both read from the walls (a histogram of local wall directions; about 30 deg on that pan);
+      * what H3 invented in between is spread over the gap that leaves (azimuth stretched linearly);
+      * across the street, each 5 deg of the turn side is scaled so its wall lands on the route's wall in the same
+        5 deg, or on the route's wall beside the anchor where the route has none (a pan gives no parallax, so
+        WorldMirror put that wall on an arc ~25% too far), and the far side behind the anchor likewise;
+      * the ground gets a vertical offset per 10 deg so it meets the route's ground near the camera; no tilt and no
+        scaling: the turn's ground behind the anchor falls the way the route's own ground rises ahead (a slope, not a
+        drift), and scaling to a ground height shrank the street behind by a third.
+    Gaussians are turned with their azimuth change.  Returns the data and the measured numbers."""
+    rng = np.random.default_rng(0)
+    mpu = float(metres_per_unit)
+    c0, Rc = anchor_cam[:3, 3].astype(np.float64), anchor_cam[:3, :3].astype(np.float64)
+    _, onames, old = read_ply(anchor_ply)
+    qo = (old[:, [onames.index(c) for c in "xyz"]].astype(np.float64) - c0) @ Rc
+    ix = [names.index(c) for c in "xyz"]
+    qn = (data[:, ix].astype(np.float64) - c0) @ Rc
+    g = _fit_ground(qo.astype(np.float32), -35, 35, rng)
+    if g is None:
+        return data, {"bend": "skipped: no ground found in the anchor's view"}
+    up, h0 = np.asarray(g[0], dtype=np.float64), float(g[1]) * mpu
+    fwd = np.array([0.0, 0.0, 1.0]) - up * up[2]
+    fwd /= np.linalg.norm(fwd)
+    right = np.array([1.0, 0.0, 0.0]) - up * up[0] - fwd * fwd[0]
+    right /= np.linalg.norm(right)
+    B = np.stack([right, up, fwd], 1)                  # level axes (right, up, forward) in anchor-camera coordinates
+    Lo, Ln = qo @ B * mpu, qn @ B * mpu                 # metres, the camera at the origin
+    Lo[:, 1] += h0
+    Ln[:, 1] += h0                                      # height above the route's ground
+    # the turn's headings in this frame (its first camera is the anchor camera) and where its first / last frame end
+    R0 = new_cams[0][:3, :3]
+    heads = np.degrees(np.unwrap([math.atan2(*((((R0.T @ c[:3, :3])[:, 2]) @ B)[[0, 2]])) for c in new_cams]))
+    s = 1.0 if heads[-1] >= heads[0] else -1.0
+    t_a = math.degrees(math.atan2(new_intr[0][0, 2], new_intr[0][0, 0]))
+    t_b = s * (heads[-1] - heads[0]) - math.degrees(math.atan2(new_intr[-1][0, 2], new_intr[-1][0, 0]))
+    rep = {"turn_deg": round(float(s * (heads[-1] - heads[0])), 1), "theta_a": round(t_a, 1), "theta_b": round(t_b, 1)}
+    if t_b - t_a < 10:
+        return data, {**rep, "bend": "skipped: the turn is shorter than one field of view"}
+
+    def turn_az(L):                                     # azimuth along the turn, in [-90, 270)
+        return (s * (np.degrees(np.arctan2(L[:, 0], L[:, 2])) - heads[0]) + 90) % 360 - 90
+
+    def walls(L):
+        return (L[:, 1] > 0.6) & (L[:, 1] < 4.0)
+
+    to, tn = turn_az(Lo), turn_az(Ln)
+    phi_o, n_o = _street_direction(Lo[walls(Lo) & (np.abs(Lo[:, 2]) < 15) & (np.abs(Lo[:, 0]) < 15)][:, [0, 2]], 0.0)
+    last = walls(Ln) & (tn >= t_b) & (np.hypot(Ln[:, 0], Ln[:, 2]) > 4)
+    phi_n, n_n = _street_direction(Ln[last][:, [0, 2]], phi_o if phi_o is not None else 0.0)
+    if phi_o is None or phi_n is None:
+        return data, {**rep, "bend": f"skipped: no street direction (route {n_o}, turn {n_n} wall pieces)"}
+    alpha = s * (((phi_o - phi_n) + 90) % 180 - 90)     # along the turn
+    rep.update(street_deg=round(phi_o, 2), turn_street_deg=round(phi_n, 2), alpha=round(alpha, 2))
+    if abs(alpha) > 60:
+        return data, {**rep, "bend": "skipped: the turn's street is more than 60 deg off the route's"}
+    tw = np.where(tn <= t_a, tn, np.where(tn >= t_b, tn + alpha, t_a + (tn - t_a) * (t_b + alpha - t_a) / (t_b - t_a)))
+    az_w = np.radians(heads[0] + s * tw)
+    r = np.hypot(Ln[:, 0], Ln[:, 2])
+    Lw = np.stack([r * np.sin(az_w), Ln[:, 1], r * np.cos(az_w)], 1)
+
+    # ground: offset per 10 deg of the bent azimuth, from the densest height 2-7 m from the camera in both splats
+    gc, go = [], []
+    near_o = (np.hypot(Lo[:, 0], Lo[:, 2]) > 2) & (np.hypot(Lo[:, 0], Lo[:, 2]) < 7) & (Lo[:, 1] > -1.2) & (Lo[:, 1] < 0.6)
+    near_n = (r > 2) & (r < 7) & (Lw[:, 1] > -1.2) & (Lw[:, 1] < 0.6)
+    for lo in range(-90, 270, 10):
+        mo, mn = near_o & (to >= lo) & (to < lo + 10), near_n & (tw >= lo) & (tw < lo + 10)
+        if mo.sum() >= 400 and mn.sum() >= 400:
+            gc.append(lo + 5.0)
+            go.append(_mode(Lo[mo, 1], -1.2, 0.6, 0.04) - _mode(Lw[mn, 1], -1.2, 0.6, 0.04))
+    if gc:
+        go = [float(np.median(go[max(0, i - 1): i + 2])) for i in range(len(go))]
+        Lw[:, 1] += np.interp(tw, gc, go)
+        rep["ground_offset_m"] = [round(min(go), 2), round(max(go), 2)]
+
+    # across the street: u along the route's street, v to the turn side
+    d = np.array([math.sin(math.radians(phi_o)), math.cos(math.radians(phi_o))])
+    nv = s * np.array([d[1], -d[0]])
+    P = Lw[:, [0, 2]]
+    u, v = P @ d, P @ nv
+    uo, vo_ = Lo[:, [0, 2]] @ d, Lo[:, [0, 2]] @ nv
+    wo, wn = walls(Lo) & (np.abs(uo) < 5), walls(Lw)      # the route's walls beside the anchor: the seam is there
+    k = np.ones(len(v))
+    if (wo & (vo_ > 1)).sum() > 500:
+        wall_t = _mode(vo_[wo & (vo_ > 1)], 1, 25, 0.2)
+        # the target is the route's own wall in the same 5 deg where it has one (its facades step in and out:
+        # 5.5 m ahead of the anchor, 6.7 m beside it on the pan this was made on), else the wall beside the anchor
+        walls_o = walls(Lo) & (vo_ > 1) & (np.hypot(Lo[:, 0], Lo[:, 2]) < 25)
+        kc, kv, tg = [t_a], [1.0], []
+        for lo in np.arange(t_a, tw.max(), 5.0):
+            m = wn & (v > 1) & (tw >= lo) & (tw < lo + 5)
+            if m.sum() >= 300:
+                mo = walls_o & (to >= lo) & (to < lo + 5)
+                tg.append(_mode(vo_[mo], 1, 25, 0.2) if mo.sum() >= 600 else wall_t)
+                kc.append(lo + 2.5)
+                kv.append(_mode(v[m], 1, 25, 0.2))
+        tg = [float(np.median(tg[max(0, i - 1): i + 2])) for i in range(len(tg))]
+        kv = [1.0] + [float(np.clip(t_ / n_, 0.7, 1.3)) for t_, n_ in zip(tg, kv[1:])]
+        kv = [kv[0]] + [float(np.median(kv[max(1, i - 1): i + 2])) for i in range(1, len(kv))]
+        side = (v > 0) & (tw > t_a)
+        k[side] = np.interp(tw[side], kc, kv)
+        rep.update(wall_turn_side_m=round(wall_t, 2),
+                   across_turn_side={f"{c:.0f}": round(x, 3) for c, x in zip(kc, kv)})
+    behind = wn & (v < -1) & (u < -8)
+    if (wo & (vo_ < -1)).sum() > 500 and behind.sum() > 500:
+        wall_f = _mode(-vo_[wo & (vo_ < -1)], 1, 25, 0.2)
+        k_f = float(np.clip(wall_f / _mode(-v[behind], 1, 25, 0.2), 0.7, 1.3))
+        far = (v < 0) & (u < 0)
+        k[far] = 1 + (k_f - 1) * np.clip(-u[far] / 8, 0, 1)
+        rep.update(wall_far_side_m=round(wall_f, 2), across_far_side=round(k_f, 3))
+    P = u[:, None] * d + (v * k)[:, None] * nv
+    Lw[:, 0], Lw[:, 2] = P[:, 0], P[:, 1]
+
+    Lw[:, 1] -= h0
+    data[:, ix] = (((Lw / mpu) @ B.T) @ Rc.T + c0).astype(data.dtype)
+    # turn every gaussian by its azimuth change about the vertical: in the (left-handed) level frame a turn of +delta
+    # toward +x is a turn of -delta about `up` in the camera's right-handed frame
+    ax = Rc @ up
+    half = -np.radians(s * (tw - tn)) / 2
+    aw, axx, ayy, azz = np.cos(half), np.sin(half) * ax[0], np.sin(half) * ax[1], np.sin(half) * ax[2]
+    rc = [names.index(f"rot_{j}") for j in range(4)]
+    bw, bx, by, bz = (data[:, c].astype(np.float64) for c in rc)
+    data[:, rc] = np.stack([aw * bw - axx * bx - ayy * by - azz * bz, aw * bx + axx * bw + ayy * bz - azz * by,
+                            aw * by - axx * bz + ayy * bw + azz * bx, aw * bz + axx * by - ayy * bx + azz * bw], axis=1)
+    return data, rep
+
+
+def append_view_splat(base_ply: Path, out_ply: Path, new_run: Path, anchor_run: Path, anchor_index: int, *,
+                      seam_index: Optional[int] = None, metres_per_unit: float = 30.5, min_angle: float = 40.0,
+                      to_route: Optional[tuple] = None, fill_only_m: float = 0.5, fill_only_below_deg: float = 110.0,
+                      fill_only_neighbours: int = 8, bend: bool = True) -> dict:
+    """Add the gaussians of a video that turns (or looks) from a known camera into a finished route splat.
+
+    A video made from one frame of the route (a pan or an orbit that H3 generated from that frame, with the
+    camera staying put) shows the space around that camera that the route's own clips never faced.  Its
+    WorldMirror run (`new_run`) is aligned to the route through its first camera, which is the anchor frame's
+    camera: the rotation and the position follow from the two camera poses, the scale from the ratio of the two
+    depth maps of that same view.  Only gaussians more than `min_angle` degrees away from the anchor's viewing
+    direction are added (the rest is what the route already holds), and, with `seam_index`, only those on this
+    side of the seam plane through that camera of the anchor run (the same cut the route uses between clips).
+    `to_route` is the anchor run's own (scale, R, t) into the route frame when the anchor clip is not the first.
+    The two reconstructions never agree exactly toward the edge of the old frames (a generated turn is not a rigid
+    rotation, and the old side is sparse there), and a wall present in both would show twice; so only gaussians
+    with fewer than `fill_only_neighbours` base gaussians within `fill_only_m` metres are added where the two
+    overlap (within `fill_only_below_deg` of the anchor's view): a surface the base already holds densely is not
+    added twice, a gap in the base is filled.  A plain 'distance to the nearest base gaussian' test is wrong: the
+    base's scattered stray gaussians ate holes into the generated street (35% lost), and a hard angle cut left a
+    void between where the base ends and where the new part starts.  0 turns this off.
+    `bend` (default) unbends a generated turn onto the route's street before any of that (_bend_turn): H3 turns the
+    camera less than the street it shows at the end, so the part it invented lies rotated off the route's street.
+    base_ply is a route_gs output; out_ply has the same format."""
+    def cams(run, key="extrinsics"):
+        return [np.array(e["matrix"]) for e in json.loads((run / "camera_params.json").read_text())[key]]
+    cn, co = cams(new_run), cams(anchor_run)
+    dn = np.load(new_run / "depth" / "depth_0000.npy")
+    do = np.load(anchor_run / "depth" / f"depth_{anchor_index:04d}.npy")
+    h = dn.shape[0]
+    ratio = (do / dn)[: int(h * 0.75), :]          # the street, not the foreground where people were removed
+    lo, hi = np.percentile(ratio, [20, 80])
+    scale = float(np.median(ratio[(ratio > lo) & (ratio < hi)]))
+    R = co[anchor_index][:3, :3] @ np.linalg.inv(cn[0][:3, :3])
+    t = co[anchor_index][:3, 3] - scale * R @ cn[0][:3, 3]
+    header, names, data = read_ply(new_run / "gaussians.ply")
+    io = names.index("opacity")
+    pr = np.clip(data[:, io], 1e-4, 1 - 1e-4)
+    data[:, io] = np.log(pr / (1 - pr))
+    data = move_splat(data, names, scale, R, t)
+    ix = [names.index(c) for c in "xyz"]
+    report = {}
+    if bend:
+        data, report = _bend_turn(data, names, anchor_run / "gaussians.ply", co[anchor_index], cn,
+                                  cams(new_run, "intrinsics"), metres_per_unit)
+    c0, fwd = co[anchor_index][:3, 3], co[anchor_index][:3, 2]
+    v = data[:, ix] - c0
+    keep = (v @ fwd) / (np.linalg.norm(v, axis=1) + 1e-9) < math.cos(math.radians(min_angle))
+    if seam_index is not None:
+        cs = co[seam_index]
+        keep &= (data[:, ix] - (cs[:3, 3] + CUT_AHEAD * cs[:3, 2])) @ cs[:3, 2] <= 0
+    data = data[keep]
+    if to_route is not None:
+        data = move_splat(data, names, *to_route)
+    f = metres_per_unit * SCENE_SCALE
+    data[:, ix] *= f
+    for k in range(3):
+        data[:, names.index(f"scale_{k}")] += math.log(f)
+    cols = [i for i, n in enumerate(names) if n not in ("nx", "ny", "nz")]
+    data = data[:, cols]
+    names2 = [names[i] for i in cols]
+    data = data[np.exp(data[:, [names2.index(f"scale_{k}") for k in range(3)]]).max(axis=1) <= MAX_SPLAT]
+    bheader, bnames, base = read_ply(base_ply)
+    if bnames != names2:
+        raise ValueError("the base splat and the new run have different columns")
+    if fill_only_m > 0 and len(data):
+        from scipy.spatial import cKDTree
+        f_ = metres_per_unit * SCENE_SCALE
+        c0_final, fwd_final = np.asarray(c0, dtype=np.float64) * f_, np.asarray(fwd, dtype=np.float64)
+        if to_route is not None:
+            s_, R_, t_ = to_route
+            c0_final, fwd_final = (s_ * (R_ @ np.asarray(c0, dtype=np.float64)) + t_) * f_, R_ @ fwd_final
+        pos = data[:, [names2.index(c) for c in "xyz"]]
+        bpos = base[:, [names2.index(c) for c in "xyz"]]
+        lo, hi = pos.min(0) - 1.0, pos.max(0) + 1.0
+        near = bpos[((bpos >= lo) & (bpos <= hi)).all(axis=1)]
+        if len(near):
+            cnt = cKDTree(near).query_ball_point(pos, fill_only_m * SCENE_SCALE, return_length=True, workers=-1)   # metres x SCENE_SCALE
+            vnew = pos - c0_final
+            ang_deg = np.degrees(np.arccos(np.clip((vnew @ fwd_final) / (np.linalg.norm(vnew, axis=1) + 1e-9), -1, 1)))
+            data = data[~((cnt >= fill_only_neighbours) & (ang_deg < fill_only_below_deg))]
+    allg = np.concatenate([base, data])
+    props = [ln for ln in bheader if ln.startswith(b"property")]
+    out_header = b"".join((b"element vertex %d\n" % len(allg)) if ln.startswith(b"element vertex") else ln
+                          for ln in bheader if not ln.startswith(b"property") and ln.strip() != b"end_header")
+    out_header += b"".join(props) + b"end_header\n"
+    out_ply.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_ply, "wb") as fh:
+        fh.write(out_header)
+        fh.write(np.ascontiguousarray(allg, dtype=np.float32).tobytes())
+    return {"base": int(len(base)), "added": int(len(data)), "scale": scale, **report}
+
+
 # --------------------------------------------------------------------------------------------- pipeline
 PIPELINE_VERSION = "3"    # bump when frame sampling or masking changes: old cache entries then stop matching
 
 
 def _clip_key(clip: Path, prev_key: str, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, index,
-              frame_width=704) -> str:
+              frame_width=704, version: Optional[str] = None) -> str:
     h = hashlib.sha1()
     with open(clip, "rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
             h.update(block)
-    h.update(json.dumps([PIPELINE_VERSION, prev_key, frame_step, shared, max_frames, adaptive, mask_people,
+    h.update(json.dumps([version or PIPELINE_VERSION, prev_key, frame_step, shared, max_frames, adaptive, mask_people,
                          mask_fallback, index > 0, frame_width]).encode())
     return h.hexdigest()[:20]
+
+
+def _align_runs(runs: list[dict]) -> tuple[list[tuple], list[dict]]:
+    """Transform (s, R, t) of every clip's reconstruction into clip 0's frame, from the cameras of the frames each
+    clip repeats from the one before, and the residuals of each seam."""
+    T = [(1.0, np.eye(3), np.zeros(3))]
+    report = []
+    for i in range(1, len(runs)):
+        k = runs[i]["n_shared"]
+        prev_last = runs[i - 1]["cams"][-k:]          # the clip before ended on these sampled frames
+        this_first = runs[i]["cams"][:k]
+        s, R, t, resid, rot = similarity(prev_last, this_first)
+        sp, Rp, tp = T[i - 1]
+        T.append((sp * s, Rp @ R, sp * (Rp @ t) + tp))
+        report.append({"seam": f"{i - 1}->{i}", "scale": s, "centre_residual_units": [float(r) for r in resid],
+                       "rotation_residual_deg": [float(r) for r in rot]})
+    return T, report
+
+
+def _run_dir(out: Path) -> Path:
+    """The WorldMirror result folder under a clip's out/ (the newest one holding camera_params.json)."""
+    found = sorted(out.rglob("camera_params.json"), key=lambda p: p.stat().st_mtime)
+    if not found:
+        raise RuntimeError(f"no WorldMirror result under {out}")
+    return found[-1].parent
+
+
+def _manifest(clips: list[Path], cdirs: list[Path], runs: list[dict], T: list[tuple], metres_per_unit: float,
+              frame_width: int) -> dict:
+    """What a later step needs to place something on a finished route: per clip its cache folder, WorldMirror
+    run, sampled frames (file names and frame numbers in the clip) and its transform into the route frame."""
+    entries = []
+    for clip, cdir, run, (sc, R, t) in zip(clips, cdirs, runs, T):
+        done = cdir / "done.json"
+        own = json.loads(done.read_text())["own"] if done.exists() else sorted(f.name for f in (cdir / "frames").glob("b_*.png"))
+        idx = cdir / "frames" / "indices.json"
+        try:
+            fps = _probe(clip)[0]
+        except Exception:
+            fps = None
+        entries.append({"clip": str(clip), "cache": str(cdir), "run": str(run["dir"]), "n_shared": int(run["n_shared"]),
+                        "own": own, "indices": json.loads(idx.read_text()) if idx.exists() else None, "fps": fps,
+                        "transform": {"s": float(sc), "R": np.asarray(R).tolist(), "t": np.asarray(t).tolist()}})
+    return {"metres_per_unit": metres_per_unit, "frame_width": frame_width, "clips": entries}
+
+
+def manifest_from_cache(clips: list[Path], cache_dir: Path, *, frame_step: int, shared: int, max_frames: int,
+                        adaptive: bool, mask_people: bool, mask_fallback: bool, frame_width: int,
+                        metres_per_unit: float) -> dict:
+    """The manifest of a route built before build_route_gaussian wrote one: the same clip keys (trying older
+    pipeline versions too), the cached runs and the same alignment.  Every clip has to be in the cache."""
+    for version in sorted({PIPELINE_VERSION, *(str(v) for v in range(1, int(PIPELINE_VERSION) + 1))}, reverse=True):
+        prev, cdirs = "", []
+        for i, clip in enumerate(clips):
+            prev = _clip_key(clip, prev, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, i,
+                             frame_width, version=version)
+            cdirs.append(cache_dir / prev)
+        if all((d / "done.json").exists() for d in cdirs):
+            break
+    else:
+        raise RuntimeError("the route's clips are not all in the reconstruction cache; build the route again")
+    runs = []
+    for d in cdirs:
+        out = _run_dir(d / "out")
+        cams = np.array([c["matrix"] for c in json.load(open(out / "camera_params.json", encoding="utf-8"))["extrinsics"]])
+        runs.append({"dir": out, "cams": cams, "n_shared": json.loads((d / "done.json").read_text())["n_shared"]})
+    T, _ = _align_runs(runs)
+    m = _manifest(clips, cdirs, runs, T, metres_per_unit, frame_width)
+    m["pipeline_version"] = version
+    return m
 
 
 def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_step: int = 9, shared: int = 5,
@@ -523,18 +909,7 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
         runs.append({"dir": out, "cams": cams, "n_shared": e["n_shared"]})
 
     say("aligning clips")
-    # transform of every clip into clip 0's frame
-    T = [(1.0, np.eye(3), np.zeros(3))]
-    report = []
-    for i in range(1, len(runs)):
-        k = runs[i]["n_shared"]
-        prev_last = runs[i - 1]["cams"][-k:]          # the clip before ended on these sampled frames
-        this_first = runs[i]["cams"][:k]
-        s, R, t, resid, rot = similarity(prev_last, this_first)
-        sp, Rp, tp = T[i - 1]
-        T.append((sp * s, Rp @ R, sp * (Rp @ t) + tp))
-        report.append({"seam": f"{i - 1}->{i}", "scale": s, "centre_residual_units": [float(r) for r in resid],
-                       "rotation_residual_deg": [float(r) for r in rot]})
+    T, report = _align_runs(runs)            # every clip into clip 0's frame
 
     def cam_in_frame0(i, idx):
         s, R, t = T[i]
@@ -606,6 +981,130 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
         "metres_per_unit": metres_per_unit, "route_length_m": length}), encoding="utf-8")
     out_ply.with_name(out_ply.stem + "_cams.json").write_text(json.dumps(route), encoding="utf-8")
     out_ply.with_name(out_ply.stem + "_stitch.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+    if cache_dir:          # the runs outlive the job only in the cache; a manifest pointing into `work` would dangle
+        out_ply.with_name(out_ply.stem + "_route.json").write_text(json.dumps(_manifest(
+            [e["clip"] for e in plan], [e["cdir"] for e in plan], runs, T, metres_per_unit, frame_width)), encoding="utf-8")
     if not keep_work:
         shutil.rmtree(work, ignore_errors=True)
     return {"gaussians": int(len(data)), "route_length_m": length, "stitch": report}
+
+
+# --------------------------------------------------------------------------------------- a turn onto a route
+TURN_FRAMES = 31          # sampled frames of a turn clip, first and last included (a 5 s pan at 952 px fits)
+
+
+def find_anchor(image: Path, manifest: dict, width: int = 640) -> dict:
+    """Which sampled frame of the route a picture shows: SIFT matches against every clip's own frames, RANSAC
+    homography inliers; the picture a turn was made from (de-peopled, re-textured) keeps the route frame's layout.
+    Returns the clip, its run's camera index and the time in the clip, with the runner-up for comparison."""
+    import cv2
+    clahe = cv2.createCLAHE(3.0, (8, 8))
+    sift = cv2.SIFT_create(nfeatures=4000)
+    matcher = cv2.BFMatcher()
+
+    def feats(path: Path):
+        im = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        if im is None:
+            raise RuntimeError(f"cannot read {path}")
+        im = cv2.resize(im, (width, max(1, round(im.shape[0] * width / im.shape[1]))), interpolation=cv2.INTER_AREA)
+        return sift.detectAndCompute(clahe.apply(im), None)
+
+    kq, dq = feats(image)
+    if dq is None or len(kq) < 20:
+        raise RuntimeError("the turn's first frame has too little detail to find on the route")
+    scores = []
+    for ci, clip in enumerate(manifest["clips"]):
+        for j, name in enumerate(clip["own"]):
+            k2, d2 = feats(Path(clip["cache"]) / "frames" / name)
+            if d2 is None or len(k2) < 20:
+                continue
+            good = [m[0] for m in matcher.knnMatch(dq, d2, k=2) if len(m) == 2 and m[0].distance < 0.8 * m[1].distance]
+            if len(good) < 12:
+                continue
+            src = np.float32([kq[m.queryIdx].pt for m in good])
+            dst = np.float32([k2[m.trainIdx].pt for m in good])
+            H, inl = cv2.findHomography(src, dst, cv2.RANSAC, 3.0)
+            if H is not None:
+                scores.append((int(inl.sum()), ci, j))
+    if not scores:
+        raise RuntimeError("the turn's first frame matches no frame of the route")
+    scores.sort(reverse=True)
+    n, ci, j = scores[0]
+    clip = manifest["clips"][ci]
+    t = None
+    if clip.get("indices") and clip.get("fps") and j < len(clip["indices"]):
+        t = round(clip["indices"][j] / clip["fps"], 2)
+    other = next(((n2, c2, j2) for n2, c2, j2 in scores[1:] if (c2, abs(j2 - j)) != (ci, 1) and (c2, j2) != (ci, j)), None)
+    # a turn made from a frame of this route lands on that frame far above the rest (259 matches against 59 on
+    # the street this was made for); a clip of another place still clears a handful somewhere, and would be bent
+    # and merged in silently
+    if n < 40 or (other is not None and n < 2 * other[0]):
+        raise RuntimeError(
+            f"the turn's first frame shows no frame of this route clearly (best: clip {ci + 1} frame {j + 1}, "
+            f"{n} matches; next: {other[0] if other else 0}) -- is the turn made from a frame of this route?")
+    return {"clip": ci, "own": j, "index": int(clip["n_shared"]) + j, "time_s": t, "inliers": n,
+            "runner_up": {"clip": other[1], "own": other[2], "inliers": other[0]} if other else None}
+
+
+def _turn_run(clip: Path, cache_dir: Path, frame_width: int, say, should_stop) -> tuple[Path, Path]:
+    """WorldMirror run of a turn clip (cached by the clip's bytes and the frame width): (run dir, frames dir)."""
+    h = hashlib.sha1()
+    with open(clip, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    h.update(json.dumps(["turn", TURN_FRAMES, frame_width]).encode())
+    cdir = cache_dir / f"turn_{h.hexdigest()[:20]}"
+    if (cdir / "done.json").exists():
+        say(f"{clip.name}: reusing the saved reconstruction")
+        return _run_dir(cdir / "out"), cdir / "frames"
+    shutil.rmtree(cdir, ignore_errors=True)
+    say(f"{clip.name}: sampling frames")
+    sample_frames(clip, cdir / "frames", 1, TURN_FRAMES, width=frame_width, adaptive=False, ends=True)
+    say(f"{clip.name}: WorldMirror")
+    run = run_worldmirror(cdir / "frames", cdir / "out", should_stop=should_stop)
+    (cdir / "done.json").write_text(json.dumps({"clip": str(clip)}))
+    return run, cdir / "frames"
+
+
+def append_route_turn(route_ply: Path, turns: list[Path], out_ply: Path, cache_dir: Path, manifest: dict, *,
+                      min_angle: float = 40.0, progress: Optional[Callable[[str], None]] = None,
+                      should_stop: Optional[Callable[[], bool]] = None) -> dict:
+    """Add generated turns (videos that pan from one frame of the route, e.g. H3 asked to look back along the
+    street) to a finished route splat.  For each turn: WorldMirror on it, the route frame its first frame shows
+    (find_anchor), then append_view_splat with the bend onto the route's street, onto the result of the turn
+    before.  route_ply is the route without turns; out_ply gets the route's sidecars and a manifest naming that
+    base, so running the turns again starts from the route, not from the last result."""
+    say = progress or (lambda _m: None)
+    cur, parts, reports = route_ply, [], []
+    for k, clip in enumerate(turns):
+        if should_stop and should_stop():
+            raise RouteCancelled()
+        run, frames = _turn_run(clip, cache_dir, int(manifest.get("frame_width") or 704), say, should_stop)
+        anchor = find_anchor(sorted(frames.glob("b_*.png"))[0], manifest)
+        entry = manifest["clips"][anchor["clip"]]
+        say(f"{clip.name}: starts on clip {anchor['clip'] + 1} frame {anchor['own'] + 1}"
+            + (f" ({anchor['time_s']} s)" if anchor["time_s"] is not None else "") + f", {anchor['inliers']} matches")
+        tr = entry["transform"]
+        to_route = None if anchor["clip"] == 0 else (tr["s"], np.array(tr["R"]), np.array(tr["t"]))
+        dst = out_ply if k == len(turns) - 1 else out_ply.with_name(f"{out_ply.stem}_part{k}.ply")
+        res = append_view_splat(cur, dst, run, Path(entry["run"]), anchor["index"], to_route=to_route,
+                                metres_per_unit=float(manifest["metres_per_unit"]), min_angle=min_angle)
+        reports.append({"clip": clip.name, "anchor": anchor, **res})
+        parts.append(dst)
+        cur = dst
+    for part in parts[:-1]:
+        part.unlink(missing_ok=True)
+    side = route_ply.with_suffix(".json")
+    meta = json.loads(side.read_text(encoding="utf-8")) if side.exists() else {
+        "frame": "picture_camera_opencv", "units": "metres", "scene_scale": SCENE_SCALE,
+        "metres_per_unit": manifest["metres_per_unit"]}
+    n = int(reports[-1]["base"] + reports[-1]["added"]) if reports else 0
+    meta.update(source=f"{meta.get('source', 'route splat')} + {len(turns)} generated turn(s)", gaussians=n,
+                base_ply=route_ply.name, turns=reports)
+    out_ply.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    cams = route_ply.with_name(route_ply.stem + "_cams.json")
+    if cams.exists():
+        shutil.copyfile(cams, out_ply.with_name(out_ply.stem + "_cams.json"))
+    out_ply.with_name(out_ply.stem + "_route.json").write_text(json.dumps({**manifest, "base_ply": route_ply.name}),
+                                                             encoding="utf-8")
+    return {"gaussians": n, "turns": reports}
