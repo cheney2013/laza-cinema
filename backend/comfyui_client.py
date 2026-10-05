@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import websockets
 
+import job_scheduler as sched
 import workflow_builders as wb
 
 
@@ -262,6 +263,52 @@ class ComfyUIClient:
         except Exception as e:
             logger.error(f"Error fetching ComfyUI system stats: {e}")
         return {}
+
+    async def loaded_models(self) -> Optional[list]:
+        """What ComfyUI holds loaded, from the aicinema_vram custom node's route: [{class, total, loaded,
+        device}] in bytes. None when the node is not installed (or ComfyUI was not restarted since)."""
+        try:
+            async with _http(timeout=5) as client:
+                r = await client.get(f"{self.base_url}/aicinema/loaded_models")
+                if r.status_code != 200:
+                    return None
+                return list(r.json().get("models") or [])
+        except Exception:  # noqa: BLE001 -- optional; the estimates still work without it
+            return None
+
+    async def loaded_vram_bytes(self) -> Optional[int]:
+        """Bytes of model weights ComfyUI has on the GPU right now; None when it cannot say."""
+        models = await self.loaded_models()
+        if models is None:
+            return None
+        return sum(int(m.get("loaded") or 0) for m in models if str(m.get("device", "")).startswith("cuda"))
+
+    async def last_family(self) -> Optional[str]:
+        """The heavy model family ComfyUI ran (or has queued) last, i.e. what is most likely in VRAM now.
+        ComfyUI lists no loaded models, so this reads the graph of the last queued prompt, else the most
+        recent history entry. None when that graph loads none or ComfyUI cannot be asked."""
+        try:
+            async with _http(timeout=10) as client:
+                q = (await client.get(f"{self.base_url}/queue")).json()
+                busy = (q.get("queue_running") or []) + (q.get("queue_pending") or [])
+                if busy:
+                    return sched.family_of_graph(max(busy, key=lambda item: item[0])[2])
+                h = (await client.get(f"{self.base_url}/history", params={"max_items": 1})).json()
+                entry = next(iter(h.values()), None) if isinstance(h, dict) else None
+                return sched.family_of_graph((entry.get("prompt") or [None] * 3)[2]) if entry else None
+        except Exception as e:  # noqa: BLE001 -- only a hint; never block a render on it
+            logger.warning("Could not read what ComfyUI last ran: %s", e)
+            return None
+
+    @staticmethod
+    def describe_room(stats: dict) -> str:
+        """Free VRAM / RAM of a /system_stats answer, for the log."""
+        try:
+            gib = 1024 ** 3
+            return "VRAM %.1f GiB, RAM %.1f GiB" % (
+                float(stats["devices"][0]["vram_free"]) / gib, float(stats["system"]["ram_free"]) / gib)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return "unreadable"
 
     async def require_node_class(self, class_type: str, hint: str) -> None:
         """Fail with a clear message when ComfyUI has not loaded a custom node class.
@@ -1336,12 +1383,14 @@ class ComfyUIClient:
         )
         return await self._run_image_workflow(workflow, return_info=return_info)
 
-    async def _free_unless_last_used(self, unet_name: str) -> None:
+    async def _free_unless_last_used(self, unet_name: str, need: str = "qwen") -> None:
         """Ask ComfyUI to unload its models unless unet_name is already resident.
 
         ComfyUI reports no list of loaded models, so "resident" is judged from the
         graph that will run just before ours: the last queued prompt if the queue
-        is busy, otherwise the most recent history entry. Qwen-Image-2.1 next to
+        is busy, otherwise the most recent history entry. When it is not, the models
+        are unloaded only if ComfyUI's free VRAM / RAM says `need` (a job_scheduler
+        footprint key) would not fit beside them. Qwen-Image-2.1 next to
         resident H3 weights ran at 36 s/step on the 32 GB card (2026-09-22); after
         /free it is back to normal. /free is a queue flag, applied between prompts,
         so it never cuts a running job short.
@@ -1364,9 +1413,14 @@ class ComfyUIClient:
                     resident = bool(entry) and uses((entry.get("prompt") or [None] * 3)[2])
                 if resident:
                     return
+                stats = await self.get_system_stats()
+                if sched.lacks_room(stats, need) is False:
+                    logger.info("No /free before %s: it fits (%s)", unet_name, self.describe_room(stats))
+                    return
                 await client.post(f"{self.base_url}/free",
                                   json={"unload_models": True, "free_memory": True})
-                logger.info("ComfyUI /free before %s (it was not the last model used)", unet_name)
+                logger.info("ComfyUI /free before %s (not the last model used; %s)", unet_name,
+                            self.describe_room(stats))
         except Exception as e:  # never block a render on the check itself
             logger.warning("VRAM free check before %s failed: %s", unet_name, e)
 
@@ -1430,7 +1484,7 @@ class ComfyUIClient:
 
     async def describe_image(self, image_filename: str, ask: str, max_length: int = 220, on_queued=None) -> str:
         """What the Qwen3-VL text encoder says about one input image (build_image_description_workflow)."""
-        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET)   # keeps H3 out of the way, as the edit does
+        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET, need="qwen_text")   # keeps H3 out of the way, as the edit does
         prompt_id = await self.queue_prompt(
             wb.build_image_description_workflow(image_filename, ask, max_length), live_preview=False)
         await self._notify_queued(on_queued, prompt_id)
@@ -1447,7 +1501,7 @@ class ComfyUIClient:
 
     async def generate_text(self, prompt: str, max_length: int = 1024) -> str:
         """What the Qwen3-VL text encoder writes for a text-only prompt (build_text_generation_workflow)."""
-        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET)
+        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET, need="qwen_text")
         prompt_id = await self.queue_prompt(wb.build_text_generation_workflow(prompt, max_length), live_preview=False)
         await self.wait_for_result(prompt_id, timeout=600, expect_images=False)
         async with _http(timeout=30) as client:

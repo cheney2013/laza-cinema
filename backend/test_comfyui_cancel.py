@@ -118,7 +118,7 @@ class PromptIdReportedTest(unittest.TestCase):
             async def wait(prompt_id, timeout=0, expect_images=True):
                 order.append(("wait", prompt_id))
 
-            async def no_free(unet):
+            async def no_free(unet, **kwargs):
                 return None
 
             with mock.patch.object(client, "queue_prompt", queue_prompt), \

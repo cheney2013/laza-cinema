@@ -20,6 +20,12 @@
       "source": "copy"
     },
     {
+      "name": "aicinema_vram",
+      "required": false,
+      "size_mb": 0.0,
+      "source": "copy"
+    },
+    {
       "name": "ComfyUI-CrossViewWarp",
       "required": true,
       "size_mb": 4.1,

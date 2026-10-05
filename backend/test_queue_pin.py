@@ -18,7 +18,11 @@ class QueuePinTest(unittest.IsolatedAsyncioTestCase):
         pending, runners = [], {}
         with mock.patch.object(main, "save_state"), mock.patch.object(main, "GENERATION_ENABLED", True), \
                 mock.patch.object(main, "_pending", pending), mock.patch.object(main, "_runners", runners), \
-                mock.patch.object(main, "_queue_wake", asyncio.Event()), mock.patch.object(main, "_history", []):
+                mock.patch.object(main, "_queue_wake", asyncio.Event()), mock.patch.object(main, "_history", []), \
+                mock.patch.object(main.comfyui, "get_system_stats", mock.AsyncMock(return_value={})), \
+                mock.patch.object(main.comfyui, "last_family", mock.AsyncMock(return_value=None)), \
+                mock.patch.object(main.comfyui, "loaded_vram_bytes", mock.AsyncMock(return_value=None)), \
+                mock.patch.object(main.comfyui, "free_memory", mock.AsyncMock(return_value=True)):
             ids = []
             for name in ("a", "b", "c"):
                 out = await main.submit_job("video", runner(name))

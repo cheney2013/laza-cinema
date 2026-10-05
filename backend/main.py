@@ -107,6 +107,8 @@ GENERATION_ENABLED = os.environ.get("GENERATION_ENABLED", "1") != "0"
 _BACKEND_DIR = Path(__file__).parent
 UPLOAD_DIR = _BACKEND_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+VRAM_FOOTPRINTS_FILE = UPLOAD_DIR / "vram_footprints.json"
+sched.load_learned(VRAM_FOOTPRINTS_FILE)
 PROJECTS_DIR = _BACKEND_DIR / "projects"
 PROJECTS_DIR.mkdir(exist_ok=True)
 
@@ -287,14 +289,24 @@ async def _execute_job(job: dict, runner: JobRunner) -> None:
     two chunks of a chain (_yield_between_chunks)."""
     global _active_job, _resident_family
     family = _job_sched(job)["family"]
-    if sched.needs_free(_resident_family, family):
-        # Another family's weights beside this one's page RAM and slow every
-        # step (Qwen next to H3: 36 s/step). /free applies between prompts.
+    stats = await comfyui.get_system_stats()
+    # What this process remembers, else what ComfyUI last ran: a model already in VRAM must not be
+    # unloaded for "lack of room" that is really its own weights.
+    resident = _resident_family or await comfyui.last_family()
+    freed = False
+    if sched.should_free(resident, family, stats):
+        # What is loaded would not leave room for this family: its weights beside the others' page RAM
+        # and slow every step (Qwen next to H3: 36 s/step). /free applies between prompts. When the
+        # numbers say it fits, nothing is unloaded.
         try:
-            await comfyui.free_memory(unload_models=True, free_memory=True)
-            logger.info("Unloaded %s before %s job %s", _resident_family, family, job["id"])
+            freed = await comfyui.free_memory(unload_models=True, free_memory=True)
+            logger.info("Unloaded before %s job %s (resident %s, free %s)", family, job["id"],
+                        resident, comfyui.describe_room(stats))
         except Exception:  # noqa: BLE001 -- never block a render on the unload
             logger.warning("free_memory before job %s failed", job["id"], exc_info=True)
+    # None without the aicinema_vram node. /free only takes effect when the next prompt starts, so after
+    # one the weights this job ends with are all its own: measured from zero, not from what is still shown.
+    loaded_before = 0 if freed else await comfyui.loaded_vram_bytes()
     _active_job = job
     keep_for_restart = False
     job["status"] = "running"
@@ -365,6 +377,10 @@ async def _execute_job(job: dict, runner: JobRunner) -> None:
         # charswap runner unloads Viggle itself when it ends.
         if sched.is_heavy(family) and job.get("prompt_id"):
             _resident_family = None if family == "viggle" else family
+            if loaded_before is not None:
+                after = await comfyui.loaded_vram_bytes()
+                if after is not None and sched.note_loaded(family, loaded_before, after):
+                    sched.save_learned(VRAM_FOOTPRINTS_FILE)
         if not keep_for_restart:
             job["completed_at"] = datetime.now(timezone.utc).isoformat()
             # A job that cut in took its own prompts first, so these are ours.
@@ -515,7 +531,8 @@ async def _yield_between_chunks(parent: dict) -> None:
             _active_job = parent
             parent["phase"] = phase
             save_state()
-        if sched.needs_free(_resident_family, family):
+        if sched.should_free(_resident_family or await comfyui.last_family(), family,
+                             await comfyui.get_system_stats()):
             await comfyui.free_memory(unload_models=True, free_memory=True)
             _resident_family = family  # the chain's next chunk loads it again
         if parent.get("status") == "cancelled":

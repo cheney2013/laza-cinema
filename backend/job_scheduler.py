@@ -20,7 +20,9 @@ expected start time.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable, Optional
 
 # Families that load no GPU model of their own (ffmpeg work). They neither pay a
@@ -365,6 +367,115 @@ def needs_free(resident: Optional[str], family: str) -> bool:
     """Unload before this job: a different model family is known to be resident."""
     return is_heavy(resident) and is_heavy(family) and \
         base_family(resident) != base_family(family)
+
+
+# What a heavy family's weights take while it runs, as (VRAM, system RAM) in GiB. From the numbers
+# measured on the 32 GB / 64 GB workstation (H3 ~20 GB staged + text encoder ~15 GB, peak 31.7 GB of VRAM;
+# Qwen-Image 2.1 UNet 13.5 GB + encoder 9 GB). Estimates, not measurements of each model: they only
+# have to say "this fits beside what is loaded" or "this does not".
+FOOTPRINT_GIB = {
+    "h3": (32.0, 36.0),
+    "viggle": (20.0, 30.0),
+    "qwen": (16.0, 24.0),
+    "flux2": (16.0, 24.0),
+    "flashworld": (12.0, 16.0),
+    # Qwen3-VL text encoder alone: describing a picture, translating subtitles.
+    "qwen_text": (9.0, 9.0),
+}
+HEADROOM_GIB = 1.5
+_GIB = 1024 ** 3
+
+# VRAM actually taken per family, learned from the aicinema_vram route (what ComfyUI reports loaded)
+# before and after a job; it replaces the estimate above once a family has run. GiB, by base family.
+LEARNED_VRAM_GIB: dict = {}
+
+
+def load_learned(path) -> None:
+    """Read the learned footprints back (missing or unreadable file: keep the estimates)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        LEARNED_VRAM_GIB.update({str(k): float(v) for k, v in data.items() if float(v) > 0})
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+
+
+def save_learned(path) -> None:
+    try:
+        Path(path).write_text(json.dumps(LEARNED_VRAM_GIB, indent=1, sort_keys=True), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def note_loaded(family: str, before_bytes: int, after_bytes: int) -> Optional[float]:
+    """A job of `family` took VRAM from `before` to `after` bytes (as ComfyUI reports it loaded). Returns
+    the footprint now learned for the family in GiB, or None when the job added too little to tell
+    (its weights were already resident). The largest recent growth wins and decays 10% per sample, so a
+    run that found part of the weights already loaded does not shrink the figure."""
+    grown = (after_bytes - before_bytes) / _GIB
+    if grown < 1.0:
+        return None
+    key = base_family(family)
+    old = LEARNED_VRAM_GIB.get(key)
+    LEARNED_VRAM_GIB[key] = grown if old is None else max(grown, 0.9 * old)
+    return LEARNED_VRAM_GIB[key]
+
+
+def lacks_room(stats: dict, family: str) -> Optional[bool]:
+    """Would this family's weights fit in the VRAM and RAM ComfyUI reports free right now?
+
+    True: they would not, so what is loaded has to go first. False: they fit and nothing needs to
+    unload. None: ComfyUI's numbers could not be read (or the family has no estimate).
+    `stats` is ComfyUI's /system_stats.
+    """
+    need = FOOTPRINT_GIB.get(family) or FOOTPRINT_GIB.get(base_family(family))
+    try:
+        device = stats["devices"][0]
+        vram_free, vram_total = float(device["vram_free"]), float(device["vram_total"])
+        ram_free = float(stats["system"]["ram_free"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    if not need:
+        return None
+    learned = LEARNED_VRAM_GIB.get(family) or LEARNED_VRAM_GIB.get(base_family(family))
+    # A card smaller than the footprint can only take the family on an empty card.
+    vram_need = min((learned or need[0]) * _GIB, 0.92 * vram_total)
+    return vram_free < vram_need + HEADROOM_GIB * _GIB or ram_free < need[1] * _GIB
+
+
+def family_of_graph(graph) -> Optional[str]:
+    """The heavy family whose weights a ComfyUI prompt graph loads, read from its loader nodes; None for a
+    graph that loads none (ffmpeg, ESRGAN, RIFE...). A text-only Qwen3-VL run counts as qwen: its encoder
+    stays loaded, which is what the next Qwen job reuses."""
+    if not isinstance(graph, dict):
+        return None
+    found = None
+    for node in graph.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs") or {}
+        name = str(inputs.get("unet_name") or inputs.get("clip_name") or "").lower()
+        cls = str(node.get("class_type") or "")
+        if "viggle" in name:
+            return "viggle"
+        if "qwen_image" in name or "qwen3vl" in name or "qwen_2.5_vl" in name:
+            found = found or "qwen"
+        elif "flux" in name:
+            found = found or "flux2"
+        elif "minimax_h3" in name or cls.startswith(("MiniMaxH3", "MMH3")):
+            found = found or "h3"
+    return found
+
+
+def should_free(resident: Optional[str], family: str, stats: Optional[dict] = None) -> bool:
+    """Unload before this job. A family already resident never does (`resident` should be what ComfyUI
+    last ran, see family_of_graph, when this process has no record: a model already in VRAM is not
+    "missing room" for itself). Otherwise it is the free VRAM and
+    RAM that decide, whoever holds them (a family this process lost track of, another program); only
+    when ComfyUI's numbers are unreadable does it fall back to "a different heavy family is resident"."""
+    if not is_heavy(family) or (resident and base_family(resident) == base_family(family)):
+        return False
+    verdict = lacks_room(stats, family) if stats else None
+    return needs_free(resident, family) if verdict is None else verdict
 
 
 def plan(queued: list[dict], resident: Optional[str], now: float, start_in: float,

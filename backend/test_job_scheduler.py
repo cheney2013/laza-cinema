@@ -123,6 +123,9 @@ class ChunkYieldTest(unittest.IsolatedAsyncioTestCase):
                 mock.patch.object(main, "_queue_wake", asyncio.Event()), mock.patch.object(main, "_history", []), \
                 mock.patch.object(main, "_suspended", []), mock.patch.object(main, "_resident_family", None), \
                 mock.patch.object(main.comfyui, "free_memory", free), \
+                mock.patch.object(main.comfyui, "get_system_stats", mock.AsyncMock(return_value={})), \
+                mock.patch.object(main.comfyui, "last_family", mock.AsyncMock(return_value=None)), \
+                mock.patch.object(main.comfyui, "loaded_vram_bytes", mock.AsyncMock(return_value=None)), \
                 mock.patch.object(main, "_record_timing", lambda job, prompts: None):
             await main.submit_job("video", chain)
             worker = asyncio.create_task(main._job_worker())
@@ -186,6 +189,82 @@ class DurationTest(unittest.TestCase):
         self.assertEqual(est.source(q), "fit")
         self.assertAlmostEqual(est.step_seconds(q), f(mid), places=3)
         self.assertAlmostEqual(est.seconds(q), 10 + 8 * f(mid) + sched.tokens("video", mid), places=1)
+
+
+def sched_qwen():
+    import workflow_builders
+    return workflow_builders.QWEN_IMAGE_21_UNET
+
+
+def room(vram_free_gib, ram_free_gib=40.0, vram_total_gib=32.0):
+    gib = 1024 ** 3
+    return {"devices": [{"vram_free": vram_free_gib * gib, "vram_total": vram_total_gib * gib}],
+            "system": {"ram_free": ram_free_gib * gib}}
+
+
+class FreeByRoomTests(unittest.TestCase):
+    def test_fits_beside_what_is_loaded(self):
+        self.assertFalse(sched.lacks_room(room(24), "qwen"))
+        self.assertFalse(sched.lacks_room(room(24), "qwen_text"))
+
+    def test_does_not_fit(self):
+        self.assertTrue(sched.lacks_room(room(10), "qwen"))
+        self.assertTrue(sched.lacks_room(room(24, ram_free_gib=10), "qwen"))
+        # H3 wants the whole card: 24 GiB free is not enough.
+        self.assertTrue(sched.lacks_room(room(24), "h3:default"))
+        self.assertFalse(sched.lacks_room(room(31), "h3:default"))
+
+    def test_unreadable_numbers_or_unknown_family_give_no_verdict(self):
+        self.assertIsNone(sched.lacks_room({}, "qwen"))
+        self.assertIsNone(sched.lacks_room(room(24), "esrgan"))
+
+    def test_should_free_follows_the_room_not_the_last_family(self):
+        # Qwen resident but there is room for H3's neighbour: no unload.
+        self.assertFalse(sched.should_free("qwen", "qwen"))
+        self.assertFalse(sched.should_free("h3:default", "qwen", room(24)))
+        # Nothing is tracked as resident, yet the card is full: unload.
+        self.assertTrue(sched.should_free(None, "qwen", room(3)))
+        self.assertTrue(sched.should_free("h3:default", "qwen", room(3)))
+        # A light pass never unloads.
+        self.assertFalse(sched.should_free("h3:default", "esrgan", room(1)))
+
+    def test_a_model_already_in_vram_is_not_unloaded_for_its_own_weights(self):
+        # Qwen is loaded (so little is free), nothing is tracked, and ComfyUI's last graph was Qwen's.
+        qwen_graph = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": sched_qwen()}}}
+        self.assertEqual(sched.family_of_graph(qwen_graph), "qwen")
+        self.assertFalse(sched.should_free(sched.family_of_graph(qwen_graph), "qwen", room(3)))
+        # ...while a different family still unloads it.
+        self.assertTrue(sched.should_free(sched.family_of_graph(qwen_graph), "h3:default", room(3)))
+
+    def test_family_of_graph(self):
+        text_only = {"1": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen3vl_8b_int8_convrot.safetensors"}}}
+        self.assertEqual(sched.family_of_graph(text_only), "qwen")
+        h3 = {"1": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {}}}
+        self.assertEqual(sched.family_of_graph(h3), "h3")
+        viggle = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_ref2va_viggle_pruned_int8_convrot.safetensors"}}}
+        self.assertEqual(sched.family_of_graph(viggle), "viggle")
+        self.assertIsNone(sched.family_of_graph({"1": {"class_type": "SaveVideo", "inputs": {}}}))
+        self.assertIsNone(sched.family_of_graph(None))
+
+    def test_learned_footprint_replaces_the_estimate(self):
+        gib = 1024 ** 3
+        saved = dict(sched.LEARNED_VRAM_GIB)
+        sched.LEARNED_VRAM_GIB.clear()
+        try:
+            self.assertTrue(sched.lacks_room(room(14), "qwen"))          # estimate: 16 + headroom
+            self.assertAlmostEqual(sched.note_loaded("qwen", 2 * gib, 12 * gib), 10.0)
+            self.assertFalse(sched.lacks_room(room(14), "qwen"))         # learned: 10 + headroom
+            # Weights already resident add nothing: no new figure, and a smaller run does not shrink it much.
+            self.assertIsNone(sched.note_loaded("qwen", 12 * gib, 12.2 * gib))
+            self.assertAlmostEqual(sched.note_loaded("qwen", 0, 4 * gib), 9.0)
+        finally:
+            sched.LEARNED_VRAM_GIB.clear()
+            sched.LEARNED_VRAM_GIB.update(saved)
+
+    def test_should_free_falls_back_to_the_old_rule_without_numbers(self):
+        self.assertTrue(sched.should_free("h3:default", "qwen", None))
+        self.assertTrue(sched.should_free("h3:default", "qwen", {}))
+        self.assertFalse(sched.should_free(None, "qwen", None))
 
 
 if __name__ == "__main__":
