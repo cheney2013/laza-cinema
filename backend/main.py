@@ -55,6 +55,7 @@ import accounts
 import artifact_pruner
 import face_crop
 import face_prompt
+import subtitle_translate
 from node_sizing import enforce_node_floors
 import take_history
 import bible
@@ -7396,6 +7397,24 @@ async def _with_reference_voices(req: TimelineExportRequest) -> TimelineExportRe
     if voices:
         tracks.append(ExportTrack(kind="audio", clips=voices))
     return req.model_copy(update={"tracks": tracks})
+
+
+class SubtitleTranslateRequest(BaseModel):
+    lines: list[str] = Field(min_length=1, max_length=subtitle_translate.MAX_BATCH)
+    source_lang: str = "en"
+    target_lang: str = "zh"
+
+
+@app.post("/subtitles/translate")
+async def translate_subtitles(req: SubtitleTranslateRequest):
+    """One batch of consecutive subtitle lines translated by the Qwen3-VL text encoder (greedy). The
+    answer has one entry per line; a line the model skipped comes back '' so the caller leaves it untranslated."""
+    prompt = subtitle_translate.build_prompt(req.lines, req.source_lang, req.target_lang)
+    try:
+        text = await comfyui.generate_text(prompt, subtitle_translate.max_tokens(req.lines))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Translation failed: {exc}")
+    return {"lines": subtitle_translate.restore_breaks(req.lines, subtitle_translate.parse_numbered(text, len(req.lines)))}
 
 
 @app.post("/timeline/transcribe")

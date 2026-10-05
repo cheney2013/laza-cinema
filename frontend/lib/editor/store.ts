@@ -4,6 +4,9 @@ import { api, type NodeVersion, type SequenceInfo } from '../api';
 import { type ClipboardPayload, buildClipboard, pasteInto } from './clipboard';
 import { repointClipVersion } from './clipVersion';
 import { SUBTITLE_TRACK_PREFIX, closeGap } from './gap';
+import {
+  type SrtImport, importSrtAsLang, parseSrt, removeSubtitleLang as removeLang, setTitleIn, subtitleClips, subtitleLangOf, switchSubtitleLang, titleIn,
+} from './subtitleLang';
 import { applySeamPlan, planAllSeamDissolves, planSeamDissolve } from './seam';
 import { buildExportPayload, nativeExportFps } from './exportPayload';
 import { type ResolveSequence, flattenTimeline, referenceMismatch, referencesSequence, sequenceLength } from './nest';
@@ -332,6 +335,20 @@ export interface CutRoomState extends SessionSnapshot {
   setText: (clipId: string, patch: Partial<ClipText>) => void;
   /** The film's shared subtitle look: written to the film and to every subtitle in it. */
   setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void;
+  /** Show (and export) the film's subtitles in this language; the other languages' words are kept on each title. */
+  setSubtitleLang: (lang: string) => void;
+  /** One title's words in one language, for the translation table. */
+  setTitleTranslation: (clipId: string, lang: string, words: string) => void;
+  /** Words from an SRT file go in as `lang`; the titles' timing is untouched. Null when the file holds no cues. */
+  importSubtitleSrt: (lang: string, srt: string) => SrtImport | null;
+  removeSubtitleLang: (lang: string) => void;
+  /**
+   * Translate the titles that have no words in `target` yet from `source`, a batch at a time (each batch is
+   * written as it lands, so it shows up and survives a cancel). Returns how many titles were filled.
+   */
+  translateSubtitles: (options: {
+    source: string; target: string; signal?: AbortSignal; onProgress?: (done: number, total: number) => void;
+  }) => Promise<number>;
   commitUpdate: (clipId: string, patch: Partial<Clip>) => void;
   updateClip: (id: string, patch: Partial<Clip>) => void;
   moveClip: (id: string, start: number, trackId?: string) => void;
@@ -1637,10 +1654,66 @@ export const useCutRoom = create<CutRoomState>((set, get) => ({
       timeline: {
         ...state.timeline,
         subtitleStyle: shared,
-        clips: state.timeline.clips.map((c) => (c.text ? { ...c, text: { ...shared, content: c.text.content } } : c)),
+        clips: state.timeline.clips.map((c) => (c.text ? { ...c, text: { ...shared, content: c.text.content, i18n: c.text.i18n } } : c)),
       },
     }));
     get().scheduleSave();
+  },
+
+  setSubtitleLang: (lang) => {
+    get().commit();
+    set((state) => ({ timeline: switchSubtitleLang(state.timeline, lang) }));
+    get().scheduleSave();
+  },
+
+  setTitleTranslation: (clipId, lang, words) => {
+    set((state) => ({ timeline: setTitleIn(state.timeline, clipId, lang, words) }));
+    get().scheduleSave();
+  },
+
+  importSubtitleSrt: (lang, srt) => {
+    const cues = parseSrt(srt);
+    if (cues.length === 0) return null;
+    const result = importSrtAsLang(get().timeline, lang, cues);
+    get().commit();
+    set({ timeline: result.timeline });
+    get().scheduleSave();
+    return result;
+  },
+
+  removeSubtitleLang: (lang) => {
+    get().commit();
+    set((state) => ({ timeline: removeLang(state.timeline, lang) }));
+    get().scheduleSave();
+  },
+
+  translateSubtitles: async ({ source, target, signal, onProgress }) => {
+    const current = subtitleLangOf(get().timeline);
+    const todo = subtitleClips(get().timeline)
+      .filter((c) => titleIn(c, source, current).trim() && !titleIn(c, target, current).trim())
+      .map((c) => ({ id: c.id, words: titleIn(c, source, current) }));
+    if (todo.length === 0) return 0;
+    get().commit();
+    const BATCH = 15;
+    let filled = 0;
+    onProgress?.(0, todo.length);
+    for (let i = 0; i < todo.length; i += BATCH) {
+      if (signal?.aborted) break;
+      const batch = todo.slice(i, i + BATCH);
+      const { lines } = await api.translateSubtitles({
+        lines: batch.map((b) => b.words), source_lang: source, target_lang: target,
+      });
+      if (signal?.aborted) break;
+      batch.forEach((b, k) => {
+        const words = (lines[k] ?? '').trim();
+        if (!words) return;
+        set((state) => ({ timeline: setTitleIn(state.timeline, b.id, target, words) }));
+        filled += 1;
+      });
+      get().scheduleSave();
+      onProgress?.(Math.min(i + BATCH, todo.length), todo.length);
+    }
+    return filled;
   },
 
   commitUpdate: (clipId, patch) => {

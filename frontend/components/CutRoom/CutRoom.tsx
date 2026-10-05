@@ -13,6 +13,7 @@ import { nativeDownloadUrl } from '@/lib/download';
 import { probeVideo, useVideoProbe } from '@/lib/videoProbe';
 import { Compositor } from '@/lib/editor/compositor';
 import { timelineToSrt } from '@/lib/editor/srt';
+import { languageName, subtitleLangOf, subtitleLangsOf, switchSubtitleLang } from '@/lib/editor/subtitleLang';
 import { namesLiveOnCanvases, ownedByProject, unusedLibraryItems } from '@/lib/editor/unusedAssets';
 import { flatTimelineOf, useCutRoom } from '@/lib/editor/store';
 import { adjacentRuns, clipEnd, clipLength, formatTimecode, isNeutral, mergeRuns, timelineDuration, type Timeline } from '@/lib/editor/types';
@@ -20,6 +21,7 @@ import { attachMseSequence, type MseClip } from '@/lib/mseSequence';
 import FrameSizePicker from './FrameSizePicker';
 import CoverPicker from './CoverPicker';
 import SubtitleStylePicker from './SubtitleStylePicker';
+import SubtitleLangPicker from './SubtitleLangPicker';
 import MonitorOverlay from './MonitorOverlay';
 import Inspector from './Inspector';
 import TimelineView, { BIN_DRAG_TYPE } from './TimelineView';
@@ -1121,6 +1123,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
           </span>
           <FrameSizePicker />
           {!scratch && <SubtitleStylePicker />}
+          {!scratch && <SubtitleLangPicker />}
           {!scratch && <CoverPicker />}
           {!scratch && (
             <button
@@ -1810,17 +1813,27 @@ function TrashIcon() {
 // Re-rendered on every canvas change before 2026-09-05; props are stable now.
 export default React.memo(CutRoom);
 
-/** Hands the film's subtitles to the browser as an .srt file (UTF-8, which Bilibili takes as it is). False when there are none. */
+/**
+ * Hands the film's subtitles to the browser as .srt files (UTF-8, which Bilibili takes as it is): one per
+ * language when the film has several, named `<name>.<code>.srt`. False when there are none.
+ */
 function saveSrt(baseName: string): boolean {
-  const srt = timelineToSrt(flatTimelineOf(useCutRoom.getState()));
-  if (!srt) return false;
-  const url = URL.createObjectURL(new Blob([srt], { type: 'application/x-subrip;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${(baseName || 'subtitles').replace(/[\\/:*?"<>|]/g, '_')}.srt`;
-  link.click();
-  URL.revokeObjectURL(url);
-  return true;
+  const flat = flatTimelineOf(useCutRoom.getState());
+  const langs = subtitleLangsOf(flat);
+  const safe = (baseName || 'subtitles').replace(/[\\/:*?"<>|]/g, '_');
+  let saved = false;
+  for (const lang of langs) {
+    const srt = timelineToSrt(switchSubtitleLang(flat, lang));
+    if (!srt) continue;
+    const url = URL.createObjectURL(new Blob([srt], { type: 'application/x-subrip;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = langs.length > 1 ? `${safe}.${lang}.srt` : `${safe}.srt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    saved = true;
+  }
+  return saved;
 }
 
 const hasSubtitles = (timeline: Timeline) => timeline.clips.some((c) => c.text && !c.bypassed && c.text.content.trim());
@@ -1837,6 +1850,7 @@ function ExportFilmButton({ baseName, disabled, exporting, progress }: {
   const [open, setOpen] = React.useState(false);
   const [way, setWay] = React.useState<ExportWay>('soft');
   const subtitled = useCutRoom((st) => hasSubtitles(flatTimelineOf(st)));
+  const multiLang = useCutRoom((st) => subtitleLangsOf(st.timeline).length > 1);
   const ways: { id: ExportWay; title: string; hint: string }[] = [
     { id: 'soft', title: t('成片不带字幕 + 单独的 SRT 文件'), hint: t('推荐传 B 站：观众可以开关字幕，改字不用重新导出') },
     { id: 'burn', title: t('字幕烧录进画面'), hint: t('任何播放器看到的都一样，但关不掉、改字要重新导出；适合短视频平台') },
@@ -1866,6 +1880,11 @@ function ExportFilmButton({ baseName, disabled, exporting, progress }: {
         >
           <div className="w-[420px] rounded-lg border border-white/10 bg-[#15151c] p-4 shadow-2xl">
             <p className="text-sm font-semibold text-zinc-100">{t('字幕怎么导出')}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {multiLang
+                ? t('烧录的是当前语言「{v1}」；SRT 每种语言导出一个文件。', { v1: languageName(subtitleLangOf(flatTimelineOf(useCutRoom.getState()))) })
+                : t('烧录的字幕语言：{v1}', { v1: languageName(subtitleLangOf(flatTimelineOf(useCutRoom.getState()))) })}
+            </p>
             <div className="mt-3 flex flex-col gap-2">
               {ways.map((w) => (
                 <label

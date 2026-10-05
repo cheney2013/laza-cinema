@@ -2817,6 +2817,19 @@ def build_image_description_workflow(image_filename: str, ask: str, max_length: 
     }
 
 
+def build_text_generation_workflow(prompt: str, max_length: int = 1024) -> dict:
+    """Text from the same Qwen3-VL text encoder with no picture (subtitle translation). Greedy, so a
+    line translates the same way each time."""
+    return {
+        "td:1": {"class_type": "CLIPLoader",
+                 "inputs": {"clip_name": QWEN_IMAGE_21_CLIP, "type": "qwen_image", "device": "default"}},
+        "td:3": {"class_type": "TextGenerate",
+                 "inputs": {"clip": ["td:1", 0], "prompt": prompt,
+                            "max_length": max_length, "sampling_mode": "off", "thinking": False}},
+        "td:4": {"class_type": "PreviewAny", "inputs": {"source": ["td:3", 0]}},
+    }
+
+
 def build_esrgan_image_workflow(
     image_filename: str,
     model_name: str = "RealESRGAN_x2.pth",

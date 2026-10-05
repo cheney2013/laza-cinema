@@ -18,6 +18,7 @@ import {
 } from '@/lib/editor/types';
 import { showAlert } from '@/components/ui/Dialog';
 import { t } from '@/lib/i18n';
+import { languageName, sourceTitle } from '@/lib/editor/subtitleLang';
 
 import VersionSwitcher from './VersionSwitcher';
 
@@ -336,6 +337,15 @@ export default function Inspector({ onLocate }: { onLocate: (nodeId: string) => 
       {/* ── Text ───────────────────────────────────────────────────── */}
       {isText && clip.text && (
         <Section title={t('文字')}>
+          {(() => {
+            const source = sourceTitle(timeline, clip);
+            return source && (
+              <p className="whitespace-pre-wrap rounded border border-white/5 bg-white/[0.03] p-2 text-[11px] text-zinc-400">
+                <span className="mr-1 text-zinc-600">{languageName(source.lang)}</span>
+                {source.words}
+              </p>
+            );
+          })()}
           <textarea
             value={clip.text.content}
             onChange={(e) => store.setText(clip.id, { content: e.target.value })}

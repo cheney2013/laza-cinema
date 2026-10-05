@@ -1445,6 +1445,21 @@ class ComfyUIClient:
                 return (text[0] if isinstance(text, list) else str(text)).strip()
         raise ComfyUIError("The image description produced no text")
 
+    async def generate_text(self, prompt: str, max_length: int = 1024) -> str:
+        """What the Qwen3-VL text encoder writes for a text-only prompt (build_text_generation_workflow)."""
+        await self._free_unless_last_used(wb.QWEN_IMAGE_21_UNET)
+        prompt_id = await self.queue_prompt(wb.build_text_generation_workflow(prompt, max_length), live_preview=False)
+        await self.wait_for_result(prompt_id, timeout=600, expect_images=False)
+        async with _http(timeout=30) as client:
+            r = await client.get(f"{self.base_url}/history/{prompt_id}")
+            if r.status_code != 200:
+                raise ComfyUIError("Failed to fetch history")
+        for node_output in r.json().get(prompt_id, {}).get("outputs", {}).values():
+            text = node_output.get("text")
+            if text:
+                return (text[0] if isinstance(text, list) else str(text)).strip()
+        raise ComfyUIError("The text generation produced no text")
+
     async def upscale_image_esrgan(
         self,
         image_filename: str,

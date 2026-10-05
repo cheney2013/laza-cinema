@@ -83,7 +83,10 @@ export interface ClipFilters {
 }
 
 export interface ClipText {
+  /** The words in the film's current subtitle language (`Timeline.subtitleLang`); everything that draws or exports titles reads this. */
   content: string;
+  /** The same title in the film's other languages, by language code. The current language lives in `content`, not here. */
+  i18n?: Record<string, string>;
   /** px at the timeline's own resolution, not at preview scale. */
   size: number;
   color: string;
@@ -225,7 +228,7 @@ export interface Track {
 }
 
 /** Everything about a subtitle except its words. */
-export type SubtitleStyle = Omit<ClipText, 'content'>;
+export type SubtitleStyle = Omit<ClipText, 'content' | 'i18n'>;
 
 /** The shared style, or the default for this frame height when none is set yet. */
 export function subtitleStyleOf(timeline: Timeline): SubtitleStyle {
@@ -263,6 +266,10 @@ export interface Timeline {
    * and to all of them; new subtitles start from it. Absent until first set.
    */
   subtitleStyle?: SubtitleStyle;
+  /** Language code of the words now in every subtitle's `content`. Absent means 'en'. */
+  subtitleLang?: string;
+  /** Every language this film has subtitles in, in the order they were added. Absent means just `subtitleLang`. */
+  subtitleLangs?: string[];
   /** Bottom layer first. A later video track composites over an earlier one. */
   tracks: Track[];
   clips: Clip[];

@@ -1,3 +1,4 @@
+import { referenceTitle } from './subtitleLang';
 import { resolveAssetUrl } from '../config';
 import { cropOf, placeClip } from './geometry';
 import {
@@ -333,8 +334,11 @@ export class Compositor {
     playhead: number
   ): void {
     const text = clip.text;
-    if (!text || !text.content) return;
-    context.globalAlpha = clipOpacity(clip, playhead);
+    // A title not yet translated shows the first language, dimmed: monitor only, the export never sees it.
+    const reference = text ? referenceTitle(timeline, clip) : '';
+    const words = text ? text.content || reference : '';
+    if (!text || !words) return;
+    context.globalAlpha = clipOpacity(clip, playhead) * (reference ? 0.5 : 1);
     context.filter = 'none';
     context.font = `${text.fontWeight} ${text.size}px "Noto Sans SC", system-ui, sans-serif`;
     context.textAlign = text.align;

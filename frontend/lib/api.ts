@@ -1436,6 +1436,14 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  /** One batch of consecutive subtitle lines translated by the Qwen3-VL text encoder; '' marks a line it skipped. */
+  translateSubtitles: (req: { lines: string[]; source_lang: string; target_lang: string }) =>
+    request<{ lines: string[] }>('/subtitles/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   transcribeTimeline: (req: ExportPayload) =>
     request<{ job_id: string; status: string }>('/timeline/transcribe', {
       method: 'POST',
