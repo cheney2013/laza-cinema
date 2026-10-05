@@ -62,6 +62,7 @@ import bible
 import speech
 import project_assets
 import asset_origin
+import asset_dims
 import job_scheduler as sched
 import provenance
 import audio_lock
@@ -107,6 +108,7 @@ GENERATION_ENABLED = os.environ.get("GENERATION_ENABLED", "1") != "0"
 _BACKEND_DIR = Path(__file__).parent
 UPLOAD_DIR = _BACKEND_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+asset_dims.configure(_BACKEND_DIR / "asset_dims.json")
 VRAM_FOOTPRINTS_FILE = UPLOAD_DIR / "vram_footprints.json"
 sched.load_learned(VRAM_FOOTPRINTS_FILE)
 PROJECTS_DIR = _BACKEND_DIR / "projects"
@@ -7944,7 +7946,17 @@ def _scan_assets() -> dict:
                 "projects": [{"id": pid, "name": project_names.get(pid, pid)} for pid in projects],
                 "referenced": bool(projects),
                 "path": str(path),
+                "_stat": (stat.st_size, stat.st_mtime_ns),
             }
+
+    # Width and height, so a library card can be laid out before its picture loads. What is not known yet
+    # (a video nobody probed) is filled in by a background pass and shows up on the next listing.
+    dims = asset_dims.lookup([(n, e["kind"], Path(e["path"]), *e["_stat"]) for n, e in files.items()
+                              if e["kind"] in ("image", "video")])
+    for name, entry in files.items():
+        entry.pop("_stat", None)
+        if name in dims:
+            entry["width"], entry["height"] = dims[name]
 
     # A clip and its latent are one asset with two files. The latent rides along
     # on the clip's row instead of appearing as a nameless multi-gigabyte orphan.

@@ -226,6 +226,9 @@ export interface Asset {
   /** Files deleted together with this one — a clip's latent, above all. */
   companions: string[];
   companion_size: number;
+  /** Pixel size of an image or video, when the backend has read it (a video is filled in by a background pass). */
+  width?: number;
+  height?: number;
 }
 
 export interface QueueJob {

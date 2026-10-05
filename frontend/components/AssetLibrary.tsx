@@ -337,6 +337,13 @@ function AssetLibrary({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     });
   }, [assets, filter, query]);
 
+  const shownAssets = useMemo(() => visible.slice(0, shown), [visible, shown]);
+  // Width over height where the backend knows the file's size, so cards are placed before they load.
+  const visibleRatios = useMemo(
+    () => shownAssets.map((asset) => (asset.kind === 'image' || asset.kind === 'video') && asset.width && asset.height ? asset.width / asset.height : undefined),
+    [shownAssets]
+  );
+
   // A different list starts from its first batch again.
   useEffect(() => {
     setShown(CARD_BATCH);
@@ -686,13 +693,10 @@ function AssetLibrary({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
               {loading ? t('正在扫描输出目录…') : t('这里没有符合条件的素材。')}
             </p>
           )}
-          {/* A grid, so the list reads the way it is sorted: left to right, then
-              down. CSS columns filled each column top-to-bottom instead, which
-              put the newest asset next to the oldest. Cards still keep their own
-              aspect ratio — `items-start` stops a row from stretching a 16:9
-              card to the height of a 9:16 one. */}
-          <div className="grid grid-cols-2 items-start gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {visible.slice(0, shown).map((asset) => (
+          {/* Masonry: cards keep their own aspect ratio and each goes into the shortest column, so the
+              list still reads in sort order (left to right, then down) without gaps under short cards. */}
+          <Masonry gap={10} ratios={visibleRatios}>
+            {shownAssets.map((asset) => (
               <AssetCard
                 key={asset.name}
                 asset={asset}
@@ -713,7 +717,7 @@ function AssetLibrary({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                 onLocate={locate}
               />
             ))}
-          </div>
+          </Masonry>
           {shown < visible.length && (
             <div ref={moreRef} className="py-4 text-center text-[11px] text-zinc-600">
               {t('已显示 {v1} / {v2} 项，往下滑会继续加载', { v1: shown, v2: visible.length })}
@@ -893,6 +897,82 @@ function KindIcon({ kind, size = 15 }: { kind: Asset['kind']; size?: number }) {
   );
 }
 
+/** Height of a card below its picture (name and size lines), for the estimate before it is measured. */
+const CARD_FOOTER = 56;
+
+/**
+ * Column count by width, each child placed in the currently shortest column in order. Heights are measured,
+ * so a card that grows when its picture or probe arrives moves the cards below it, not the whole layout.
+ */
+function Masonry({ gap, ratios, children }: { gap: number; ratios?: Array<number | undefined>; children: React.ReactNode }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const items = React.Children.toArray(children);
+  const [layout, setLayout] = useState<{ pos: Array<{ x: number; y: number }>; w: number; h: number }>({ pos: [], w: 0, h: 0 });
+  const heights = useRef<Map<string, number>>(new Map());
+  const keyOf = (child: React.ReactNode, i: number) => String((child as React.ReactElement).key ?? i);
+
+  const keySig = items.map(keyOf).join('|');
+
+  const relayout = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const width = root.clientWidth;
+    if (width === 0) return;
+    const cols = width >= 1280 ? 5 : width >= 1024 ? 4 : width >= 640 ? 3 : 2;
+    const colW = (width - gap * (cols - 1)) / cols;
+    const tops = new Array(cols).fill(0);
+    const pos: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < items.length; i++) {
+      let c = 0;
+      for (let k = 1; k < cols; k++) if (tops[k] < tops[c] - 0.5) c = k;
+      pos.push({ x: c * (colW + gap), y: tops[c] });
+      tops[c] += (heights.current.get(keyOf(items[i], i)) ?? colW / (ratios?.[i] || 16 / 9) + CARD_FOOTER) + gap;
+    }
+    setLayout((prev) => {
+      const h = Math.max(0, ...tops) - gap;
+      const same =
+        prev.w === colW && Math.abs(prev.h - h) < 0.5 && prev.pos.length === pos.length &&
+        prev.pos.every((p, i) => p.x === pos[i].x && Math.abs(p.y - pos[i].y) < 0.5);
+      return same ? prev : { pos, w: colW, h };
+    });
+  }, [gap, keySig, ratios]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const ro = new ResizeObserver((entries) => {
+      let changed = false;
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement;
+        const key = el.dataset.k;
+        if (key === undefined) { changed = true; continue; }
+        const h = el.offsetHeight;
+        if (heights.current.get(key) !== h) { heights.current.set(key, h); changed = true; }
+      }
+      if (changed) relayout();
+    });
+    ro.observe(root);
+    root.querySelectorAll<HTMLElement>('[data-k]').forEach((el) => ro.observe(el));
+    relayout();
+    return () => ro.disconnect();
+  }, [relayout, keySig]);
+
+  return (
+    <div ref={rootRef} className="relative w-full" style={{ height: layout.h }}>
+      {items.map((child, i) => (
+        <div
+          key={keyOf(child, i)}
+          data-k={keyOf(child, i)}
+          className="absolute left-0 top-0"
+          style={{ width: layout.w || undefined, transform: `translate(${layout.pos[i]?.x ?? 0}px, ${layout.pos[i]?.y ?? 0}px)`, visibility: layout.w ? 'visible' : 'hidden' }}
+        >
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AssetCard({
   asset,
   managing,
@@ -997,8 +1077,12 @@ function AssetCard({
           : 'cursor-default border-white/10 bg-white/[0.03]'
       }`}
     >
-      <div className="relative w-full bg-black/60">
-        {/* Natural aspect ratio — the column layout is what makes that possible. */}
+      <div
+        className="relative w-full bg-black/60"
+        // The backend's recorded size reserves the picture's box before it loads, so nothing jumps.
+        style={(asset.kind === 'image' || asset.kind === 'video') && asset.width && asset.height ? { aspectRatio: `${asset.width} / ${asset.height}` } : undefined}
+      >
+        {/* Natural aspect ratio: the masonry lays cards out by their own height. */}
         {asset.kind === 'video' && (
           // A frame, not a <video>: the grid can hold a hundred clips and Chrome
           // caps media players per page (2026-09-06). Sizes come off the probe.

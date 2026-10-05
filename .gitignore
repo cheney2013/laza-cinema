@@ -130,3 +130,4 @@ backend/workspaces/content_archive.db
 
 # App runtime state
 .runtime/
+backend/asset_dims.json
