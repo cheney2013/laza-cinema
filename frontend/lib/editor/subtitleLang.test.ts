@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { timelineToSrt } from './srt';
 import {
-  referenceTitle, importSrtAsLang, languageProgress, parseSrt, removeSubtitleLang, setTitleIn, subtitleLangsOf, switchSubtitleLang,
+  joinWords, mergeTitleText, referenceTitle, importSrtAsLang, languageProgress, parseSrt, removeSubtitleLang, setTitleIn, subtitleLangsOf, switchSubtitleLang,
 } from './subtitleLang';
 import { defaultClip, type Timeline } from './types';
 
@@ -77,5 +77,20 @@ describe('subtitle languages', () => {
     assert.equal(referenceTitle(onZh, onZh.clips[0]), '');
     assert.equal(referenceTitle(onZh, onZh.clips[1]), 'Goodbye');
     assert.equal(referenceTitle(base(), base().clips[0]), '');
+  });
+
+  it('joins two pieces of a sentence: a space between words, none between Chinese characters', () => {
+    assert.equal(joinWords('I never thought', "I'd see it"), "I never thought I'd see it");
+    assert.equal(joinWords('我从没想过', '还会再看到'), '我从没想过还会再看到');
+    assert.equal(joinWords('', 'x'), 'x');
+  });
+
+  it('merges two subtitles in every language, and gives a split title back unchanged', () => {
+    const a = { content: 'Hello there', i18n: { zh: '你好' } } as never;
+    const b = { content: 'my friend', i18n: { zh: '我的朋友' } } as never;
+    const m = mergeTitleText(a, b);
+    assert.equal(m.content, 'Hello there my friend');
+    assert.deepEqual(m.i18n, { zh: '你好我的朋友' });
+    assert.equal(mergeTitleText(a, a), a);
   });
 });

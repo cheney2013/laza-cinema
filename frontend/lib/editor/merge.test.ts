@@ -74,12 +74,14 @@ describe('merge', () => {
     assert.equal(mergeRuns(locked, ['left', 'right']).length, 0);
   });
 
-  it('joins identical titles but not differing ones', () => {
+  it('joins any two subtitles, and still refuses a subtitle with a shot', () => {
     const text = { content: 'hi', size: 48, color: '#fff', strokeColor: '#000', strokeWidth: 0, x: 0.5, y: 0.85, align: 'center' as const, fontWeight: 700 };
     const left = clip({ id: 'left', assetId: '', text });
     const right = clip({ id: 'right', start: 48, inFrame: 48, outFrame: 96, assetId: '', text });
     assert.equal(canMergeClips(left, right), true);
-    assert.equal(canMergeClips(left, { ...right, text: { ...text, content: 'bye' } }), false);
+    // Different words are no longer a refusal: two subtitles become one (see subtitleLang.test).
+    assert.equal(canMergeClips(left, { ...right, text: { ...text, content: 'bye' } }), true);
+    assert.equal(canMergeClips(left, clip({ id: 'shot', start: 48 })), false);
   });
 });
 
@@ -122,5 +124,15 @@ describe('adjacentRuns', () => {
     const bypassed = splitPair();
     bypassed.clips[1] = { ...bypassed.clips[1], bypassed: true };
     assert.equal(adjacentRuns(bypassed, ['left', 'right']).length, 0);
+  });
+
+  it('never takes subtitles: they are text, not footage to render into a video', () => {
+    const titles = emptyTimeline();
+    titles.tracks = [{ id: 'SUB_1', kind: 'video', name: 'Subtitles', muted: false, locked: false }];
+    titles.clips = [
+      clip({ id: 't1', trackId: 'SUB_1', assetId: '', start: 0, outFrame: 48, text: { content: 'A' } as never }),
+      clip({ id: 't2', trackId: 'SUB_1', assetId: '', start: 48, outFrame: 48, text: { content: 'B' } as never }),
+    ];
+    assert.equal(adjacentRuns(titles, ['t1', 't2']).length, 0);
   });
 });

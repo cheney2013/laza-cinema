@@ -5,7 +5,7 @@ import { type ClipboardPayload, buildClipboard, pasteInto } from './clipboard';
 import { repointClipVersion } from './clipVersion';
 import { SUBTITLE_TRACK_PREFIX, closeGap } from './gap';
 import {
-  type SrtImport, importSrtAsLang, parseSrt, removeSubtitleLang as removeLang, setTitleIn, subtitleClips, subtitleLangOf, switchSubtitleLang, titleIn,
+  mergeTitleText, type SrtImport, importSrtAsLang, parseSrt, removeSubtitleLang as removeLang, setTitleIn, subtitleClips, subtitleLangOf, switchSubtitleLang, titleIn,
 } from './subtitleLang';
 import { applySeamPlan, planAllSeamDissolves, planSeamDissolve } from './seam';
 import { buildExportPayload, nativeExportFps } from './exportPayload';
@@ -1848,14 +1848,22 @@ export const useCutRoom = create<CutRoomState>((set, get) => ({
       const head = run[0];
       const tail = run[run.length - 1];
       run.slice(1).forEach((c) => absorbed.add(c.id));
-      merged.set(head.id, {
-        ...head,
-        // The run is source-continuous by construction, so the whole span is
-        // just the first head to the last tail. fadeOut belongs to the end of
-        // the joined clip, which is the last piece's end.
-        outFrame: tail.outFrame,
-        fadeOut: tail.fadeOut,
-      });
+      merged.set(head.id, head.text
+        ? {
+            // Subtitles: one title with every piece's words, spanning first start to last end.
+            ...head,
+            text: run.slice(1).reduce((words, c) => mergeTitleText(words, c.text!), head.text),
+            outFrame: head.inFrame + Math.round((Math.max(...run.map(clipEnd)) - head.start) * (head.speed || 1)),
+            fadeOut: tail.fadeOut,
+          }
+        : {
+            ...head,
+            // The run is source-continuous by construction, so the whole span is
+            // just the first head to the last tail. fadeOut belongs to the end of
+            // the joined clip, which is the last piece's end.
+            outFrame: tail.outFrame,
+            fadeOut: tail.fadeOut,
+          });
     }
 
     const clips = timeline.clips

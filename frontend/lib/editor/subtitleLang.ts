@@ -1,4 +1,4 @@
-import { clipEnd, type Clip, type Timeline } from './types';
+import { clipEnd, type Clip, type ClipText, type Timeline } from './types';
 
 /** What a film's subtitles are in until someone says otherwise: the first language they were made in. */
 export const DEFAULT_SUBTITLE_LANG = 'en';
@@ -35,6 +35,27 @@ const isCue = (c: Clip): boolean =>
 /** The film's titles in time order: what the translation table walks and what an imported SRT is matched to. */
 export function subtitleClips(timeline: Timeline): Clip[] {
   return timeline.clips.filter(isCue).sort((a, b) => a.start - b.start || clipEnd(a) - clipEnd(b));
+}
+
+const CJK_EDGE = /[\u3000-\u9fff\uff00-\uffef]/;
+
+/** Two pieces of one sentence as one line: a space between words, nothing between Chinese or Japanese characters. */
+export function joinWords(a: string, b: string): string {
+  const left = a.trim();
+  const right = b.trim();
+  if (!left || !right) return left || right;
+  return CJK_EDGE.test(left.slice(-1)) || CJK_EDGE.test(right[0]) ? left + right : `${left} ${right}`;
+}
+
+/**
+ * Two subtitles as one: the words of every language joined in time order, the look of the first. A pair
+ * with identical words is a title that was split in two, so merging it gives the original back.
+ */
+export function mergeTitleText(a: ClipText, b: ClipText): ClipText {
+  if (JSON.stringify(a) === JSON.stringify(b)) return a;
+  const langs = new Set([...Object.keys(a.i18n ?? {}), ...Object.keys(b.i18n ?? {})]);
+  const i18n = Object.fromEntries([...langs].map((l) => [l, joinWords(a.i18n?.[l] ?? '', b.i18n?.[l] ?? '')]));
+  return { ...a, content: joinWords(a.content, b.content), i18n: langs.size ? i18n : undefined };
 }
 
 /** The words of one title in one language; '' when it has none yet. */

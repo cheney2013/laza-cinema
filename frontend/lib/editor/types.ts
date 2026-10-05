@@ -295,7 +295,8 @@ export function sourceFrameAt(clip: Clip, playhead: number): number {
 }
 
 /**
- * Can `right` be joined back onto `left` as one clip?
+ * Can `right` be joined back onto `left` as one clip? Titles are the exception to "exact inverse of a
+ * split": they carry no source, so two of them simply become one subtitle with both texts.
  *
  * Merging is the exact inverse of a split, and nothing looser. Two pieces may
  * only become one when the join is invisible: same track, touching on the
@@ -307,6 +308,13 @@ export function sourceFrameAt(clip: Clip, playhead: number): number {
 export function canMergeClips(left: Clip, right: Clip): boolean {
   if (left.id === right.id) return false;
   if (left.trackId !== right.trackId) return false;
+  if (left.text && right.text) {
+    // Two subtitles join into one (the words are put together, the span runs from the first's start to
+    // the last's end), also across a short gap: the ASR often cuts one sentence in two.
+    return left.start <= right.start && Boolean(left.bypassed) === Boolean(right.bypassed) &&
+      !right.transitionIn && left.seqRef === right.seqRef;
+  }
+  if (left.text || right.text) return false;
   if (clipEnd(left) !== right.start) return false;
   if ((left.speed || 1) !== (right.speed || 1)) return false;
   if (Boolean(left.bypassed) !== Boolean(right.bypassed)) return false;
@@ -314,10 +322,6 @@ export function canMergeClips(left: Clip, right: Clip): boolean {
   // two would delete it along with the cut it belongs to.
   if (right.transitionIn) return false;
   if (left.seqRef !== right.seqRef) return false;
-  if (left.text || right.text) {
-    // Titles carry no source, so continuity is about the text itself.
-    return Boolean(left.text && right.text) && JSON.stringify(left.text) === JSON.stringify(right.text);
-  }
   if (left.assetId !== right.assetId) return false;
   return left.outFrame === right.inFrame;
 }
@@ -360,7 +364,9 @@ export function mergeRuns(timeline: Timeline, selection: string[]): Clip[][] {
 export function adjacentRuns(timeline: Timeline, selection: string[]): Clip[][] {
   const locked = new Set(timeline.tracks.filter((t) => t.locked).map((t) => t.id));
   const chosen = timeline.clips
-    .filter((c) => selection.includes(c.id) && !locked.has(c.trackId) && !c.bypassed)
+    // Titles are text drawn over the picture, not footage: rendering them into a video clip would burn
+    // them in and lose their words. They are never part of a render-merge.
+    .filter((c) => selection.includes(c.id) && !locked.has(c.trackId) && !c.bypassed && !c.text)
     .sort((a, b) => (a.trackId === b.trackId ? a.start - b.start : a.trackId.localeCompare(b.trackId)));
 
   const touching = (left: Clip, right: Clip): boolean => {
