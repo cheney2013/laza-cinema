@@ -50,6 +50,22 @@ class BlockTests(unittest.TestCase):
         self.assertGreater(int(right[100, 900 - 140:900 - 40].mean()), 200)   # mirrored margins on the right
         self.assertTrue((right[:, :600] == np.asarray(plate)[:, :600]).all())
 
+    def test_latin_and_cjk_runs_are_centred_on_the_same_line(self):
+        line = tb.render_line("FILM 1【中字】", 640)
+        a = np.asarray(line)[..., 3] > 8
+
+        def centre(cols):
+            ys = np.where(a[:, cols[0]:cols[1]].any(axis=1))[0]
+            return (ys.min() + ys.max()) / 2
+        self.assertAlmostEqual(centre((0, 200)), centre((450, 640)), delta=3)     # Latin vs CJK
+
+    def test_a_wider_line_is_a_taller_line_and_widens_the_block(self):
+        narrow, ln = tb.build_block(logo(), "FILM 1【中字】", height=1200, margin=60, content_width=300, distress=0)
+        wide, lw = tb.build_block(logo(), "FILM 1【中字】", height=1200, margin=60, content_width=300, line_width=420, distress=0)
+        self.assertEqual(narrow.width, 420)
+        self.assertEqual(wide.width, 540)
+        self.assertGreater(lw["line_box"][3] - lw["line_box"][1], ln["line_box"][3] - ln["line_box"][1])
+
     def test_runs_split_latin_from_cjk(self):
         self.assertEqual(tb._runs("FILM 1【中字】"), [("FILM 1", False), ("【中字】", True)])
 
