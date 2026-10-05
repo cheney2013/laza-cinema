@@ -417,6 +417,7 @@ _REPLAYABLE: dict[str, tuple[str, str]] = {
     "qwen_image": ("QwenImageRequest", "_run_qwen_image_job"),
     "image_upscale": ("ImageUpscaleRequest", "_run_image_upscale_job"),
     "world_gaussian": ("WorldGaussianRequest", "_run_world_gaussian_job"),
+    "route_gaussian": ("RouteGaussianRequest", "_run_route_gaussian_job"),
     "gaussian_model": ("GaussianModelRequest", "_run_gaussian_model_job"),
     "interpolate": ("VideoInterpolateRequest", "_run_video_interpolate_job"),
     "upscale": ("VideoUpscaleRequest", "_run_video_upscale_job"),
@@ -8747,6 +8748,59 @@ async def gaussian_render_view(req: GaussianViewRequest):
     if proc.returncode != 0 or not (UPLOAD_DIR / out_name).exists():
         raise HTTPException(500, f"render failed: {(proc.stderr or proc.stdout)[-1500:]}")
     return {"url": f"/uploads/{out_name}"}
+
+
+class RouteGaussianRequest(BaseModel):
+    """Several clips of one continuous camera move, in route order -> one splat (see route_gs.py).
+
+    clip_urls: the clips' video files (/comfy_output/... or /uploads/...). frame_step: sample every n-th frame
+    (widened so that no run gets more than max_frames frames). shared_frames: how many sampled frames of a clip
+    are repeated at the start of the next one, to align them. metres_per_unit: the first clip's reconstruction
+    unit in metres -- an assumption, nothing measures it.
+    """
+    clip_urls: list[str]
+    frame_step: int = 9
+    shared_frames: int = 5
+    max_frames: int = 36
+    metres_per_unit: float = 30.5
+    max_gaussians: int = 0   # 0 = no cap; a number keeps that many, highest opacity first
+    mask_people: bool = False   # drop people (SAM 3.1 tracking masks) from the splat; for clips that show actors
+    adaptive_frames: bool = True   # follow the clip's motion when picking frames
+    frame_width: int = 704   # width of the frames WorldMirror sees (its own maximum is 952)
+    mask_fallback: bool = False   # SAM 3.1 masks failing is an error unless this allows SAM 2.1 large instead
+
+
+async def _run_route_gaussian_job(job: dict, req: RouteGaussianRequest) -> dict:
+    import route_gs
+    clips = [await resolve_upload(u) for u in req.clip_urls]
+    # WorldMirror needs most of the card; whatever ComfyUI holds goes first.
+    await comfyui.free_memory(unload_models=True, free_memory=True)
+    stem = f"route_{job['id']}"
+    def cancelled() -> bool:      # cancel_job() marks this dict; route_gs polls it and stops its children
+        return job.get("status") == "cancelled"
+
+    try:
+        result = await asyncio.to_thread(
+            route_gs.build_route_gaussian, clips, UPLOAD_DIR / f"{stem}.ply", UPLOAD_DIR / f"_{stem}",
+            frame_step=req.frame_step, shared=req.shared_frames, max_frames=req.max_frames,
+            metres_per_unit=req.metres_per_unit, max_gaussians=req.max_gaussians,
+            mask_people=req.mask_people, adaptive=req.adaptive_frames, mask_fallback=req.mask_fallback,
+            cache_dir=UPLOAD_DIR / "_route_cache", frame_width=req.frame_width, should_stop=cancelled)
+    except route_gs.RouteCancelled:
+        return {}          # the job is already marked cancelled; _execute_job keeps that
+    finally:
+        shutil.rmtree(UPLOAD_DIR / f"_{stem}", ignore_errors=True)    # work dir; clips live in _route_cache
+    return {"url": f"/uploads/{stem}.ply", "meta_url": f"/uploads/{stem}.json",
+            "name": f"WorldMirror · 路线拼接（{len(clips)} 段）", **result}
+
+
+@app.post("/generate-route-gaussian")
+async def generate_route_gaussian(req: RouteGaussianRequest):
+    if not req.clip_urls:
+        raise HTTPException(400, "clip_urls is empty")
+    if len(req.clip_urls) > 1 and req.shared_frames < 3:
+        raise HTTPException(400, "shared_frames must be at least 3 to align neighbouring clips")
+    return await submit_job("route_gaussian", lambda job: _run_route_gaussian_job(job, req), request=req)
 
 
 @app.post("/generate-world-gaussian")

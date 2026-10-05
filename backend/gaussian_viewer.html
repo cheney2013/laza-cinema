@@ -83,6 +83,12 @@
         .empty-icon { font-size: 40px; opacity: 0.3; }
         .empty-text { font-size: 12px; color: #444; text-align: center; }
 
+        #fsBtn {
+            position: absolute; top: 8px; left: 8px; z-index: 20; width: 28px; height: 28px;
+            border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; background: rgba(20,20,24,0.65);
+            color: #e8e8ee; font-size: 16px; line-height: 1; cursor: pointer; padding: 0;
+        }
+        #fsBtn:hover { background: rgba(60,60,72,0.85); }
         #cameraInfo {
             position: absolute;
             top: 8px;
@@ -164,25 +170,29 @@
         </div>
 
         <div id="cameraInfo"></div>
+        <button id="fsBtn" title="全屏（F，Esc 退出）">⤢</button>
     </div>
 
     <div id="controlsBar">
         <span class="ctrl-label">视图</span>
         <button class="ctrl-btn" id="btnReset" title="重置相机">重置视图</button>
+        <button class="ctrl-btn" id="btnMode" title="漫游 / 环绕（M）">漫游</button>
+        <button class="ctrl-btn" id="btnFullscreen" title="全屏（F，Esc 退出）">全屏</button>
         <div class="ctrl-sep"></div>
         <span class="ctrl-label">缩放</span>
         <div class="ctrl-scale">
-            <input type="range" id="scaleRange" min="0.01" max="10" step="0.01" value="1.0">
-            <input type="number" id="scaleNum" min="0.01" max="100" step="0.1" value="1.0">
+            <input type="range" id="scaleRange" min="0.01" max="10" step="0.01" value="0.3">
+            <input type="number" id="scaleNum" min="0.01" max="100" step="0.1" value="0.3">
         </div>
         <div class="ctrl-sep"></div>
         <button class="ctrl-btn primary" id="btnCapture" title="截图并输出">📷 截图输出</button>
-        <span class="ctrl-help">左键拖拽旋转 · 右键平移 · 滚轮缩放</span>
+        <span class="ctrl-help" id="ctrlHelp">拖拽转头 · WASD 移动 · Space/E 升 Q/C 降 · Shift 加速 · 滚轮调速 · M 切换环绕</span>
     </div>
 
     <!-- gsplat.js bundle -->
     <script src="/gaussian/js/gsplat-bundle.js"></script>
     <script src="/gaussian/js/precise_orbit_controls.js"></script>
+    <script src="/gaussian/js/fly_controls.js"></script>
 
     <script type="module">
         const SPLAT = window.GSPLAT;
@@ -198,13 +208,18 @@
         const scaleNum = document.getElementById('scaleNum');
 
         let scene = null, camera = null, renderer = null, controls = null;
+        let orbitControls = null, flyControls = null, controlMode = 'fly';
+        let sceneBox = null;
+        let sizeBoost = 1.0, windowedH = 0;   // fullscreen makes the gaussians a little bigger, see updateFsUi
         let animationId = null, currentSplat = null, originalScales = null;
         const RENDER_TAIL_MS = 1500;
         let renderUntil = 0, lastSignature = '', idleTimer = null;
         let baseFocalLength = null, baseFocalY = null;
         let nativeAspect = null, nativeImageWidth = null, nativeImageHeight = null;
         let initialCameraData = null;
-        let currentScale = 1.0;
+        // Same as the canvas node's slider default: at 1.0 (times SCALE_DENSITY_BOOST) the splats smear into blobs
+        // until the slider is touched (FlashWorld world_*.ply, 2026-10-05).
+        let currentScale = 0.3;
         let gaussianScaleCompensation = 1.0;
         let isLoaded = false;
 
@@ -247,9 +262,14 @@
                 };
 
                 renderer = new SPLAT.WebGLRenderer(canvas);
-                controls = new window.PreciseOrbitControls(camera, canvas);
-                controls.minZoom = 0.001;
-                controls.maxZoom = 100;
+                orbitControls = new window.PreciseOrbitControls(camera, canvas);
+                orbitControls.minZoom = 0.001;
+                orbitControls.maxZoom = 100;
+                flyControls = new window.FlyControls(camera, canvas);
+                // Free roam is the default (义哥 2026-10-05); ?mode=orbit or the M key goes back to orbiting.
+                controlMode = params.get('mode') === 'orbit' ? 'orbit' : 'fly';
+                controls = controlMode === 'orbit' ? orbitControls : flyControls;
+                updateModeUi();
 
                 camera.data.fx = DEFAULT_FOCAL_LENGTH;
                 camera.data.fy = DEFAULT_FOCAL_LENGTH;
@@ -467,7 +487,7 @@
                             originalScales[i] = scales[i] * gaussianScaleCompensation;
                         }
                         for (let i = 0; i < scales.length; i++) {
-                            scales[i] = originalScales[i] * currentScale;
+                            scales[i] = originalScales[i] * currentScale * sizeBoost;
                         }
                         if (currentSplat.data) currentSplat.data.changed = true;
                     }
@@ -499,6 +519,10 @@
                     }
                 }
 
+                try {
+                    sceneBox = robustBounds(currentSplat);
+                    if (sceneBox && flyControls) flyControls.setSceneSize(sceneBox.ext);
+                } catch (e) { /* keep the default pace */ }
                 hideLoading();
                 isLoaded = true;
                 notifyParent({ type: 'MESH_LOADED', filename });
@@ -578,7 +602,7 @@
             if (!currentSplat || !currentSplat.data || !currentSplat.data.scales) return;
             const scales = currentSplat.data.scales;
             if (originalScales) {
-                for (let i = 0; i < scales.length; i++) scales[i] = originalScales[i] * scale;
+                for (let i = 0; i < scales.length; i++) scales[i] = originalScales[i] * scale * sizeBoost;
             } else {
                 for (let i = 0; i < scales.length; i++) scales[i] *= scale;
             }
@@ -715,6 +739,106 @@
             };
         }
 
+        // Ctrl + wheel: gaussian size (in fullscreen there is no slider bar to reach).  Captured on the window so the
+        // flying / orbit wheel handlers (speed, zoom) and the browser's own page zoom never see it.
+        let hudTimer = null;
+        function showHud(text) {
+            let h = document.getElementById('sizeHud');
+            if (!h) {
+                h = document.createElement('div');
+                h.id = 'sizeHud';
+                h.style.cssText = 'position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:30;padding:5px 12px;' +
+                    'border-radius:6px;background:rgba(20,20,24,0.78);color:#e8e8ee;font:13px sans-serif;pointer-events:none;';
+                document.getElementById('viewerContainer').appendChild(h);
+            }
+            h.textContent = text;
+            h.style.display = 'block';
+            clearTimeout(hudTimer);
+            hudTimer = setTimeout(() => { h.style.display = 'none'; }, 1200);
+        }
+        window.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const next = Math.min(100, Math.max(0.01, currentScale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+            updateGaussianScale(next);
+            scaleRange.value = Math.min(next, 10);
+            scaleNum.value = next.toFixed(2);
+            showHud('高斯大小 ×' + next.toFixed(2));
+            wakeRender();
+        }, { capture: true, passive: false });
+
+        function setControlMode(mode) {
+            if (!orbitControls || !flyControls || mode === controlMode) return;
+            if (mode === 'fly') {
+                flyControls.setCameraTarget(orbitControls.getCameraTarget());
+                controls = flyControls;
+            } else {
+                orbitControls.setCameraTarget(flyControls.getCameraTarget());
+                controls = orbitControls;
+            }
+            controlMode = mode;
+            updateModeUi();
+            wakeRender();
+        }
+        window.__gsDebug = () => ({ mode: controlMode, speed: flyControls && flyControls.baseSpeed, mult: flyControls && flyControls.speedMult, keys: flyControls && Object.keys(flyControls.keys).filter(k => flyControls.keys[k]), flyPos: flyControls && [flyControls.position.x, flyControls.position.y, flyControls.position.z], yaw: flyControls && flyControls.yaw, cam: [camera.position.x, camera.position.y, camera.position.z], same: controls === flyControls });
+        // Bounds from the 2nd to the 98th percentile of a sample of the points: a few stray gaussians far out
+        // (sky, smoke) would otherwise make the scene look ten times bigger than it is.
+        function robustBounds(splat) {
+            const pos = splat && splat.data && splat.data.positions;
+            if (!pos || pos.length < 30) return null;
+            const n = Math.floor(pos.length / 3), step = Math.max(1, Math.floor(n / 200000));
+            const xs = [], ys = [], zs = [];
+            for (let i = 0; i < n; i += step) { xs.push(pos[3 * i]); ys.push(pos[3 * i + 1]); zs.push(pos[3 * i + 2]); }
+            const q = (a, p) => { a.sort((u, v) => u - v); return a[Math.min(a.length - 1, Math.max(0, Math.round(p * (a.length - 1))))]; };
+            const min = [q(xs, 0.02), q(ys, 0.02), q(zs, 0.02)], max = [q(xs, 0.98), q(ys, 0.98), q(zs, 0.98)];
+            const ext = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+            return { min, max, ext, center: new SPLAT.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2) };
+        }
+        // 全屏: the whole viewer page fills the screen (Esc leaves).  Inside the canvas node the page is an iframe,
+        // which the browser lets go fullscreen only if the iframe carries allowfullscreen.
+        function toggleFullscreen() {
+            const el = document.documentElement;
+            if (!document.fullscreenElement) windowedH = canvas.clientHeight || 0;
+            if (document.fullscreenElement) { document.exitFullscreen(); return; }
+            const req = el.requestFullscreen || el.webkitRequestFullscreen;
+            if (req) req.call(el).catch(() => {});
+        }
+        // In fullscreen the picture is several times larger on screen but there are still only so many gaussians, so the
+        // gaps between them show and the scene looks thinner than in the node.  Grow every gaussian with the square
+        // root of the height ratio (at most 3x); the 缩放 slider still multiplies on top of this.
+        function applySizeBoost() {
+            const on = !!document.fullscreenElement;
+            const ch = canvas.clientHeight || 1;
+            const next = on && windowedH > 0 ? Math.min(3, Math.max(1, Math.sqrt(ch / windowedH))) : 1.0;
+            if (Math.abs(next - sizeBoost) > 0.01) { sizeBoost = next; updateGaussianScale(currentScale); }
+        }
+        function updateFsUi() {
+            const on = !!document.fullscreenElement;
+            setTimeout(applySizeBoost, 250);     // the canvas has its fullscreen size a moment after the event
+            const b = document.getElementById('btnFullscreen'), f = document.getElementById('fsBtn');
+            if (b) b.textContent = on ? '退出全屏' : '全屏';
+            if (f) f.textContent = on ? '⤡' : '⤢';
+            wakeRender();
+        }
+        document.addEventListener('fullscreenchange', updateFsUi);
+        function updateModeUi() {
+            const b = document.getElementById('btnMode'), h = document.getElementById('ctrlHelp');
+            if (b) b.textContent = controlMode === 'fly' ? '漫游' : '环绕';
+            if (h) h.textContent = controlMode === 'fly'
+                ? '拖拽转头 · WASD 移动 · Space/E 升 Q/C 降 · Shift 加速 · 滚轮调速 · Ctrl+滚轮 高斯大小 · M 切换环绕 · F 全屏'
+                : '左键拖拽旋转 · 右键平移 · 滚轮缩放 · M 切换漫游';
+        }
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyM' && !/INPUT|TEXTAREA/.test((e.target || {}).tagName || '')) {
+                setControlMode(controlMode === 'fly' ? 'orbit' : 'fly');
+            }
+            if (e.code === 'KeyF' && !/INPUT|TEXTAREA/.test((e.target || {}).tagName || '')) toggleFullscreen();
+        });
+        document.getElementById('btnFullscreen').addEventListener('click', toggleFullscreen);
+        document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
+        document.getElementById('btnMode').addEventListener('click', () => setControlMode(controlMode === 'fly' ? 'orbit' : 'fly'));
+
         // ── postMessage API ──────────────────────────────────────────────────
         window.addEventListener('message', async (e) => {
             const msg = e.data;
@@ -748,6 +872,10 @@
                     if (controls.resetRoll) controls.resetRoll();
                     controls.update();
                 }
+            } else if (msg.type === 'FULLSCREEN') {
+                toggleFullscreen();
+            } else if (msg.type === 'SET_MODE') {
+                setControlMode(msg.mode === 'orbit' ? 'orbit' : 'fly');
             } else if (msg.type === 'SET_SCALE') {
                 const s = parseFloat(msg.scale) || 1.0;
                 updateGaussianScale(s);

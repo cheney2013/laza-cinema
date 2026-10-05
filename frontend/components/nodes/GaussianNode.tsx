@@ -35,6 +35,16 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   const [showSettings, setShowSettings] = useState(false);
   const [scale, setScale] = useState(0.3);
 
+  // The viewer (a WebGL page holding millions of gaussians) loads only when asked: a canvas with several of these
+  // nodes would otherwise load them all at once. A model that arrives while the node is open (just generated, or a
+  // different file) is shown right away.
+  const [viewerActive, setViewerActive] = useState(false);
+  const plyBefore = useRef<string | null | undefined>(data.plyUrl);
+  useEffect(() => {
+    if (data.plyUrl && data.plyUrl !== plyBefore.current) setViewerActive(true);
+    plyBefore.current = data.plyUrl;
+  }, [data.plyUrl]);
+
   const cancelledRef = useRef(false);
 
   const isReady = data.status === 'ready' || data.status === 'done' || data.status === 'generating' || data.status === 'error';
@@ -322,16 +332,35 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
           {/* Internal wrapper with hidden overflow for iframe */}
           <div className="nodrag" style={{ position: 'relative', flex: 1, borderRadius: 20, overflow: 'hidden', boxShadow: currentShadow, background: 'rgba(0,0,0,0.2)' }}>
 
-            {data.plyUrl ? (
+            {data.plyUrl && viewerActive ? (
               <iframe
                 ref={iframeRef}
                 src={viewerUrl}
                 onLoad={handleIframeLoad}
                 title="Gaussian Splat Viewer"
                 style={{ width: '100%', height: '100%', border: 'none', display: 'block', pointerEvents: isConnecting ? 'none' : 'auto' }}
-                allow="cross-origin-isolated"
+                allow="cross-origin-isolated; fullscreen"
                 sandbox="allow-scripts allow-same-origin allow-forms"
               />
+            ) : data.plyUrl ? (
+              <div
+                className="nodrag"
+                style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 }}
+              >
+                <div className="w-10 h-10 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-zinc-500">
+                  <GaussianIcon />
+                </div>
+                <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center', lineHeight: 1.5, wordBreak: 'break-all' }}>
+                  {(data.plyOriginalName as string) || (data.plyFilename as string) || t('高斯模型')}
+                </div>
+                <button
+                  onClick={() => setViewerActive(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white border border-white/15 cursor-pointer"
+                  title={t('点击后才加载查看器，打开画布时不会自动加载')}
+                >
+                  {t('点击加载')}
+                </button>
+              </div>
             ) : (
               <div
                 className="nodrag"

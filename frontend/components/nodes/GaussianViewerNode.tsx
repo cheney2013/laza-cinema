@@ -54,6 +54,15 @@ function GaussianViewerNode({ id, data, selected }: NodeProps<GaussianViewerNode
   const plyName = upstream ? upstream.plyOriginalName : data.plyOriginalName;
   const busy = data.status === 'loading' || data.status === 'capturing';
 
+  // Load the viewer only when asked (a canvas with several of these nodes would load them all at once). A file opened
+  // or connected while the node is open is shown right away.
+  const [viewerActive, setViewerActive] = useState(false);
+  const plyBefore = useRef<string | null | undefined>(plyUrl);
+  useEffect(() => {
+    if (plyUrl && plyUrl !== plyBefore.current) setViewerActive(true);
+    plyBefore.current = plyUrl;
+  }, [plyUrl]);
+
   const sendLoad = useCallback(() => {
     if (iframeRef.current?.contentWindow && plyUrl) {
       updateNodeData(id, { status: 'loading', error: undefined });
@@ -148,15 +157,32 @@ function GaussianViewerNode({ id, data, selected }: NodeProps<GaussianViewerNode
           }}
         >
           <div className="nodrag" style={{ position: 'relative', flex: 1, borderRadius: 20, overflow: 'hidden', boxShadow: selected ? selectedShadow : defaultShadow, background: 'rgba(0,0,0,0.2)', outline: dragOver ? '2px dashed rgba(122,180,255,0.8)' : 'none' }}>
-            {plyUrl ? (
+            {plyUrl && viewerActive ? (
               <iframe
                 ref={iframeRef}
                 src={`${BACKEND_URL}/gaussian/viewer?hide_controls=true`}
                 onLoad={() => { iframeReadyRef.current = true; sendLoad(); }}
                 title="Gaussian Viewer"
                 style={{ width: '100%', height: '100%', border: 'none', display: 'block', pointerEvents: connection.inProgress || fileDragging ? 'none' : 'auto' }}
+                allow="cross-origin-isolated; fullscreen"
                 sandbox="allow-scripts allow-same-origin allow-forms"
               />
+            ) : plyUrl ? (
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 }}>
+                <div className="w-10 h-10 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-zinc-500">
+                  <ViewerIcon />
+                </div>
+                <div style={{ fontSize: 12, color: '#a1a1aa', textAlign: 'center', lineHeight: 1.5, wordBreak: 'break-all' }}>
+                  {(plyName as string) || t('高斯模型')}
+                </div>
+                <button
+                  onClick={() => setViewerActive(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white border border-white/15 cursor-pointer"
+                  title={t('点击后才加载查看器，打开画布时不会自动加载')}
+                >
+                  {t('点击加载')}
+                </button>
+              </div>
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20 }}>
                 <div className="w-10 h-10 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-zinc-500">

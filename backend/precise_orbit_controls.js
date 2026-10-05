@@ -96,12 +96,16 @@
                 }
             };
             const onWheel = (e) => {
+                if (e.ctrlKey) return;
                 const shift = this.keys['ShiftLeft'] || this.keys['ShiftRight'];
                 const speedMult = shift ? 0.1 : 1.0;
                 this.targetRadius += e.deltaY * 0.001 * this.targetRadius * this.zoomSpeed * speedMult;
                 this.targetRadius = Math.min(Math.max(this.targetRadius, this.minZoom), this.maxZoom);
             };
 
+            const releaseAll = () => { this.keys = {}; this.isMouseDown = false; this.isRightMouseDown = false; };
+            window.addEventListener('blur', releaseAll);
+            document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
             if (inputEnabled) {
                 window.addEventListener('keydown', onKeyDown);
                 window.addEventListener('keyup', onKeyUp);

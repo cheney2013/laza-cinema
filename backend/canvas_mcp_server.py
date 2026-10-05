@@ -2134,6 +2134,60 @@ def render_gaussian_view(project: str, node_id: str, x: float = 0.0, y: float = 
     return result
 
 
+@_tool
+def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = "", scene: str = "",
+                         label: str = "", frame_step: int = 9, shared_frames: int = 5,
+                         metres_per_unit: float = 30.5, mask_people: bool = False,
+                         adaptive_frames: bool = True, mask_fallback: bool = False,
+                         frame_width: int = 704) -> dict[str, Any]:
+    """Make one gaussian splat of a whole camera move from several finished video clips, in route order.
+
+    For a long walk (a street, a corridor) made of H3 clips continued with motion context: each clip is
+    reconstructed with WorldMirror 2.0, neighbouring clips are aligned from frames they share, and the splats
+    are merged into one frame (backend/route_gs.py). It takes a few minutes per clip and most of the GPU, so
+    ComfyUI is unloaded first. The result lands on a gaussian node (created here, or `node_id` if it exists):
+    poll with refresh_canvas_node until its plyUrl appears.
+
+    clip_node_ids: video nodes with a finished clip, first to last. shared_frames: sampled frames each clip
+    repeats from the one before (3 at least). metres_per_unit: how many metres the first clip's reconstruction
+    unit is -- nothing measures it, so the splat's size is an assumption (the route's length is in the result's
+    sidecar json, <ply>.json). Stand a render camera on the route with <ply>_cams.json (metres, same frame as the
+    splat) and render_gaussian_view.
+
+    mask_people: for clips that show actors (an original game video, a take with people): SAM 3.1 (video tracking in
+    ComfyUI, so ComfyUI must be up) masks every person and their pixels are left out of the splat, so no ghost figures; the ground behind a person stays
+    empty where no other frame saw it. adaptive_frames: pick frames by motion (busy stretches get more)
+    instead of at a fixed step. mask_fallback: if the SAM 3.1 masks fail the job errors; true accepts the weaker
+    SAM 2.1 large masks instead. frame_width: width of the frames WorldMirror sees (default 704, its maximum is
+    952; wider is sharper but needs more memory per frame).
+    """
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    urls = []
+    for cid in clip_node_ids:
+        url = _node_url(_find_node(canvas["nodes"], cid))
+        if not url:
+            raise ValueError(f"{cid} has no finished clip yet.")
+        urls.append(url)
+    submitted = _request("POST", "/generate-route-gaussian", json={
+        "clip_urls": urls, "frame_step": frame_step, "shared_frames": shared_frames,
+        "metres_per_unit": metres_per_unit, "mask_people": mask_people,
+        "adaptive_frames": adaptive_frames, "mask_fallback": mask_fallback, "frame_width": frame_width}, project_id=resolved["id"])
+    nid = node_id or f"route-gs-{submitted['job_id'][:6]}"
+    data = {"engine": "flashworld", "worldTrajectory": "ring", "status": "loading",
+            "worldJobId": submitted["job_id"], "error": None, "plyUrl": None,
+            "routeClips": list(clip_node_ids),
+            "label": label or f"路线高斯 · {len(urls)} 段（{' → '.join(clip_node_ids)}）· 生成中"}
+    if any(n.get("id") == nid for n in canvas["nodes"]):
+        revision = _save_node_data(resolved["id"], nid, data, canvas)
+    else:
+        added = apply_canvas_operations(project, [{"op": "add_node", "type": "gaussian", "id": nid,
+                                                   "width": 360, "data": data}], scene=scene)
+        revision = added.get("revision")
+    return {"project_id": resolved["id"], "node_id": nid, "job_id": submitted["job_id"],
+            "status": submitted.get("status", "queued"), "revision": revision, "clips": len(urls)}
+
+
 EDIT_TYPE_MODES = {"videoReshot": "temporal_reshot", "videoBridge": "av_bridge",
                    "videoContinue": "continuation", "videoFrames": "fl2va"}
 EDIT_TYPES = {"videoEdit", *EDIT_TYPE_MODES}
@@ -4535,7 +4589,9 @@ def cancel_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str,
     canvas = _canvas(resolved["id"])
     node = _find_node(canvas["nodes"], node_id)
     data = node.setdefault("data", {})
-    job_id = data.get("jobId")
+    # gaussian nodes (FlashWorld / route splats) keep their job under worldJobId, not jobId
+    job_key = "worldJobId" if node.get("type") == "gaussian" and data.get("worldJobId") else "jobId"
+    job_id = data.get(job_key)
     if not job_id:
         return {"project_id": resolved["id"], "node_id": node_id,
                 "status": data.get("status", "idle"), "cancelled": False}
@@ -4551,7 +4607,8 @@ def cancel_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str,
         return {**finished, "cancelled": False, "already_finished": True}
     outcome = _request("POST", f"/cancel-job/{job_id}")
     revision = _save_node_data(resolved["id"], node_id,
-                               {"status": "cancelled", "error": "Job cancelled by user", "jobId": None}, canvas)
+                               {"status": "cancelled" if job_key == "jobId" else "error",
+                                "error": "Job cancelled by user", job_key: None}, canvas)
     return {"project_id": resolved["id"], "node_id": node_id,
             "job_id": job_id, "status": outcome.get("status", "cancelled"),
             "cancelled": True, "revision": revision}
@@ -4573,7 +4630,8 @@ def refresh_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str
             with _hold_lock(resolved["id"], 30, f"refresh {node_id}"):
                 revision = _save_node_data(resolved["id"], node_id, {
                     "plyUrl": ply, "plyFilename": (ply or "").rsplit("/", 1)[-1] or None,
-                    "plyOriginalName": f"FlashWorld · {data.get('worldTrajectory') or 'ring'}",
+                    "plyOriginalName": (job.get("result") or {}).get("name")
+                    or f"FlashWorld · {data.get('worldTrajectory') or 'ring'}",
                     "worldVideoUrl": (job.get("result") or {}).get("video_url"),
                     "status": "loading", "worldJobId": None, "error": None}, canvas)
             return {"project_id": resolved["id"], "node_id": node_id, "status": "done",
