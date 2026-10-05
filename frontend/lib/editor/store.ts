@@ -41,6 +41,7 @@ import {
   subtitleText,
 } from './types';
 import { t } from '../i18n';
+import { withoutDeletedAssets } from './unusedAssets';
 import { planDetach } from './detach';
 
 /**
@@ -376,6 +377,11 @@ export interface CutRoomState extends SessionSnapshot {
    * keeps its shape and its timings while showing plainly what is missing.
    */
   markAssetsOffline: (url: string) => void;
+  /**
+   * Library files were deleted: drop their clipless entries from the asset table of the open timeline and
+   * every parked tab. Not an edit the user made, so no undo entry.
+   */
+  dropDeletedAssets: (names: globalThis.Set<string>) => void;
   /**
    * Point assets at other files, keeping every clip's position and trims:
    * the rough cut's clips swapped for their upscaled versions (and back).
@@ -2161,6 +2167,18 @@ export const useCutRoom = create<CutRoomState>((set, get) => ({
     const next = retitle(current);
     const sessions = Object.fromEntries(
       Object.entries(get().sessions).map(([sid, session]) => [sid, { ...session, timeline: retitle(session.timeline) }])
+    );
+    const sessionsChanged = Object.keys(sessions).some((sid) => sessions[sid].timeline !== get().sessions[sid].timeline);
+    if (next === current && !sessionsChanged) return;
+    set({ timeline: next, sessions });
+    get().scheduleSave();
+  },
+
+  dropDeletedAssets: (names) => {
+    const current = get().timeline;
+    const next = withoutDeletedAssets(current, names);
+    const sessions = Object.fromEntries(
+      Object.entries(get().sessions).map(([sid, session]) => [sid, { ...session, timeline: withoutDeletedAssets(session.timeline, names) }])
     );
     const sessionsChanged = Object.keys(sessions).some((sid) => sessions[sid].timeline !== get().sessions[sid].timeline);
     if (next === current && !sessionsChanged) return;

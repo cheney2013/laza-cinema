@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { namesLiveOnCanvases, namesUsedByTimelines, ownedByProject, unusedLibraryItems } from './unusedAssets';
+import { namesLiveOnCanvases, namesUsedByTimelines, ownedByProject, unusedLibraryItems, withoutDeletedAssets } from './unusedAssets';
 import { defaultClip, emptyTimeline, type EditorAsset, type Timeline } from './types';
 
 const asset = (id: string, url: string, extra: Partial<EditorAsset> = {}): EditorAsset => ({
@@ -80,5 +80,22 @@ describe('ownedByProject', () => {
     assert.equal(ownedByProject({ origin_project: 'b', projects: p('a') }, 'a'), false);
     assert.equal(ownedByProject({ origin_project: 'a', projects: p('a', 'b') }, 'a'), false);
     assert.equal(ownedByProject({ origin_project: null, projects: [] }, 'a'), false);
+  });
+});
+
+describe('withoutDeletedAssets', () => {
+  it('drops clipless entries of deleted files and keeps everything a clip is on', () => {
+    const t = film([
+      asset('a', '/comfy_output/H3_Video_aaa.mp4'),
+      asset('b', '/comfy_output/H3_Video_bbb.mp4'),
+      asset('c', '/comfy_output/H3_Video_ccc.mp4'),
+    ], ['a']);
+    const next = withoutDeletedAssets(t, new Set(['H3_Video_aaa.mp4', 'H3_Video_bbb.mp4']));
+    assert.deepEqual(Object.keys(next.assets).sort(), ['a', 'c']);
+  });
+
+  it('returns the same object when nothing matches', () => {
+    const t = film([asset('a', '/comfy_output/H3_Video_aaa.mp4')], []);
+    assert.equal(withoutDeletedAssets(t, new Set(['other.mp4'])), t);
   });
 });

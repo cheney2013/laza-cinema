@@ -1,5 +1,6 @@
 'use client';
 
+import { dropDeletedFromTimelines } from '@/lib/editor/afterDelete';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactFlow } from '@xyflow/react';
 
@@ -392,6 +393,7 @@ function AssetLibrary({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     setNotice(null);
     try {
       const result = await api.deleteAssets(body);
+      await dropDeletedFromTimelines(result.deleted);
       await refresh();
       setSelected(new Set());
       report(

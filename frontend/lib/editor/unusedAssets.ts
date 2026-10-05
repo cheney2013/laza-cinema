@@ -71,3 +71,21 @@ export function unusedLibraryItems<T extends { name: string }>(
     return !used.has(name) && !keep.has(name);
   });
 }
+
+/**
+ * The timeline without the asset-table entries whose files were deleted from the library.
+ *
+ * Only entries no clip is on go: a clip's asset stays, marked offline by the cut room, so the clip keeps its
+ * place and trims. Returns the same object when nothing changed, so callers can tell whether to save.
+ */
+export function withoutDeletedAssets(timeline: Timeline, deleted: Set<string>): Timeline {
+  if (deleted.size === 0) return timeline;
+  const onClip = new Set(timeline.clips.map((c) => c.assetId).filter(Boolean));
+  const gone = (asset: EditorAsset) =>
+    [asset.url, asset.chainHead?.trimmedUrl, asset.roughUrl, asset.roughChainHead?.trimmedUrl].some(
+      (url) => !!url && deleted.has(basenameOf(url.split('?')[0]))
+    );
+  const kept = Object.entries(timeline.assets).filter(([id, asset]) => onClip.has(id) || !gone(asset));
+  if (kept.length === Object.keys(timeline.assets).length) return timeline;
+  return { ...timeline, assets: Object.fromEntries(kept) };
+}

@@ -17,6 +17,7 @@ import { ensureProxies, previewUrl, restoreChoice, usePreviewQuality } from '@/l
 import { timelineToSrt } from '@/lib/editor/srt';
 import { languageName, subtitleLangOf, subtitleLangsOf, switchSubtitleLang } from '@/lib/editor/subtitleLang';
 import { namesLiveOnCanvases, ownedByProject, unusedLibraryItems } from '@/lib/editor/unusedAssets';
+import { dropDeletedFromTimelines } from '@/lib/editor/afterDelete';
 import { flatTimelineOf, useCutRoom } from '@/lib/editor/store';
 import { adjacentRuns, clipEnd, clipLength, formatTimecode, isNeutral, mergeRuns, timelineDuration, type Timeline } from '@/lib/editor/types';
 import { attachMseSequence, type MseClip } from '@/lib/mseSequence';
@@ -1019,6 +1020,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
           });
           return;
         }
+        await dropDeletedFromTimelines(result.deleted);
         setLibraryClips((clips) => clips.filter((c) => c.url !== item.url));
         setPicked((current) => (current === item.url ? null : current));
         // The cut keeps its shape; the clips that pointed at this file now say
@@ -1097,6 +1099,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       if (!confirmed) return;
       const result = await api.deleteAssets({ names: stale.map((item) => item.name), project: projectId });
       const gone = new Set(result.deleted);
+      await dropDeletedFromTimelines(result.deleted);
       setLibraryClips((clips) => clips.filter((c) => !gone.has(c.name)));
       setPicked(null);
       await showAlert(
