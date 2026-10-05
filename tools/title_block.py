@@ -15,6 +15,7 @@ Layout of the block (all in pixels of its own height H):
     the line is `line-width` wide (default: as wide as the logo; wider makes the text bigger),
     anchored to the bottom margin; the gap between them is whatever is left (build refuses a gap
     under --min-gap). block width = max(content-width, line-width) + 2 * M.
+    --line-height-scale stretches the line vertically without changing its width (taller text).
 """
 from __future__ import annotations
 
@@ -58,8 +59,12 @@ def _font(path: str, size: int, weight: int | None = None) -> ImageFont.FreeType
 
 
 def render_line(text: str, width: int, latin_font: str = DEFAULT_LATIN, cjk_font: str = DEFAULT_CJK,
-                cjk_scale: float = 0.9, tracking: float = 0.05, cjk_weight: int = 900) -> Image.Image:
+                cjk_scale: float = 0.9, tracking: float = 0.05, cjk_weight: int = 900,
+                height_scale: float = 1.0) -> Image.Image:
     """`text` white on transparent, exactly `width` wide, trimmed to its ink.
+
+    `height_scale` stretches the finished line vertically (1.4 = 40% taller, same width): the way to a
+    taller line when the width is fixed, at the cost of the letters becoming narrower in proportion.
 
     Runs (Latin / CJK) are in their own font, scaled together, and set so the vertical CENTRE OF EACH
     RUN'S INK is on one line. Aligning by the fonts' own origin looks wrong: capitals and square
@@ -95,7 +100,10 @@ def render_line(text: str, width: int, latin_font: str = DEFAULT_LATIN, cjk_font
             draw.text((x, baseline), ch, font=font, fill=(246, 246, 246, 255), anchor="ls")
             x += font.getlength(ch) + tracking * lo
     ys, xs = np.where(np.asarray(canvas)[..., 3] > 8)
-    return canvas.crop((0, int(ys.min()), width, int(ys.max()) + 1))
+    line = canvas.crop((0, int(ys.min()), width, int(ys.max()) + 1))
+    if height_scale != 1.0:
+        line = line.resize((line.width, max(1, round(line.height * height_scale))), Image.LANCZOS)
+    return line
 
 
 def distress_line(line: Image.Image, amount: float = 0.03, seed: int = 7) -> Image.Image:
@@ -112,7 +120,7 @@ def distress_line(line: Image.Image, amount: float = 0.03, seed: int = 7) -> Ima
 
 def build_block(logo: Image.Image, line: str, height: int = 1536, margin: int = 104, content_width: int = 620,
                 latin_font: str = DEFAULT_LATIN, cjk_font: str = DEFAULT_CJK, distress: float = 0.03,
-                min_gap: int = 32, line_width: int | None = None) -> tuple[Image.Image, dict]:
+                min_gap: int = 32, line_width: int | None = None, line_height_scale: float = 1.0) -> tuple[Image.Image, dict]:
     """The block: transparent, `height` tall, `max(content_width, line_width) + 2 * margin` wide.
 
     The logo is `content_width` wide; the line is `line_width` wide (default: the logo's width). A wider
@@ -127,7 +135,7 @@ def build_block(logo: Image.Image, line: str, height: int = 1536, margin: int = 
     block.alpha_composite(logo_img, (margin, margin))
     layout = {"width": block.width, "height": height, "margin": margin, "logo_box": (margin, margin, margin + content_width, margin + logo_h)}
     if line:
-        text = distress_line(render_line(line, line_width, latin_font, cjk_font), distress)
+        text = distress_line(render_line(line, line_width, latin_font, cjk_font, height_scale=line_height_scale), distress)
         top = height - margin - text.height
         gap = top - (margin + logo_h)
         if gap < min_gap:
@@ -166,6 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--line-width", type=int, default=None, help="width of the small line (default: the logo's); wider = bigger text")
     b.add_argument("--latin-font", default=DEFAULT_LATIN)
     b.add_argument("--cjk-font", default=DEFAULT_CJK)
+    b.add_argument("--line-height-scale", type=float, default=1.0,
+                   help="stretch the small line vertically (1.4 = 40%% taller, same width)")
     b.add_argument("--distress", type=float, default=0.03)
     b.add_argument("--min-gap", type=int, default=32)
     b.add_argument("--out", required=True)
@@ -179,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "build":
         block, layout = build_block(Image.open(args.logo), args.line, args.height, args.margin, args.content_width,
-                                    args.latin_font, args.cjk_font, args.distress, args.min_gap, args.line_width)
+                                    args.latin_font, args.cjk_font, args.distress, args.min_gap, args.line_width, args.line_height_scale)
         block.save(args.out)
         print({k: v for k, v in layout.items()})
     else:

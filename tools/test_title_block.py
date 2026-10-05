@@ -66,6 +66,15 @@ class BlockTests(unittest.TestCase):
         self.assertEqual(wide.width, 540)
         self.assertGreater(lw["line_box"][3] - lw["line_box"][1], ln["line_box"][3] - ln["line_box"][1])
 
+    def test_height_scale_makes_the_line_taller_and_not_wider(self):
+        flat = tb.render_line("FILM 1【中字】", 640)
+        tall = tb.render_line("FILM 1【中字】", 640, height_scale=1.4)
+        self.assertEqual(flat.width, tall.width)
+        self.assertAlmostEqual(tall.height / flat.height, 1.4, delta=0.02)
+        block, _ = tb.build_block(logo(), "FILM 1【中字】", height=1200, margin=60, content_width=300, distress=0,
+                                  line_height_scale=1.4)
+        self.assertEqual(block.width, 420)                      # the block did not widen
+
     def test_runs_split_latin_from_cjk(self):
         self.assertEqual(tb._runs("FILM 1【中字】"), [("FILM 1", False), ("【中字】", True)])
 
