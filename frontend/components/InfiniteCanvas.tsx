@@ -299,7 +299,12 @@ function Canvas() {
 
   useEffect(() => {
     const handleWheelCapture = (event: WheelEvent) => {
-      if (!(hasInputFocus || isInputLikeFocused())) return;
+      // Judged from what is focused NOW, never from the hasInputFocus flag: a field removed while it was
+      // focused (another clip selected, a panel closed, a node deleted) fires no blur, the flag stays true,
+      // and this handler then cancelled every wheel in the app -- canvas and cut room alike.
+      if (!isInputLikeFocused()) return;
+      // The cut room covers the canvas: its own panels scroll, and the canvas has nothing to protect from zoom.
+      if (useCutRoom.getState().open) return;
       const target = event.target as HTMLElement | null;
       const scrollable = target?.closest?.(
         'textarea, .nowheel, [data-scrollable]'
@@ -328,7 +333,20 @@ function Canvas() {
 
     window.addEventListener('wheel', handleWheelCapture, { passive: false, capture: true });
     return () => window.removeEventListener('wheel', handleWheelCapture, true);
-  }, [hasInputFocus, isInputLikeFocused]);
+  }, [isInputLikeFocused]);
+
+  // The inputFocused / inputBlurred events come from onFocus / onBlur, and a field unmounted while focused
+  // never blurs: the flag would stay true (undo and delete keys dead with it). Any click or focus change
+  // checks it against what is really focused.
+  useEffect(() => {
+    const reconcile = () => setHasInputFocus((was) => was && isInputLikeFocused());
+    window.addEventListener('pointerdown', reconcile, true);
+    window.addEventListener('focusin', reconcile, true);
+    return () => {
+      window.removeEventListener('pointerdown', reconcile, true);
+      window.removeEventListener('focusin', reconcile, true);
+    };
+  }, [isInputLikeFocused]);
 
   // Cinema Studio Modals State
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);

@@ -245,7 +245,7 @@ function TranslationTable({ onClose }: { onClose: () => void }) {
           {ai.message && <span className="text-[11px] text-zinc-400">{ai.message}</span>}
           <button onClick={onClose} className="ml-auto rounded px-3 py-1 text-zinc-400 hover:text-white">{t('关闭')}</button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div data-scrollable className="flex-1 overflow-y-auto">
           {rows.map((clip) => {
             const words = titleIn(clip, target, current);
             return (
