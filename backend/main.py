@@ -1884,6 +1884,16 @@ H3_MOTION_PRESETS: dict[str, dict] = {
     # the VRAM of the unpruned file, so it is the one to A/B with day to day.
     # Like every pruned build it has no time_embedder and no adaln_basis /
     # adaln_mean, so HyperFlow and depth control still need their own presets.
+    # The FL2VA (first + last frame) pruned base, the one the community 360-orbit LoRA is trained on
+    # (pablodawson/MiniMax-H3-360-Orbit-LoRA, run with accel_lora 'none'); the 8-step turbo is the
+    # fl2v one the hybrid preset already uses.
+    "fl2va": {
+        "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+        "lora_name": "h3/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+        "lora_strength": 1.0,
+        "scheduler": "simple",
+        "none_steps": 28,
+    },
     "ref2va": {
         "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
         "lora_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
@@ -1982,6 +1992,7 @@ def _h3_motion_preset(req: VideoRequest) -> dict:
     # Steps follow the speed LoRA and override the request. An explicit
     # req.lora_name opts out and keeps req.steps.
     accel = (req.accel_lora or "").strip() or DEFAULT_H3_ACCEL_LORA
+    none_steps = int(preset.pop("none_steps", 20))      # a preset's own step count for accel 'none'
     if not req.lora_name:
         if not preset.get("lora_name"):
             # fused: turbo merged into the weights, nothing to swap
@@ -1991,9 +2002,10 @@ def _h3_motion_preset(req: VideoRequest) -> dict:
             preset["lora_strength"] = 1.0
             preset["steps"] = 3
         elif accel == "none":
-            # The official r2v template: no LoRA, res_multistep, simple, 20 steps.
+            # The official r2v template: no LoRA, res_multistep, simple, 20 steps. A preset can name its
+            # own count (the 360-orbit LoRA's official run is 28).
             preset["lora_name"] = ""
-            preset["steps"] = 20
+            preset["steps"] = none_steps
         else:
             preset["steps"] = 8
     if req.lora_name:

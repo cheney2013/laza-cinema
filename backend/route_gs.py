@@ -38,6 +38,7 @@ import numpy as np
 
 COMFY_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
 COMFY_OUTPUT = os.environ.get("COMFYUI_OUTPUT_DIR", "D:/ComfyUI-sage3/ComfyUI/output")
+SAM3_SIZE = 1008          # SAM 3's own input side; frames go in letterboxed to this square
 SAM3_CKPT = os.environ.get("SAM3_CKPT", "sam3.1_multiplex_fp16.safetensors")   # in ComfyUI's models/checkpoints
 HYWORLD_DIR = Path(os.environ.get("HYWORLD_DIR", "D:/Projects/HY-World-2.0"))
 HF_HOME = os.environ.get("FLASHWORLD_HF_HOME", "D:/hf_cache")
@@ -202,18 +203,23 @@ def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window:
     frame. All windows are queued at once so ComfyUI runs them back to back. Returns what sam3_collect needs."""
     import urllib.request
     src_fps, W, H = _probe(clip)
-    w = 704
+    # SAM 3 squeezes every frame to 1008x1008.  Fed a 704x396 frame it stretched people 1.4x wide and 2.5x tall
+    # and they were lost in the dark (a running crowd was missed at any threshold), so the frame goes in at
+    # 1008 wide, black bars top and bottom, and the bars are cut off again in sam3_collect.
+    w = SAM3_SIZE
     h = round(w * H / W / 2) * 2
+    pad_top = (SAM3_SIZE - h) // 2
     shutil.rmtree(dense_dir, ignore_errors=True)
     dense_dir.mkdir(parents=True)
     subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-i", str(clip), "-vf",
-                    f"fps={dense_fps},scale={w}:{h}", str(dense_dir / "d_%04d.png")], check=True, timeout=900)
+                    f"fps={dense_fps},scale={w}:{h},pad={SAM3_SIZE}:{SAM3_SIZE}:0:{pad_top}:black",
+                    str(dense_dir / "d_%04d.png")], check=True, timeout=900)
     n_dense = len(list(dense_dir.glob("d_*.png")))
     tag = f"route_sam3/{uuid.uuid4().hex[:10]}"
     pids = []
     for k, start in enumerate(range(0, n_dense, window)):
         wf = {
-            "1": {"class_type": "LoadImagesFromFolderKJ", "inputs": {"folder": str(dense_dir), "width": w, "height": h,
+            "1": {"class_type": "LoadImagesFromFolderKJ", "inputs": {"folder": str(dense_dir), "width": SAM3_SIZE, "height": SAM3_SIZE,
                   "keep_aspect_ratio": "stretch", "image_load_cap": window, "start_index": start}},
             "2": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": SAM3_CKPT}},
             "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "person", "clip": ["2", 1]}},
@@ -225,10 +231,11 @@ def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window:
         }
         req = urllib.request.Request(COMFY_URL + "/prompt", json.dumps({"prompt": wf}).encode(), {"Content-Type": "application/json"})
         pids.append(json.loads(urllib.request.urlopen(req, timeout=60).read())["prompt_id"])
-    return {"pids": pids, "tag": tag, "n_dense": n_dense, "src_fps": src_fps, "dense_fps": dense_fps, "dense_dir": dense_dir}
+    return {"pids": pids, "tag": tag, "n_dense": n_dense, "src_fps": src_fps, "dense_fps": dense_fps, "dense_dir": dense_dir,
+            "pad_top": pad_top, "inner_h": h}
 
 
-def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 4, timeout: int = 3600,
+def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 6, timeout: int = 3600,
                  should_stop: Optional[Callable[[], bool]] = None) -> None:
     """Wait for the queued tracking and write a mask for every sampled frame (b_*) in `frames_dir`: the dense
     frame nearest in time, merged with its two neighbours (the people keep moving between dense frames), then
@@ -264,13 +271,31 @@ def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 4
         for k in (j - 1, j, j + 1):
             if 0 <= k < n_dense:
                 with Image.open(dense_masks[k]) as im:
-                    g = im.convert("L")
+                    g = im.convert("L").crop((0, job["pad_top"], SAM3_SIZE, job["pad_top"] + job["inner_h"]))
                 m = g if m is None else ImageChops.lighter(m, g)
         if dilate:
             m = m.filter(ImageFilter.MaxFilter(2 * dilate + 1))
         m.save(mask_dir / f.name)
     shutil.rmtree(out, ignore_errors=True)
     shutil.rmtree(job["dense_dir"], ignore_errors=True)
+
+
+def add_box_masks(frames_dir: Path, mask_dir: Path, work: Path, dilate: int = 4) -> None:
+    """Add what YOLO + SAM 2.1 large find to the masks SAM 3.1 wrote.  SAM 3.1 tracks well but skips people who
+    are small, dark and against a dark street (a running crowd at night); the box detector finds those, and the
+    two disagree about different people, so the masks are united."""
+    from PIL import Image, ImageChops
+    shutil.rmtree(work, ignore_errors=True)
+    make_person_masks(frames_dir, work, dilate=dilate)
+    for f in sorted(frames_dir.glob("b_*.png")):
+        a_path, b_path = mask_dir / f.name, work / f.name
+        if not (a_path.exists() and b_path.exists()):
+            continue
+        with Image.open(a_path) as a, Image.open(b_path) as b:
+            a = a.convert("L")
+            b = b.convert("L").resize(a.size, Image.NEAREST)
+            ImageChops.lighter(a, b).save(a_path)
+    shutil.rmtree(work, ignore_errors=True)
 
 
 def sam3_person_masks(clip: Path, frames_dir: Path, mask_dir: Path, dense_dir: Path, **kw) -> None:
@@ -374,7 +399,7 @@ def move_splat(data: np.ndarray, names: list[str], s: float, R: np.ndarray, t: n
 
 
 # --------------------------------------------------------------------------------------------- pipeline
-PIPELINE_VERSION = "1"    # bump when frame sampling or masking changes: old cache entries then stop matching
+PIPELINE_VERSION = "3"    # bump when frame sampling or masking changes: old cache entries then stop matching
 
 
 def _clip_key(clip: Path, prev_key: str, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, index,
@@ -457,6 +482,8 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
             for i in new:
                 say(f"clip {i + 1}/{len(clips)}: person masks")
                 sam3_collect(jobs[i], plan[i]["frames"], plan[i]["masks"], should_stop=should_stop)
+                check()
+                add_box_masks(plan[i]["frames"], plan[i]["masks"], plan[i]["cdir"] / "box_masks")
                 k = plan[i]["n_shared"]
                 for n in range(k):      # repeated frames keep the mask the previous clip made for them
                     prev = plan[i - 1]
