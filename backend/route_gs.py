@@ -1713,6 +1713,107 @@ def extend_route(core_ply: Path, manifest: dict, clips: list[Path], out_ply: Pat
     return {**res, "extensions": reports}
 
 
+METRE_KEYS = ("right", "up", "forward")      # the parts of a hand adjustment given in metres
+
+
+def _scale_ply(src: Path, dst: Path, k: float) -> int:
+    """A splat k times larger about the origin (the route's first camera): positions x k, log sizes + log k."""
+    header, names, data = read_ply(src)
+    for c in "xyz":
+        data[:, names.index(c)] *= k
+    for i in range(3):
+        data[:, names.index(f"scale_{i}")] += math.log(k)
+    with open(dst, "wb") as fh:
+        fh.write(b"".join(header))
+        fh.write(np.ascontiguousarray(data, dtype=np.float32).tobytes())
+    return len(data)
+
+
+def _scaled_adjust(adj: Optional[dict], k: float) -> Optional[dict]:
+    if not adj:
+        return adj
+    return {key: (float(v) * k if key in METRE_KEYS else v) for key, v in adj.items()}
+
+
+def scale_route(route_ply: Path, manifest: dict, metres_per_unit: float, out_ply: Path) -> dict:
+    """The same route in another unit: every gaussian and route camera k = new / old times as far from the route's
+    origin (its first camera) and every gaussian k times as large, so the shape stays exactly as it is and only how
+    many metres a unit is changes.  Nothing is reconstructed, re-aligned or re-bent: a turn's bend and the merge use
+    thresholds in metres, so running them again in the new unit would change an accepted route.  A route made in
+    steps -- a turn result over its base, an extended route over its core -- is scaled at every step, so later runs
+    that start from the base or the core keep the new unit; the hand adjustments' metres (right / up / forward) are
+    scaled with it, so recomposing reproduces the same shape.  The manifests name the new files.
+    route_ply / manifest: a route_gs output and its manifest; out_ply: the scaled route (its base and core, if any,
+    go beside it as <out>_base.ply / <out>_core.ply)."""
+    old = float(manifest["metres_per_unit"])
+    new = float(metres_per_unit)
+    if not (new > 0 and old > 0):
+        raise ValueError("metres_per_unit must be positive")
+    k = new / old
+    chain = [(route_ply, manifest, out_ply)]               # (source, its manifest, destination), final first
+    m = manifest
+    if m.get("base_ply"):
+        base = route_ply.with_name(m["base_ply"])
+        bm_file = base.with_name(base.stem + "_route.json")
+        bm = json.loads(bm_file.read_text(encoding="utf-8")) if bm_file.exists() else {k_: v for k_, v in m.items() if k_ != "base_ply"}
+        chain.append((base, bm, out_ply.with_name(out_ply.stem + "_base.ply")))
+        m = bm
+    if m.get("core_ply"):
+        core = chain[-1][0].with_name(m["core_ply"])
+        cm_file = core.with_name(core.stem + "_route.json")
+        cm = json.loads(cm_file.read_text(encoding="utf-8")) if cm_file.exists() else None
+        if cm is None:          # a core written before cores kept a manifest: the extended one, without its added clips
+            cm = {**m, "clips": [c for c in m["clips"] if "auto_transform" not in c]}
+            cm.pop("core_ply", None)
+            cm.pop("extensions", None)
+        chain.append((core, cm, out_ply.with_name(out_ply.stem + "_core.ply")))
+    rename = {src.name: dst.name for src, _, dst in chain}
+    result = {"metres_per_unit": new, "scale": k}
+    for src, man, dst in chain:
+        n = _scale_ply(src, dst, k)
+        side = src.with_suffix(".json")
+        meta = json.loads(side.read_text(encoding="utf-8")) if side.exists() else {}
+        meta.update(metres_per_unit=new, gaussians=n)
+        if "route_length_m" in meta:
+            meta["route_length_m"] = float(meta["route_length_m"]) * k
+        if meta.get("base_ply") in rename:
+            meta["base_ply"] = rename[meta["base_ply"]]
+        meta["scaled_from"] = {"ply": src.name, "metres_per_unit": old}
+        dst.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        cams = src.with_name(src.stem + "_cams.json")
+        if cams.exists():
+            pts = np.array(json.loads(cams.read_text(encoding="utf-8")), dtype=np.float64) * k
+            dst.with_name(dst.stem + "_cams.json").write_text(json.dumps(pts.tolist()), encoding="utf-8")
+        stitch = src.with_name(src.stem + "_stitch.json")
+        if stitch.exists():
+            seams = json.loads(stitch.read_text(encoding="utf-8"))
+            for seam in seams if isinstance(seams, list) else []:
+                for key in [key for key in seam if key.endswith("_m")]:
+                    seam[key] = [float(v) * k for v in seam[key]] if isinstance(seam[key], list) else float(seam[key]) * k
+                if "adjust" in seam:
+                    seam["adjust"] = _scaled_adjust(seam["adjust"], k)
+            dst.with_name(dst.stem + "_stitch.json").write_text(json.dumps(seams, indent=1), encoding="utf-8")
+        m2 = json.loads(json.dumps(man))
+        m2["metres_per_unit"] = new
+        for key in ("base_ply", "core_ply"):
+            if m2.get(key) in rename:
+                m2[key] = rename[m2[key]]
+        for entry in m2.get("clips") or []:
+            if "adjust" in entry:
+                entry["adjust"] = _scaled_adjust(entry["adjust"], k)
+        for rep in m2.get("extensions") or []:
+            if "adjust" in rep:
+                rep["adjust"] = _scaled_adjust(rep["adjust"], k)
+        dst.with_name(dst.stem + "_route.json").write_text(json.dumps(m2), encoding="utf-8")
+        if dst == out_ply:
+            result.update(gaussians=n, route_length_m=meta.get("route_length_m"))
+    if len(chain) > 1:
+        result["base_ply" if manifest.get("base_ply") else "core_ply"] = chain[1][2].name
+    if manifest.get("base_ply") and len(chain) > 2:
+        result["core_ply"] = chain[2][2].name
+    return result
+
+
 def adjust_route(route_ply: Path, manifest: dict, adjustments: dict, out_ply: Path) -> dict:
     """Hand adjustments of the clips added at a route's ends, with no reconstruction: each added clip's transform
     becomes its adjustment after its automatic alignment (a clip not named in `adjustments` goes back to that), and

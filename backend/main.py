@@ -9082,6 +9082,43 @@ async def adjust_route(req: RouteAdjustRequest):
     return await submit_side_job("route_adjust", lambda job: _run_route_adjust_job(job, req))
 
 
+class RouteScaleRequest(BaseModel):
+    """A route splat in another unit (route_gs.scale_route): the same shape, metres_per_unit metres to a unit of the
+    first clip's reconstruction instead of what it was built with (30.5 is an assumption made for H3 street clips; a
+    known length in the scene -- a car, a door, a traffic cone -- measures it). Nothing is reconstructed or
+    re-bent; the route's base and core, if it has them, are scaled too.
+
+    route_ply_url: a route splat (route_*.ply), any step of it (built, extended, adjusted, with turns).
+    """
+    route_ply_url: str
+    metres_per_unit: float
+
+
+async def _run_route_scale_job(job: dict, req: RouteScaleRequest) -> dict:
+    import route_gs
+    if not req.metres_per_unit > 0:
+        raise ValueError("metres_per_unit must be positive")
+    ply = await resolve_upload(req.route_ply_url)
+    manifest = await _route_manifest(ply)
+    if manifest.get("base_ply"):           # make sure the base has a manifest of its own to scale
+        await _route_manifest(ply.with_name(manifest["base_ply"]))
+    out = UPLOAD_DIR / f"route_scale_{job['id']}.ply"
+    result = await asyncio.to_thread(route_gs.scale_route, ply, manifest, req.metres_per_unit, out)
+    reply = {"url": f"/uploads/{out.name}", "meta_url": f"/uploads/{out.with_suffix('.json').name}",
+             "name": f"WorldMirror · 路线（{req.metres_per_unit:g} m/单位）", **result}
+    if result.get("base_ply"):
+        reply["base_url"] = f"/uploads/{result['base_ply']}"
+    if result.get("core_ply"):
+        reply["core_url"] = f"/uploads/{result['core_ply']}"
+    return reply
+
+
+@app.post("/rescale-route")
+async def rescale_route(req: RouteScaleRequest):
+    # beside the queue like /adjust-route: files in, files out, no GPU
+    return await submit_side_job("route_scale", lambda job: _run_route_scale_job(job, req))
+
+
 @app.post("/generate-route-gaussian")
 async def generate_route_gaussian(req: RouteGaussianRequest):
     if not req.clip_urls:

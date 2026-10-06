@@ -171,6 +171,22 @@
         }
         #adjustPanel .adj-keys { color: #9ab; font-size: 10px; line-height: 1.5; margin: 2px 0 4px; }
         #adjustPanel .adj-keys b { color: #cde; font-weight: normal; background: rgba(255,255,255,0.08); padding: 0 3px; border-radius: 3px; }
+        /* the ruler: two picked points, the length between them, and the route's unit it implies */
+        #rulerPanel {
+            position: absolute; left: 8px; top: 42px; z-index: 30; width: 250px; background: rgba(16,16,20,0.9);
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #ccc;
+        }
+        #rulerPanel.hidden { display: none; }
+        #rulerPanel .r-title { font-size: 12px; color: #eee; margin-bottom: 4px; }
+        #rulerPanel .r-note { color: #888; font-size: 10px; line-height: 1.5; margin: 2px 0 6px; }
+        #rulerPanel .r-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+        #rulerPanel .r-row input {
+            width: 70px; background: #252525; border: 1px solid #3a3a3a; color: #ddd; font-size: 11px;
+            padding: 2px 4px; border-radius: 4px;
+        }
+        #rulerPanel .r-val { color: #eee; }
+        #rulerPanel .r-buttons { display: flex; gap: 6px; margin-top: 6px; }
+        #rulerSvg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 24; pointer-events: none; }
         /* the seam point the clip turns and scales about */
         #adjMarker {
             position: absolute; z-index: 25; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
@@ -202,6 +218,22 @@
         <div id="cameraInfo"></div>
         <button id="fsBtn" title="全屏（F，Esc 退出）">⤢</button>
 
+        <svg id="rulerSvg">
+            <line id="rulerLine" stroke="#ffcc33" stroke-width="2" stroke-dasharray="6 4" style="display:none"></line>
+            <circle id="rulerA" r="6" fill="none" stroke="#ffcc33" stroke-width="2" style="display:none"></circle>
+            <circle id="rulerB" r="6" fill="none" stroke="#ffcc33" stroke-width="2" style="display:none"></circle>
+        </svg>
+        <div id="rulerPanel" class="hidden">
+            <div class="r-title">量尺定比例</div>
+            <div class="r-note">左键单击取两个点（比如路锥的锥尖和锥底、车头和车尾），再点就重新开始；拖动照旧转视角。取到的是点击处最靠前、不太透明的那个高斯：看黄圈落在哪，不对就重点。</div>
+            <div class="r-row">量得 <span class="r-val" id="rulerMeasured">—</span></div>
+            <div class="r-row">实际长度 <input type="number" id="rulerReal" step="0.01" min="0"> 米</div>
+            <div class="r-row r-val" id="rulerResult">—</div>
+            <div class="r-buttons">
+                <button class="ctrl-btn primary" id="rulerApply" disabled>应用</button>
+                <button class="ctrl-btn" id="rulerExit">退出</button>
+            </div>
+        </div>
         <div id="adjMarker"></div>
         <div id="adjustPanel" class="hidden">
             <div class="adj-title">手动调整接段</div>
@@ -276,6 +308,7 @@
         let isLoaded = false;
         let loadedUrl = null;        // the PLY on screen, when it came by URL (its route manifest sits beside it)
         let adjustState = null;      // hand adjustment of a route's added clips, while it is open
+        let rulerState = null;       // the ruler, while it is open: { mpu, sceneScale, length, points }
 
         const DEFAULT_FOCAL_LENGTH = 30;
         const SCALE_DENSITY_BOOST = 3.0;
@@ -370,6 +403,7 @@
         }
 
         async function loadPlyFromUrl(url) {
+            if (rulerState) endRuler(true);
             loadedUrl = url;
             showLoading('正在加载 PLY 文件...');
             try {
@@ -769,6 +803,7 @@
                 updateCameraInfo();
                 renderer.render(scene, camera);
                 if (adjustState) placeAdjustMarker();
+                if (rulerState) placeRulerMarks();
                 if (performance.now() < renderUntil) {
                     animationId = requestAnimationFrame(frame);
                 } else {
@@ -1247,6 +1282,129 @@
         });
         document.getElementById('adjExit').addEventListener('click', () => endRouteAdjust(true));
 
+        // ── the ruler: pick two points on the splat, give the real length, get the route's unit ──────────
+        // The splat stores metres x scene_scale at the route's current metres_per_unit (both in <ply>.json), so a
+        // length measured here in metres times real / measured is the unit the route should have. 应用 goes to the
+        // canvas node, which writes the route again in that unit (/rescale-route: the same shape, scaled).
+        async function startRuler() {
+            if (rulerState || adjustState) return;
+            const fail = (error) => notifyParent({ type: 'ROUTE_RULER_ERROR', error });
+            if (!currentSplat || !currentSplat.data || currentSplat.data.detached || !loadedUrl) return fail('还没有加载路线高斯');
+            let meta;
+            try {
+                const r = await fetch(loadedUrl.replace(/\.ply(\?.*)?$/, '.json'), { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                meta = await r.json();
+            } catch (err) { return fail('读不到这条路线的说明文件：' + err.message); }
+            if (!meta.metres_per_unit) return fail('这个高斯不是路线高斯，没有比例可改');
+            rulerState = { mpu: meta.metres_per_unit, sceneScale: meta.scene_scale || 0.1,
+                           length: meta.route_length_m || null, points: [] };
+            document.getElementById('rulerReal').value = '';
+            updateRulerPanel();
+            document.getElementById('rulerPanel').classList.remove('hidden');
+            wakeRender();
+            notifyParent({ type: 'ROUTE_RULER_STARTED' });
+        }
+        function endRuler(tellParent) {
+            if (!rulerState) return;
+            rulerState = null;
+            rulerDown = null;
+            document.getElementById('rulerPanel').classList.add('hidden');
+            for (const id of ['rulerLine', 'rulerA', 'rulerB']) document.getElementById(id).style.display = 'none';
+            wakeRender();
+            if (tellParent) notifyParent({ type: 'ROUTE_RULER_EXIT' });
+        }
+        function rulerMeasured() {         // metres between the two points, in the route's present unit
+            const [a, b] = rulerState.points;
+            return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / rulerState.sceneScale;
+        }
+        function updateRulerPanel() {
+            const s = rulerState;
+            if (!s) return;
+            const measured = s.points.length === 2 ? rulerMeasured() : null;
+            document.getElementById('rulerMeasured').textContent = measured === null
+                ? (s.points.length ? '再点第二个点' : '点第一个点')
+                : `${measured.toFixed(3)} 米（按现在的 ${Number(s.mpu).toFixed(2)} m/单位）`;
+            const real = parseFloat(document.getElementById('rulerReal').value);
+            const ok = measured > 0 && real > 0;
+            document.getElementById('rulerResult').textContent = ok
+                ? `新比例 ${(s.mpu * real / measured).toFixed(2)} m/单位` + (s.length ? `，全程 ${(s.length * real / measured).toFixed(0)} 米` : '')
+                : '填上实际长度，算出新比例';
+            document.getElementById('rulerApply').disabled = !ok;
+        }
+        // the nearest fairly opaque gaussian whose centre falls within 6 CSS pixels of the click (stored units)
+        function pickSplatPoint(clientX, clientY) {
+            const data = currentSplat && currentSplat.data;
+            if (!data || data.detached) return null;
+            const rc = canvas.getBoundingClientRect();
+            const nx = (clientX - rc.left) / rc.width * 2 - 1, ny = 1 - (clientY - rc.top) / rc.height * 2;
+            const rx = 12 / rc.width, ry = 12 / rc.height;
+            const m = camera.data.viewProj.buffer, pos = data.positions, col = data.colors, n = data.vertexCount;
+            let best = -1, bestW = Infinity;
+            for (let i = 0; i < n; i++) {
+                if (col[4 * i + 3] < 90) continue;
+                const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+                const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+                if (w <= 1e-4 || w >= bestW) continue;
+                const px = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
+                if (px - nx > rx || nx - px > rx) continue;
+                const py = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
+                if (py - ny > ry || ny - py > ry) continue;
+                best = i;
+                bestW = w;
+            }
+            return best < 0 ? null : [pos[3 * best], pos[3 * best + 1], pos[3 * best + 2]];
+        }
+        function placeRulerMarks() {       // the picked points and the line between them, from this frame's view
+            const rc = canvas.getBoundingClientRect(), rv = document.getElementById('viewerContainer').getBoundingClientRect();
+            const m = camera.data.viewProj.buffer;
+            const scr = rulerState.points.map((j) => {
+                const w = m[3] * j[0] + m[7] * j[1] + m[11] * j[2] + m[15];
+                if (w <= 0) return null;
+                const x = (m[0] * j[0] + m[4] * j[1] + m[8] * j[2] + m[12]) / w;
+                const y = (m[1] * j[0] + m[5] * j[1] + m[9] * j[2] + m[13]) / w;
+                return [rc.left - rv.left + (x + 1) / 2 * rc.width, rc.top - rv.top + (1 - y) / 2 * rc.height];
+            });
+            ['rulerA', 'rulerB'].forEach((id, k) => {
+                const el = document.getElementById(id), s = scr[k];
+                if (s) { el.setAttribute('cx', s[0]); el.setAttribute('cy', s[1]); el.style.display = ''; }
+                else el.style.display = 'none';
+            });
+            const line = document.getElementById('rulerLine');
+            if (scr.length === 2 && scr[0] && scr[1]) {
+                line.setAttribute('x1', scr[0][0]); line.setAttribute('y1', scr[0][1]);
+                line.setAttribute('x2', scr[1][0]); line.setAttribute('y2', scr[1][1]);
+                line.style.display = '';
+            } else line.style.display = 'none';
+        }
+        // a click (not a drag: dragging still turns the view) picks a point; a third click starts again
+        let rulerDown = null;
+        window.addEventListener('pointerdown', (e) => {
+            if (rulerState && e.button === 0 && e.target === canvas) rulerDown = { x: e.clientX, y: e.clientY };
+        }, true);
+        window.addEventListener('pointerup', (e) => {
+            if (!rulerState || !rulerDown || e.button !== 0) return;
+            const moved = Math.hypot(e.clientX - rulerDown.x, e.clientY - rulerDown.y);
+            rulerDown = null;
+            if (moved > 4) return;
+            const p = pickSplatPoint(e.clientX, e.clientY);
+            if (!p) { showHud('这里没有点到高斯'); return; }
+            if (rulerState.points.length >= 2) rulerState.points = [];
+            rulerState.points.push(p);
+            updateRulerPanel();
+            wakeRender();
+        }, true);
+        document.getElementById('rulerReal').addEventListener('input', updateRulerPanel);
+        document.getElementById('rulerApply').addEventListener('click', () => {
+            if (!rulerState || rulerState.points.length !== 2) return;
+            const real = parseFloat(document.getElementById('rulerReal').value), measured = rulerMeasured();
+            if (!(real > 0) || !(measured > 0)) return;
+            notifyParent({ type: 'ROUTE_RULER_APPLY', metres_per_unit: rulerState.mpu * real / measured,
+                           measured_m: measured, real_m: real });
+            endRuler(false);
+        });
+        document.getElementById('rulerExit').addEventListener('click', () => endRuler(true));
+
         // ── postMessage API ──────────────────────────────────────────────────
         window.addEventListener('message', async (e) => {
             const msg = e.data;
@@ -1284,7 +1442,12 @@
                 toggleFullscreen();
             } else if (msg.type === 'SET_MODE') {
                 setControlMode(msg.mode === 'orbit' ? 'orbit' : 'fly');
+            } else if (msg.type === 'ROUTE_RULER_START') {
+                await startRuler();
+            } else if (msg.type === 'ROUTE_RULER_EXIT') {
+                if (rulerState) endRuler(true);
             } else if (msg.type === 'ROUTE_ADJUST_START') {
+                if (rulerState) endRuler(true);
                 await startRouteAdjust();
             } else if (msg.type === 'ROUTE_ADJUST_EXIT') {
                 if (adjustState) endRouteAdjust(true);

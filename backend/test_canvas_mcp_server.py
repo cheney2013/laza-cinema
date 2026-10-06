@@ -268,7 +268,7 @@ class CanvasMcpProtocolTests(unittest.IsolatedAsyncioTestCase):
              "get_media_frames", "add_media_still", "render_gaussian_view", "redo_audio",
              "upscale_chain", "upscale_chain_status", "cancel_upscale_chain", "cleanup_canvas",
              "canvas_progress", "inspect_charswap_inputs", "build_route_gaussian", "append_route_turn",
-             "extend_route", "adjust_route_extension"},
+             "extend_route", "adjust_route_extension", "set_route_scale"},
         )
 
 
@@ -407,6 +407,42 @@ class RouteBuildWiringTests(unittest.TestCase):
         m._run_gaussian_locked({"id": "p1"}, canvas, g1)
         self.assertEqual(posted[0][0], "/generate-route-gaussian")
         self.assertEqual((posted[0][1]["clip_urls"], posted[0][1]["mask_people"]), (["/uploads/a_v2.mp4"], True))
+
+
+class RouteScaleTests(unittest.TestCase):
+    """set_route_scale sends the node's route to /rescale-route; the finished result rescales the node's hand
+    adjustments (metres) and the unit a rebuild uses, nothing else."""
+
+    def test_the_request_and_what_the_result_changes(self):
+        import canvas_mcp_server as m
+        data = {"plyUrl": "/uploads/route_x.ply", "routeExtendAdjust": {"/uploads/a.mp4": {"yaw": 3.0, "right": 2.0}},
+                "routeSettings": {"metres_per_unit": 30.5, "mask_people": True}}
+        canvas = {"nodes": [{"id": "g1", "type": "gaussian", "data": data}], "edges": []}
+        sent, saved = [], []
+
+        class Lock:
+            def __init__(self, *a): pass
+            def __enter__(self): return self
+            def __exit__(self, *e): return False
+        with unittest.mock.patch.multiple(m, _resolve_project=lambda project, scene="": {"id": "p1"},
+                                          _canvas=lambda pid: canvas, _hold_lock=Lock,
+                                          _request=lambda method, path, **kw: sent.append((path, kw["json"])) or {"job_id": "j1"},
+                                          _save_node_data=lambda pid, nid, upd, c: saved.append(upd) or 3):
+            out = m.set_route_scale("p1", "g1", 14.1)
+        self.assertEqual(sent, [("/rescale-route", {"route_ply_url": "/uploads/route_x.ply", "metres_per_unit": 14.1})])
+        self.assertEqual((saved[0]["worldJobId"], saved[0]["worldJobKind"], out["job_id"]), ("j1", "routeScale", "j1"))
+        changed = m._route_scaled_data(data, {"scale": 0.5, "metres_per_unit": 15.25})
+        self.assertEqual(changed["routeExtendAdjust"], {"/uploads/a.mp4": {"yaw": 3.0, "right": 1.0}})
+        self.assertEqual(changed["routeSettings"], {"metres_per_unit": 15.25, "mask_people": True})
+        self.assertEqual(m._route_scaled_data(data, {"url": "/uploads/route_y.ply"}), {})
+
+    def test_a_node_without_a_route_is_refused(self):
+        import canvas_mcp_server as m
+        canvas = {"nodes": [{"id": "g1", "type": "gaussian", "data": {"plyUrl": "/uploads/world_1.ply"}}], "edges": []}
+        with unittest.mock.patch.multiple(m, _resolve_project=lambda project, scene="": {"id": "p1"},
+                                          _canvas=lambda pid: canvas):
+            with self.assertRaises(ValueError):
+                m.set_route_scale("p1", "g1", 14.1)
 
 
 class CharswapRunTests(unittest.TestCase):

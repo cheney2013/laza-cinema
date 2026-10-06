@@ -414,6 +414,71 @@ class ExtendRoute(unittest.TestCase):
             direct, _ = self._extend(manifest, core, list(range(30, 36)), "end", adjustments={key: adj})
         self.assertEqual(direct.read_bytes(), adjusted.read_bytes())
 
+    def test_a_route_in_another_unit_keeps_its_shape(self):
+        """scale_route: every gaussian and camera k times as far from the route's origin and every gaussian k times as
+        large; recomposing the scaled manifest gives the scaled route, so the unit is all that changed."""
+        import json
+        a_idx, b_idx = list(range(10, 22)), list(range(22, 30))
+        self.world_of = {}
+        manifest, core = self._route(a_idx, b_idx)
+        route_gs._write_route_sidecars(core, self.core_cams, [], 0, self.MPU, "test")      # what a build writes
+        core.with_name(core.stem + "_route.json").write_text(json.dumps(manifest))
+        out = self.tmp / "route_scaled.ply"
+        res = route_gs.scale_route(core, manifest, self.MPU / 2, out)
+        self.assertAlmostEqual(res["scale"], 0.5)
+        _, names, a = route_gs.read_ply(core)
+        _, names2, b = route_gs.read_ply(out)
+        self.assertEqual(names, names2)
+        xyz = [names.index(c) for c in "xyz"]
+        sc = [names.index(f"scale_{i}") for i in range(3)]
+        np.testing.assert_array_equal(b[:, xyz], a[:, xyz] * 0.5)
+        np.testing.assert_allclose(b[:, sc], a[:, sc] + math.log(0.5), atol=1e-5)
+        rest = [i for i in range(len(names)) if i not in xyz + sc]
+        np.testing.assert_array_equal(b[:, rest], a[:, rest])
+        cams = np.array(json.loads(out.with_name(out.stem + "_cams.json").read_text()))
+        np.testing.assert_allclose(cams, np.array(self.core_cams) * 0.5, atol=1e-12)
+        side = json.loads(out.with_suffix(".json").read_text())
+        old = json.loads(core.with_suffix(".json").read_text())
+        self.assertAlmostEqual(side["route_length_m"], old["route_length_m"] * 0.5)
+        self.assertEqual(side["metres_per_unit"], self.MPU / 2)
+        sm = json.loads(out.with_name(out.stem + "_route.json").read_text())
+        self.assertEqual(sm["metres_per_unit"], self.MPU / 2)
+        again = self.tmp / "again.ply"
+        route_gs.recompose_route(sm, again)
+        _, _, c = route_gs.read_ply(again)
+        np.testing.assert_allclose(c[:, xyz], b[:, xyz], atol=1e-6)
+
+    def test_scaling_an_adjusted_route_scales_its_core_and_its_metres(self):
+        """A route with a hand-adjusted clip at its end: its core is scaled beside it and named by the new manifest,
+        the adjustment's metres are scaled, and adjusting again in the new unit gives the scaled route back."""
+        import json
+        a_idx, b_idx = list(range(10, 22)), list(range(22, 30))
+        self.world_of = {str(self.tmp / "A.mp4"): a_idx, str(self.tmp / "B.mp4"): b_idx}
+        manifest, core = self._route(a_idx, b_idx)
+        key = str(self.tmp / "new.mp4")
+        adj = {"scale": 1.05, "yaw": 5.0, "right": 0.2, "up": -0.1, "forward": 0.5}
+        auto, _ = self._extend(manifest, core, list(range(30, 36)), "end")
+        adjusted = self.tmp / "route_adjusted.ply"
+        route_gs.adjust_route(auto, json.loads(auto.with_name(auto.stem + "_route.json").read_text()), {key: adj},
+                              adjusted)
+        m = json.loads(adjusted.with_name(adjusted.stem + "_route.json").read_text())
+        out = self.tmp / "route_adj_scaled.ply"
+        res = route_gs.scale_route(adjusted, m, self.MPU * 2, out)
+        sm = json.loads(out.with_name(out.stem + "_route.json").read_text())
+        self.assertEqual((sm["core_ply"], res["core_ply"]), (out.stem + "_core.ply", out.stem + "_core.ply"))
+        _, names, c0 = route_gs.read_ply(core)
+        _, _, c1 = route_gs.read_ply(out.with_name(sm["core_ply"]))
+        xyz = [names.index(c) for c in "xyz"]
+        np.testing.assert_array_equal(c1[:, xyz], c0[:, xyz] * 2)
+        new_adj = sm["clips"][-1]["adjust"]
+        self.assertEqual(new_adj, {"scale": 1.05, "yaw": 5.0, "right": 0.4, "up": -0.2, "forward": 1.0})
+        self.assertEqual(sm["extensions"][0]["adjust"], new_adj)
+        again = self.tmp / "route_adj_scaled_again.ply"
+        route_gs.adjust_route(out, sm, {key: new_adj}, again)
+        _, _, a = route_gs.read_ply(out)
+        _, _, b = route_gs.read_ply(again)
+        np.testing.assert_allclose(b[:, xyz], a[:, xyz], atol=1e-6)
+
     def test_recompose_is_what_the_merge_wrote(self):
         a_idx, b_idx = list(range(10, 22)), list(range(22, 30))
         self.world_of = {}

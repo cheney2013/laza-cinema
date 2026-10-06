@@ -15,6 +15,7 @@ import { GearIcon } from '@/components/ui/icons';
 import GeneratingLine from './GeneratingLine';
 import { useJobResult } from '@/hooks/useJobPoller';
 import { t } from '@/lib/i18n';
+import { routeScaledData } from '@/lib/routeScale';
 
 const HEADER_BG = 'rgba(20,20,20,0.97)';
 
@@ -58,6 +59,11 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   const [adjusting, setAdjusting] = useState(false);
   const adjustOnLoadRef = useRef(false);
   const adjustApplyRef = useRef<((adjustments: Record<string, Record<string, number>>) => void) | null>(null);
+  // the ruler: two points picked in the viewer and the real length between them give the route's unit; 应用 comes
+  // back here and goes to /rescale-route (the same shape in that unit, no GPU)
+  const [measuring, setMeasuring] = useState(false);
+  const rulerOnLoadRef = useRef(false);
+  const rulerApplyRef = useRef<((metresPerUnit: number) => void) | null>(null);
 
   const plyFilenameRef = useRef(data.plyFilename);
   useEffect(() => { plyFilenameRef.current = data.plyFilename; }, [data.plyFilename]);
@@ -80,6 +86,8 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         ...((worldResult as any).core_url ? { routeCorePly: (worldResult as any).core_url as string } : {}),
         // a route build reports where its cameras jump (the reconstruction lost track): shown on the node
         ...(Array.isArray((worldResult as any).pose_breaks) ? { routePoseBreaks: (worldResult as any).pose_breaks } : {}),
+        // a route put into another unit: the hand adjustments' metres and a rebuild's unit follow it
+        ...routeScaledData(data, worldResult as any),
         // where each added clip went, so the next run needs no matching for it
         ...(Array.isArray((worldResult as any).extensions) ? {
           routeExtendWhere: Object.fromEntries(((worldResult as any).extensions as any[])
@@ -158,9 +166,13 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
       if (msg.type === 'MESH_LOADED') {
         updateNodeData(id, { status: 'ready', error: undefined });
         setAdjusting(false);
+        setMeasuring(false);
         if (adjustOnLoadRef.current) {
           adjustOnLoadRef.current = false;
           iframeRef.current?.contentWindow?.postMessage({ type: 'ROUTE_ADJUST_START' }, '*');
+        } else if (rulerOnLoadRef.current) {
+          rulerOnLoadRef.current = false;
+          iframeRef.current?.contentWindow?.postMessage({ type: 'ROUTE_RULER_START' }, '*');
         }
       } else if (msg.type === 'ROUTE_ADJUST_STARTED') {
         setAdjusting(true);
@@ -171,6 +183,16 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         updateNodeData(id, { error: msg.error });
       } else if (msg.type === 'ROUTE_ADJUST_APPLY') {
         adjustApplyRef.current?.(msg.adjustments || {});
+      } else if (msg.type === 'ROUTE_RULER_STARTED') {
+        setMeasuring(true);
+      } else if (msg.type === 'ROUTE_RULER_EXIT') {
+        setMeasuring(false);
+      } else if (msg.type === 'ROUTE_RULER_ERROR') {
+        setMeasuring(false);
+        updateNodeData(id, { error: msg.error });
+      } else if (msg.type === 'ROUTE_RULER_APPLY') {
+        setMeasuring(false);
+        if (typeof msg.metres_per_unit === 'number' && msg.metres_per_unit > 0) rulerApplyRef.current?.(msg.metres_per_unit);
       } else if (msg.type === 'MESH_ERROR') {
         updateNodeData(id, { status: 'error', error: msg.error || 'Load failed' });
       } else if (msg.type === 'CAPTURE_RESULT') {
@@ -293,6 +315,28 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         route_ply_url: data.plyUrl as string, adjustments, turn_clip_urls: data.routeTurnUrls ?? [],
       });
       updateNodeData(id, { worldJobId: job_id, worldJobKind: 'routeAdjust', routeExtendAdjust: adjustments });
+    } catch (err: any) {
+      updateNodeData(id, { status: 'error', error: err.message });
+    }
+  };
+
+  const isRoute = typeof data.plyUrl === 'string' && data.plyUrl.includes('/route');
+  const handleStartRuler = useCallback(() => {
+    if (!isRoute) return;
+    if (!viewerActive || !iframeReadyRef.current || data.status !== 'ready') {
+      rulerOnLoadRef.current = true;            // opens once the viewer has the route on screen
+      setViewerActive(true);
+      return;
+    }
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ROUTE_RULER_START' }, '*');
+  }, [isRoute, viewerActive, data.status]);
+
+  rulerApplyRef.current = async (metresPerUnit) => {
+    if (!data.plyUrl) return;
+    updateNodeData(id, { status: 'loading', error: undefined });
+    try {
+      const { job_id } = await api.rescaleRoute({ route_ply_url: data.plyUrl as string, metres_per_unit: metresPerUnit });
+      updateNodeData(id, { worldJobId: job_id, worldJobKind: 'routeScale' });
     } catch (err: any) {
       updateNodeData(id, { status: 'error', error: err.message });
     }
@@ -452,6 +496,16 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               {t('手动调整接段')}
             </button>
           )}
+          {isRoute && (
+            <button
+              onClick={() => { setShowSettings(false); handleStartRuler(); }}
+              disabled={data.status === 'loading' || Boolean(data.worldJobId || data.sharpJobId) || measuring || adjusting}
+              className="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20"
+              title={t('在查看器里点两个点（比如路锥的锥尖和锥底），填上实际长度，按它改整条路线的比例；形状不变，不占显卡')}
+            >
+              {t('量尺定比例')}
+            </button>
+          )}
         </div>
       )}
       </div>
@@ -607,6 +661,7 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
                     : data.worldJobId && data.worldJobKind === 'routeTurn' ? t('转身视频重建、掰正后接到路线上，约 5 分钟...')
                     : data.worldJobId && data.worldJobKind === 'routeExtend' ? t('路线视频重建、对齐后接到路线上，约 5 分钟...')
                     : data.worldJobId && data.worldJobKind === 'routeAdjust' ? t('按手动调整重新合成路线...')
+                    : data.worldJobId && data.worldJobKind === 'routeScale' ? t('按新比例重写路线...')
                     : data.worldJobId ? t('FlashWorld 生成中，约 5 分钟...')
                     : data.sharpJobId ? t('正在生成高斯模型...') : t('正在加载模型...')}
                 </span>

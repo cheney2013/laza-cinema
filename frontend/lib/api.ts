@@ -892,6 +892,14 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  // the same route in another unit (metres per unit of its first clip's reconstruction), scaled, nothing rebuilt
+  rescaleRoute: (req: { route_ply_url: string; metres_per_unit: number }) =>
+    request<{ job_id: string; status: string }>('/rescale-route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   // `ids` asks the backend for a definitive answer about those jobs: each comes
   // back under `tracked` in whatever state it is in, or in `missing` when the
   // backend has no record of it (restart, history pruned).

@@ -342,7 +342,7 @@ export interface GaussianNodeData extends SizedNodeData {
   /** What worldJobId runs: unset = FlashWorld, 'routeTurn' = turn videos added to the route splat,
    *  'routeExtend' = clips added at the route's start or end (and the turns put back on),
    *  'routeAdjust' = the route written again with the added clips' hand adjustments. */
-  worldJobKind?: 'routeTurn' | 'routeExtend' | 'routeAdjust';
+  worldJobKind?: 'routeTurn' | 'routeExtend' | 'routeAdjust' | 'routeScale';
   worldVideoUrl?: string;
   /** The route splat (route_*.ply) without turns: turns are added to it again, never on top of a result. */
   routeBasePly?: string;

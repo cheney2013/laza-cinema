@@ -3127,6 +3127,52 @@ def adjust_route_extension(project: str, node_id: str, adjustments: dict[str, di
             "status": submitted.get("status", "queued"), "revision": revision}
 
 
+@_tool
+def set_route_scale(project: str, node_id: str, metres_per_unit: float, scene: str = "") -> dict[str, Any]:
+    """Put the route splat on a gaussian node into another unit, in place: metres_per_unit metres to a unit of its
+    first clip's reconstruction (a route is built with 30.5, an assumption made for H3 street clips; measure a
+    known length in the scene -- a car, a door, a traffic cone at 0.71 m -- to know it). The shape stays exactly as
+    it is: every gaussian and camera is scaled about the route's first camera, nothing is reconstructed or re-bent,
+    and the route's base and core (what turns and added clips start from) are scaled with it. A few seconds beside
+    the queue; poll refresh_canvas_node. The node's hand adjustments (metres) and its build settings follow the new
+    unit, so later runs keep it."""
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    node = _find_node(canvas["nodes"], node_id)
+    data = node.get("data") or {}
+    if node.get("type") != "gaussian" or "/route" not in str(data.get("plyUrl") or ""):
+        raise ValueError(f"{node_id} holds no route splat (route_*.ply).")
+    if data.get("worldJobId"):
+        return {"project_id": resolved["id"], "node_id": node_id, "job_id": data["worldJobId"],
+                "status": "already_generating"}
+    if not metres_per_unit > 0:
+        raise ValueError("metres_per_unit must be positive")
+    submitted = _request("POST", "/rescale-route", json={"route_ply_url": data["plyUrl"],
+                                                          "metres_per_unit": float(metres_per_unit)},
+                         project_id=resolved["id"])
+    with _hold_lock(resolved["id"], 30, f"route scale {node_id}"):
+        revision = _save_node_data(resolved["id"], node_id, {
+            "status": "loading", "worldJobId": submitted["job_id"], "worldJobKind": "routeScale", "error": None}, canvas)
+    return {"project_id": resolved["id"], "node_id": node_id, "job_id": submitted["job_id"],
+            "status": submitted.get("status", "queued"), "revision": revision}
+
+
+def _route_scaled_data(data: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """What a finished /rescale-route changes on the node besides the ply: the hand adjustments' metres and the
+    unit a rebuild uses."""
+    k = result.get("scale")
+    if not isinstance(k, (int, float)) or k <= 0:
+        return {}
+    out: dict[str, Any] = {}
+    adj = data.get("routeExtendAdjust")
+    if isinstance(adj, dict) and adj:
+        out["routeExtendAdjust"] = {url: {key: (float(v) * k if key in ("right", "up", "forward") else v)
+                                          for key, v in (a or {}).items()} for url, a in adj.items()}
+    if isinstance(data.get("routeSettings"), dict) and result.get("metres_per_unit"):
+        out["routeSettings"] = {**data["routeSettings"], "metres_per_unit": float(result["metres_per_unit"])}
+    return out
+
+
 def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                          node: dict[str, Any]) -> dict[str, Any]:
     """Start a 高斯模型 node from the picture on its in-image edge.
@@ -4919,6 +4965,7 @@ def refresh_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str
                     **({"routeExtendWhere": {e["url"]: e["where"] for e in result["extensions"] if e.get("url")}}
                        if isinstance(result.get("extensions"), list) else {}),
                     **({"routePoseBreaks": result["pose_breaks"]} if isinstance(result.get("pose_breaks"), list) else {}),
+                    **_route_scaled_data(data, result),
                     "status": "loading", "worldJobId": None, "worldJobKind": None, "error": None}, canvas)
             return {"project_id": resolved["id"], "node_id": node_id, "status": "done",
                     "ply_url": ply, "revision": revision,
