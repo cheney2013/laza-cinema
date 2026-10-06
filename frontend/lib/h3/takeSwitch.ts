@@ -17,13 +17,13 @@ export const TAKE_PARAM_KEYS = [
   'motionPreset', 'accelLora', 'styleLoras', 'styleLoraStrengths',
   'shiftVideo', 'shiftAudio', 'motionContextLength', 'motionContextAudio',
   'refImageOrder', 'useFirstFrame', 'promptSource', 'directorSpec',
-  'audioLocks', 'audioLockFeather',
+  'audioLocks', 'audioLockFeather', 'seamMatch', 'seamMatchAdaptive', 'seamMatchGain', 'seamMatchTexture', 'seamMatchPostGain',
 ] as const;
 
 /** Node fields that describe the rendered clip rather than the next run. */
 export const TAKE_OUTPUT_KEYS = [
   'latentFilename', 'untrimmedUrl', 'contextFrames', 'compiledPrompt', 'compiledPromptMode', 'promptWasModified',
-  'submittedResources', 'generatedSteps',
+  'submittedResources', 'generatedSteps', 'seamMatchApplied',
 ] as const;
 
 type Data = Record<string, unknown>;

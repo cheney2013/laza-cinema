@@ -907,10 +907,11 @@ TAKE_PARAM_KEYS = (
     "motionPreset", "accelLora", "styleLoras", "styleLoraStrengths",
     "shiftVideo", "shiftAudio", "motionContextLength", "motionContextAudio",
     "refImageOrder", "useFirstFrame", "promptSource", "directorSpec",
-    "audioLocks", "audioLockFeather",
+    "audioLocks", "audioLockFeather", "seamMatch", "seamMatchAdaptive", "seamMatchGain", "seamMatchTexture",
+    "seamMatchPostGain",
 )
 TAKE_OUTPUT_KEYS = ("latentFilename", "untrimmedUrl", "contextFrames", "compiledPrompt", "compiledPromptMode", "promptWasModified",
-                    "submittedResources", "generatedSteps")
+                    "submittedResources", "generatedSteps", "seamMatchApplied")
 
 
 def _take_submit_snapshot(canvas: dict[str, Any], node_id: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -2658,6 +2659,18 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         "motion_context_end_frame": _chain_end_frame(canvas, node_id),
         "motion_context_length": int(data.get("motionContextLength") or 22),
         "motion_context_audio": int(data.get("motionContextAudio") or 24),
+        # Seam colour/texture match for a continuation (comfyui_nodes/aicinema_chain).
+        # Sent only when the node sets it, so every other node's submission fingerprint
+        # is unchanged by the fields; otherwise the backend's SEAM_MATCH_DEFAULT applies.
+        # Each gain the node leaves unset is left out too, so the default's value holds.
+        **({"seam_match": str(data["seamMatch"]),
+            **{key: float(data[field]) for key, field in (("seam_match_gain", "seamMatchGain"),
+                                                          ("seam_match_texture", "seamMatchTexture"),
+                                                          ("seam_match_post_gain", "seamMatchPostGain"))
+               if data.get(field) is not None},
+            **({"seam_match_adaptive": bool(data["seamMatchAdaptive"])}
+               if data.get("seamMatchAdaptive") is not None else {})}
+           if data.get("seamMatch") else {}),
         # A node that sets chunkFrames renders long in short pieces, chained.
         "chunk_frames": int(data.get("chunkFrames") or 0),
         # The grey box on "in-control-video" drives the camera frame for frame.
@@ -5106,6 +5119,7 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "submittedResources": result.get("submitted_resources"),
             "generatedSteps": ran_steps,
             "speed": result.get("speed"),
+            "seamMatchApplied": result.get("seam_match"),
         }
         take["outputs"] = {k: v for k, v in outputs.items() if v is not None}
         takes = [take] + [t for t in (data.get("takes") or [])
@@ -5125,6 +5139,8 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "latentFilename": result.get("latent_filename"),
             "untrimmedUrl": result.get("untrimmed_url"),
             "contextFrames": result.get("context_frames"),
+            # what the seam match did on this take (None when off)
+            "seamMatchApplied": result.get("seam_match"),
             # set by local repairs, whose latent covers only the regenerated span
             "latentSpan": result.get("latent_span"),
             # set by an edit window: the frames spliced back and the jump at each seam

@@ -1009,6 +1009,26 @@ def build_qwen_image_21_workflow(
 UNTRIMMED_PREFIX = "H3_Full_"
 
 
+def _seam_match(wf: dict, nid: str, samples: list, context: dict, context_length: int,
+                mode: str, gain: float, texture: float = 1.0, post_gain: float = 1.0,
+                adaptive: bool = True) -> list:
+    """AicinemaSeamMatch on a continuation's sampler output; returns what to decode and save.
+
+    `context` is {"context_latent": ref} or {"context_frames": ref}; the video VAE ("4") is
+    wired either way, to encode a frame context and to decode the frames the gain is measured on.
+    """
+    if not mode:
+        return samples
+    if mode not in ("auto", "mean", "field"):
+        raise ValueError(f"seam_match {mode!r}: use 'auto', 'mean' or 'field'")
+    wf[nid] = {"class_type": "AicinemaSeamMatch",
+               "inputs": {"samples": samples, "context_length": int(context_length), "mode": mode,
+                          "gain": float(gain), "sigma": 3.0, "max_mismatch": 0.15,
+                          "texture": float(texture), "post_gain": float(post_gain),
+                          "adaptive": bool(adaptive), "vae": ["4", 0], **context}}
+    return [nid, 0]
+
+
 def _add_untrimmed_save(wf: dict, tag: str) -> None:
     """Also save the continuation before MotionContextTrim cuts the overlap off.
 
@@ -1072,6 +1092,19 @@ def build_h3_video_workflow(
     motion_context_end_frame: int = 0,
     motion_context_length: int = 22,
     motion_context_audio: int = 24,
+    # Take the colour bias a motion-context seam adds back out of the new clip
+    # (AicinemaSeamMatch, comfyui_nodes/aicinema_chain): "" off, "mean" one offset
+    # per latent channel, "field" that offset as a smooth picture, "auto" the field
+    # while the picture keeps the overlap's layout and the mean after a cut. Measured
+    # on the overlap the clip regenerates, applied before decode, save and the next link.
+    seam_match: str = "",
+    seam_match_gain: float = 1.0,
+    # ...and divide back out the texture each seam adds (1 = all of it, 0 = colour only),
+    # and scale the correction up to post_gain after the overlap, for the drift that follows it.
+    seam_match_texture: float = 1.0,
+    seam_match_post_gain: float = 1.0,
+    # Measure each seam's gain on a few decoded frames (gain is then the fallback).
+    seam_match_adaptive: bool = True,
     # With motion_context_video: carry the source's tail as an exact preserved
     # AV prefix (MiniMaxH3ExistingVideoMaskedContext, 39/90/141/... frames)
     # instead of MotionContext conditioning rows. 0 keeps MotionContext.
@@ -1727,7 +1760,26 @@ def build_h3_video_workflow(
                 raise ValueError("motion_context_end_frame needs motion_context_video: only a clip's pictures can be cut at a point")
             if int(motion_context_end_frame) < need:
                 raise ValueError(f"motion_context_end_frame {motion_context_end_frame} is shorter than the {need}-frame context window")
-        if motion_context_video and existing_context_length:
+        if motion_context_latent and existing_context_length and not motion_context_video:
+            # The same preserved-prefix extension straight from the previous clip's saved
+            # latent (MiniMaxH3GeneratedAVMaskedContext): its last AV run is copied into
+            # the head of the target and masked, so it is neither regenerated nor passed
+            # through a decode, an h264 file and a VAE encode the way the frame path is.
+            wf["80"] = {"class_type": "MiniMaxH3MotionContextLoadLatent",
+                        "inputs": {"latent_path": motion_context_latent, "clip_index": 0}}
+            wf["81"] = {"class_type": "MiniMaxH3GeneratedAVMaskedContext",
+                        "inputs": {"latent": ["31", 1], "source_latent": ["80", 0],
+                                   "context_length": int(existing_context_length), "audio_feather_ticks": 8}}
+            wf["44"]["inputs"]["latent_image"] = ["81", 0]
+            wf["82"] = {
+                "class_type": "MiniMaxH3MotionContextTrim",
+                "inputs": {"images": ["50", 0], "audio": ["51", 0],
+                           "trim_frames": ["81", 1], "audio_fps": 24, "trim_audio": True},
+            }
+            wf["60"]["inputs"]["images"] = ["82", 0]
+            wf["60"]["inputs"]["audio"] = ["82", 1]
+            _add_untrimmed_save(wf, tag)
+        elif motion_context_video and existing_context_length:
             # The pack's own extension path: the source tail is VAE-encoded into
             # the head of the target latent and protected by a per-stream noise
             # mask, so those frames and their sound come out as the source had
@@ -1795,6 +1847,19 @@ def build_h3_video_workflow(
                 },
             }
             cond_out = ["81", 0]
+            # Everything downstream of the sampler (decode, the saved latent the next
+            # link continues from) takes the seam-matched latent.
+            matched = _seam_match(
+                wf, "45", ["44", 0],
+                {"context_latent": ["80", 0]} if not motion_context_video
+                else {"context_frames": ["80", 0]},
+                motion_context_length, seam_match, seam_match_gain, seam_match_texture,
+                seam_match_post_gain, seam_match_adaptive)
+            if matched != ["44", 0]:
+                wf["50"]["inputs"]["samples"] = matched
+                wf["51"]["inputs"]["samples"] = matched
+                if "62" in wf:
+                    wf["62"]["inputs"]["latent"] = matched
             wf["82"] = {
                 "class_type": "MiniMaxH3MotionContextTrim",
                 "inputs": {
@@ -1905,6 +1970,7 @@ def build_h3_video_workflow(
         base_noise = dict(wf["40"]["inputs"])
 
         images = audio = None
+        prev_out = None          # each stage's (seam-matched) latent, the next stage's context
         for c in range(stages):
             r2v, gid, sid, nid = f"c{c}:r2v", f"c{c}:guide", f"c{c}:samp", f"c{c}:noise"
             dv, da = f"c{c}:dec", f"c{c}:deca"
@@ -1927,7 +1993,7 @@ def build_h3_video_workflow(
                         "conditioning": cond,
                         "vae": ["4", 0],
                         "latent": [r2v, 1],
-                        "context_latent": [f"c{c - 1}:samp", 0],
+                        "context_latent": prev_out,
                         "audio_vae": ["5", 0],
                         "context_length": str(motion_context_length),
                         "audio_context_length": int(motion_context_audio),
@@ -1939,8 +2005,13 @@ def build_h3_video_workflow(
             wf[sid] = {"class_type": "SamplerCustomAdvanced",
                        "inputs": {**base_sampler, "noise": [nid, 0],
                                   "guider": [gid, 0], "latent_image": [r2v, 1]}}
-            wf[dv] = _h3_video_decode([sid, 0], tiled_vae_decode)
-            wf[da] = {"class_type": "VAEDecodeAudio", "inputs": {"samples": [sid, 0], "vae": ["5", 0]}}
+            out = ([sid, 0] if not c else
+                   _seam_match(wf, f"c{c}:seam", [sid, 0], {"context_latent": prev_out},
+                               motion_context_length, seam_match, seam_match_gain, seam_match_texture,
+                               seam_match_post_gain, seam_match_adaptive))
+            prev_out = out
+            wf[dv] = _h3_video_decode(out, tiled_vae_decode)
+            wf[da] = {"class_type": "VAEDecodeAudio", "inputs": {"samples": out, "vae": ["5", 0]}}
 
             if c == 0:
                 images, audio = [dv, 0], [da, 0]
@@ -1964,9 +2035,9 @@ def build_h3_video_workflow(
         # The single-pass sampler and its decodes are now dead ends; the saved
         # latent should be the last chunk's, so a later shot can continue from
         # where this one stopped.
-        for dead in ("40", "41", "44", "50", "51"):
+        for dead in ("40", "41", "44", "45", "50", "51"):
             wf.pop(dead, None)
-        wf["62"]["inputs"]["latent"] = [f"c{stages - 1}:samp", 0]
+        wf["62"]["inputs"]["latent"] = prev_out
 
     if not save_latent:
         wf.pop("62", None)

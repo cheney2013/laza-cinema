@@ -331,6 +331,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         promptWasModified: Boolean((jobResult as any).prompt_was_modified),
         submittedResources: (jobResult as any).submitted_resources,
         generatedSteps: data.generatedSteps,
+        seamMatchApplied: (jobResult as any).seam_match as string | undefined,
       };
       const doneJobId = data.jobId as string | undefined;
       updateNodeData(id, {
@@ -362,6 +363,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         compiledPromptMode: (jobResult as any).mode as string | undefined,
         promptWasModified: Boolean((jobResult as any).prompt_was_modified),
         submittedResources: (jobResult as any).submitted_resources,
+        seamMatchApplied: (jobResult as any).seam_match as string | undefined,
         jobId: undefined,
         pendingTake: undefined,
       });
@@ -751,6 +753,16 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
           ...(chain.motion_context_end_frame ? { motion_context_end_frame: chain.motion_context_end_frame } : {}),
           motion_context_length: (data.motionContextLength as number | undefined) ?? 22,
           motion_context_audio: (data.motionContextAudio as number | undefined) ?? 24,
+        } : {}),
+        // Seam colour/texture match (comfyui_nodes/aicinema_chain), only when the node
+        // sets it -- same rule as the canvas MCP; otherwise the backend default applies.
+        // A gain the node leaves unset is left out, so the backend default's value holds.
+        ...((chainLatent || chainVideo) && data.seamMatch ? {
+          seam_match: data.seamMatch as string,
+          ...(data.seamMatchGain != null ? { seam_match_gain: Number(data.seamMatchGain) } : {}),
+          ...(data.seamMatchTexture != null ? { seam_match_texture: Number(data.seamMatchTexture) } : {}),
+          ...(data.seamMatchPostGain != null ? { seam_match_post_gain: Number(data.seamMatchPostGain) } : {}),
+          ...(data.seamMatchAdaptive != null ? { seam_match_adaptive: Boolean(data.seamMatchAdaptive) } : {}),
         } : {}),
       });
 

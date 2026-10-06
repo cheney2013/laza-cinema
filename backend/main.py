@@ -1866,6 +1866,14 @@ class VideoRequest(BaseModel):
     motion_context_end_frame: int = 0
     motion_context_length: int = 22          # 5 | 22 | 39 | 56 -- the only whole latent steps
     motion_context_audio: int = 24
+    # Take the colour bias each seam adds back out of the continuation, measured on the
+    # overlap it regenerates (workflow_builders._seam_match): "auto" | "field" | "mean",
+    # "off" for none, None for SEAM_MATCH_DEFAULT. Fields left None take the default's.
+    seam_match: Optional[str] = None
+    seam_match_adaptive: Optional[bool] = None
+    seam_match_gain: Optional[float] = None
+    seam_match_texture: Optional[float] = None
+    seam_match_post_gain: Optional[float] = None
     # Build a long clip as a chain of chunks inside one workflow instead of one
     # long sample. 0 is off; 124 is 5.17 s and the size a 15 s master fits in.
     chunk_frames: int = 0
@@ -2529,6 +2537,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         motion_context_end_frame=req.motion_context_end_frame,
         motion_context_length=req.motion_context_length,
         motion_context_audio=req.motion_context_audio,
+        **_seam_match_args(req),
         chunk_frames=0,
         control_video_filename=control_video_filename,
         guide_video_filename=guide_video_filename,
@@ -2575,6 +2584,12 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
             # The continuation with its motion-context overlap still on the front.
             result["untrimmed_url"] = f"/comfy_output/{sub}{res['untrimmed_filename']}"
             result["context_frames"] = int(req.existing_context_length or req.motion_context_length)
+            sm = _seam_match_args(req)
+            if sm["seam_match"]:
+                result["seam_match"] = (f"{sm['seam_match']} "
+                                        + ("measured gain (fallback " if sm["seam_match_adaptive"] else "x")
+                                        + f"{sm['seam_match_gain']:g}" + (")" if sm["seam_match_adaptive"] else "")
+                                        + f" texture x{sm['seam_match_texture']:g}")
         return result
     else:
         video_bytes, meta = res
@@ -2717,6 +2732,36 @@ async def _collect_finished(job: dict) -> Optional[dict]:
 async def audio_refine_endpoint(req: AudioRefineRequest):
     return await submit_job("audio_refine", lambda job: _run_audio_refine_job(job, req), request=req,
                             prompt=req.prompt, video_url=req.video_url)
+
+
+# What a continuation does about the bias each motion-context seam adds (AicinemaSeamMatch,
+# comfyui_nodes/aicinema_chain) when the request does not say. "" is off. Measured 2026-10-06:
+# the regenerated overlap comes back brighter / less saturated and with 2-4 % more 30-130 px
+# texture at every seam. How much of it the delivered frames keep depends on the video (about
+# all of it on a T2V chain, 0.6-0.8 on the scene 1 film chain, whose plates pull it back), so
+# the node measures each seam's gain on a few decoded frames; seam_match_gain is the fallback
+# for a seam it cannot measure (action across the seam, a cut right after it).
+# On by default since 2026-10-07 (Yige, after the T2V comparisons): over six seams a held wall
+# drifted 1.32 dE76 instead of 6.25 and a night scene's shadows held instead of lifting 8.6
+# levels; the cost is a lit patch in that night scene settling 5 levels darker (uncorrected it
+# brightened 7.3). A node opts out with seamMatch "off".
+SEAM_MATCH_DEFAULT = {"seam_match": "auto", "seam_match_adaptive": True, "seam_match_gain": 0.8,
+                      "seam_match_texture": 1.0, "seam_match_post_gain": 1.0}
+
+
+def _seam_match_args(req) -> dict:
+    """The seam match a continuation request resolves to: its own fields over SEAM_MATCH_DEFAULT."""
+    out = dict(SEAM_MATCH_DEFAULT)
+    if req.seam_match is not None:
+        out["seam_match"] = "" if req.seam_match in ("off", "none") else req.seam_match
+    for key in ("seam_match_gain", "seam_match_texture", "seam_match_post_gain"):
+        if getattr(req, key) is not None:
+            out[key] = float(getattr(req, key))
+    if req.seam_match_adaptive is not None:
+        out["seam_match_adaptive"] = bool(req.seam_match_adaptive)
+    if req.existing_context_length or not (req.motion_context_latent or req.motion_context_video):
+        out["seam_match"] = ""          # an exact preserved head has no regeneration bias; no seam, nothing to match
+    return out
 
 
 @app.post("/generate-video")

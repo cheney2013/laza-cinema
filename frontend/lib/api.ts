@@ -314,6 +314,17 @@ export interface VideoRequest {
   motion_context_length?: number;
   /** Pinned audio frames; 24 is exactly one second and lands on the audio grid. */
   motion_context_audio?: number;
+  /**
+   * Take the colour/texture bias each seam adds back out of the continuation, measured
+   * on the overlap it regenerates: 'auto' | 'field' | 'mean', or 'off' (comfyui_nodes/aicinema_chain).
+   * Left out, the backend's SEAM_MATCH_DEFAULT applies.
+   */
+  seam_match?: string;
+  seam_match_gain?: number;
+  seam_match_texture?: number;
+  seam_match_post_gain?: number;
+  /** Measure each seam's gain on decoded frames (seam_match_gain is then the fallback). */
+  seam_match_adaptive?: boolean;
 }
 
 export interface TemporalReshotRequest {

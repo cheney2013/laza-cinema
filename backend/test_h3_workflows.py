@@ -399,6 +399,51 @@ def test_continuation_also_saves_untrimmed_clip():
     assert "64" not in plain
 
 
+def test_preserved_head_from_a_latent_skips_the_frame_round_trip():
+    wf = wb.build_h3_video_workflow(prompt="p", motion_context_latent="H3_Latent_abc_00001_.safetensors",
+                                    existing_context_length=39, pair_tag="abc")
+    assert wf["80"]["class_type"] == "MiniMaxH3MotionContextLoadLatent"
+    assert wf["81"]["class_type"] == "MiniMaxH3GeneratedAVMaskedContext"
+    assert wf["81"]["inputs"]["source_latent"] == ["80", 0] and wf["81"]["inputs"]["context_length"] == 39
+    assert wf["44"]["inputs"]["latent_image"] == ["81", 0]
+    assert wf["82"]["inputs"]["trim_frames"] == ["81", 1]
+    assert not any(n["class_type"] in ("VHS_LoadVideoPath", "MiniMaxH3MotionContext") for n in wf.values())
+
+
+def test_seam_match_feeds_decode_and_saved_latent():
+    kw = dict(prompt="p", motion_context_latent="H3_Latent_abc_00001_.safetensors", pair_tag="abc")
+    wf = wb.build_h3_video_workflow(seam_match="field", seam_match_gain=1.5, **kw)
+    assert wf["45"]["class_type"] == "AicinemaSeamMatch"
+    assert wf["45"]["inputs"]["samples"] == ["44", 0]
+    assert wf["45"]["inputs"]["context_latent"] == ["80", 0]
+    assert wf["45"]["inputs"]["mode"] == "field" and wf["45"]["inputs"]["gain"] == 1.5
+    assert wf["45"]["inputs"]["texture"] == 1.0 and wf["45"]["inputs"]["post_gain"] == 1.0
+    assert wf["45"]["inputs"]["adaptive"] is True and wf["45"]["inputs"]["vae"] == ["4", 0]
+    assert wf["45"]["inputs"]["context_length"] == 22
+    assert wf["50"]["inputs"]["samples"] == ["45", 0]
+    assert wf["51"]["inputs"]["samples"] == ["45", 0]
+    assert wf["62"]["inputs"]["latent"] == ["45", 0]
+    # a video context is encoded by the node itself
+    vid = wb.build_h3_video_workflow(prompt="p", motion_context_video="prev.mp4", seam_match="mean", pair_tag="abc")
+    assert vid["45"]["inputs"]["context_frames"] == ["80", 0] and vid["45"]["inputs"]["vae"] == ["4", 0]
+    # off by default, and never on a plain clip
+    plain = wb.build_h3_video_workflow(**kw)
+    assert "45" not in plain and plain["50"]["inputs"]["samples"] == ["44", 0]
+    assert "45" not in wb.build_h3_video_workflow(prompt="p", seam_match="field")
+
+
+def test_seam_match_chains_through_in_graph_chunks():
+    wf = wb.build_h3_video_workflow(prompt="p", length=328, chunk_frames=124, seam_match="mean")
+    seams = sorted(k for k, n in wf.items() if n["class_type"] == "AicinemaSeamMatch")
+    assert seams == ["c1:seam", "c2:seam"]
+    # each stage continues from the previous stage's matched latent, and decodes its own
+    assert wf["c1:seam"]["inputs"]["context_latent"] == ["c0:samp", 0]
+    assert wf["c2:mctx"]["inputs"]["context_latent"] == ["c1:seam", 0]
+    assert wf["c2:seam"]["inputs"]["context_latent"] == ["c1:seam", 0]
+    assert wf["c2:dec"]["inputs"]["samples"] == ["c2:seam", 0]
+    assert wf["62"]["inputs"]["latent"] == ["c2:seam", 0]
+
+
 def test_first_frame_of_a_continuation_goes_after_the_context_window():
     # The first context_length frames are regenerated from the previous clip, so a guide
     # at frame 0 would be overwritten there. It goes on the first frame after the window.

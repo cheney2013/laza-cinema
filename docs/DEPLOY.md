@@ -75,7 +75,7 @@ python tools\install_comfyui_nodes.py --comfyui C:\ComfyUI
 - **6 个包从 GitHub clone**，切到记录的提交；其中 3 个再打 `tools/comfyui_setup/patches/` 里的补丁。
 - **11 个包在仓库里**（`comfyui_nodes/third_party/`，约 40 MB）：没有 git 历史的 9 个，加上 `ComfyUI-sol-attn` 和
   `ComfyUI-Viggle-Animate-H3` —— 它们的 GitHub 仓库已经删除，只有这里能拿到。已去掉只用于说明文档的图片和视频。
-- **本项目自己的 2 个包**（`comfyui_nodes/`）直接复制。
+- **本项目自己的包**（`comfyui_nodes/` 下除 `third_party` 外的每个目录：实时预览、音频锁定、显存、接续校正 `aicinema_chain`）直接复制。
 - 最后用 ComfyUI 自己的 Python 装各包的 `requirements.txt`，同时把 torch、numpy、comfy-kitchen、triton 钉在
   ComfyUI 当前的版本，避免被某个包升级掉。
 
