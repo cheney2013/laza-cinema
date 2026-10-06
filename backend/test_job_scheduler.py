@@ -203,6 +203,17 @@ def room(vram_free_gib, ram_free_gib=40.0, vram_total_gib=32.0):
 
 
 class FreeByRoomTests(unittest.TestCase):
+    # `import main` reads the footprints learned from real jobs (VRAM_FOOTPRINTS_FILE); these
+    # tests are about the estimates, so they run without them (H3 had learned 17.4 GiB, which
+    # fits in 24 free and failed test_does_not_fit).
+    def setUp(self):
+        self._learned = dict(sched.LEARNED_VRAM_GIB)
+        sched.LEARNED_VRAM_GIB.clear()
+
+    def tearDown(self):
+        sched.LEARNED_VRAM_GIB.clear()
+        sched.LEARNED_VRAM_GIB.update(self._learned)
+
     def test_fits_beside_what_is_loaded(self):
         self.assertFalse(sched.lacks_room(room(24), "qwen"))
         self.assertFalse(sched.lacks_room(room(24), "qwen_text"))
