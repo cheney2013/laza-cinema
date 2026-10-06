@@ -1025,8 +1025,32 @@ if COMFYUI_OUTPUT_DIR:
     _comfy_output_path.mkdir(parents=True, exist_ok=True)
     app.mount("/comfy_output", CORSMiddleware(_RevalidatingStaticFiles(directory=str(_comfy_output_path)), allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]), name="comfy_output")
 
-# Gaussian Splatting static assets (gsplat-bundle.js, precise_orbit_controls.js)
-app.mount("/gaussian/js", CORSMiddleware(StaticFiles(directory=str(_BACKEND_DIR)), allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]), name="gaussian_js")
+
+class _AllowListStaticFiles(StaticFiles):
+    """Static files that serves the named files of its directory and nothing else.
+
+    The viewer pages' scripts and models sit in the backend directory, next to
+    main.py and workspaces/. Mounting that directory whole served backend
+    source and workspaces/accounts.json to anyone who could reach the port
+    (found 2026-10-06). get_path has already normalised the path, so an exact
+    match on the bare name also turns away sub-paths, ../ and case variants.
+    """
+
+    def __init__(self, *, directory: Path, names: tuple[str, ...]):
+        super().__init__(directory=str(directory))
+        self.names = frozenset(names)
+
+    def lookup_path(self, path: str):
+        if path not in self.names:
+            return "", None
+        return super().lookup_path(path)
+
+
+# What the viewer pages load from /gaussian/js/: gaussian_viewer.html its three
+# scripts, pose_viewer.html the mannequin and foot models.
+_VIEWER_ASSETS = ("gsplat-bundle.js", "precise_orbit_controls.js", "fly_controls.js",
+                  "anime_basic_female.fbx", "foot.fbx")
+app.mount("/gaussian/js", CORSMiddleware(_AllowListStaticFiles(directory=_BACKEND_DIR, names=_VIEWER_ASSETS), allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]), name="gaussian_js")
 
 
 # ── Local file resolution ──────────────────────────────────────────────────────
