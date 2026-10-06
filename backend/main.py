@@ -419,6 +419,7 @@ _REPLAYABLE: dict[str, tuple[str, str]] = {
     "world_gaussian": ("WorldGaussianRequest", "_run_world_gaussian_job"),
     "route_gaussian": ("RouteGaussianRequest", "_run_route_gaussian_job"),
     "route_turn": ("RouteTurnRequest", "_run_route_turn_job"),
+    "route_extend": ("RouteExtendRequest", "_run_route_extend_job"),
     "gaussian_model": ("GaussianModelRequest", "_run_gaussian_model_job"),
     "interpolate": ("VideoInterpolateRequest", "_run_video_interpolate_job"),
     "upscale": ("VideoUpscaleRequest", "_run_video_upscale_job"),
@@ -608,6 +609,47 @@ async def submit_job(job_type: str, runner: JobRunner, request: Optional[BaseMod
     _enqueue(job, runner)
     logger.info("Queued job %s (%s), queue length: %d", job_id, job_type, len(_pending))
     return {"job_id": job_id, "status": "queued"}
+
+
+# Quick CPU work that would otherwise wait behind a render (the queue runs one job at a time): a job record like any
+# other, polled through /job/{id} and /queue?ids=, but run at once beside the queue and kept in the history when it
+# ends. Only for work that never touches ComfyUI or the card; it is not replayed after a restart.
+_side_jobs: dict[str, dict] = {}
+_side_tasks: set = set()
+
+
+async def submit_side_job(job_type: str, runner: JobRunner) -> dict:
+    if not GENERATION_ENABLED:
+        raise HTTPException(status_code=503, detail="Generation is disabled. Set GENERATION_ENABLED=1 to enable.")
+    job_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    job = {"id": job_id, "type": job_type, "status": "running", "progress": 0.0, "created_at": now,
+           "started_at": now, "completed_at": None, "result": None, "error": None,
+           "project_id": current_project_id(), "side": True}
+    _side_jobs[job_id] = job
+
+    async def run() -> None:
+        try:
+            result = await runner(job)
+            job["status"], job["result"] = "done", result
+            asset_origin.record(job.get("project_id"), asset_origin.harvest_urls(result),
+                                job_type=job_type, job_id=job_id)
+            logger.info("Finished side job %s (%s)", job_id, job_type)
+        except Exception as e:  # noqa: BLE001 -- the job record carries it
+            job["status"], job["error"] = "error", str(e)
+            logger.error("Side job %s (%s) failed: %s", job_id, job_type, e, exc_info=True)
+        finally:
+            job["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _history.append(job)
+            del _history[:-HISTORY_LIMIT]
+            _side_jobs.pop(job_id, None)
+            save_state()
+
+    task = asyncio.create_task(run())
+    _side_tasks.add(task)
+    task.add_done_callback(_side_tasks.discard)
+    logger.info("Started side job %s (%s)", job_id, job_type)
+    return {"job_id": job_id, "status": "running"}
 
 
 # ── Recovering jobs across a backend restart ──────────────────────────────────
@@ -1054,10 +1096,10 @@ class _AllowListStaticFiles(StaticFiles):
         return super().lookup_path(path)
 
 
-# What the viewer pages load from /gaussian/js/: gaussian_viewer.html its four
+# What the viewer pages load from /gaussian/js/: gaussian_viewer.html its five
 # scripts, pose_viewer.html the mannequin and foot models.
-_VIEWER_ASSETS = ("gsplat-bundle.js", "gs_ply_loader.js", "precise_orbit_controls.js", "fly_controls.js",
-                  "anime_basic_female.fbx", "foot.fbx")
+_VIEWER_ASSETS = ("gsplat-bundle.js", "gs_ply_loader.js", "gs_route_adjust.js", "precise_orbit_controls.js",
+                  "fly_controls.js", "anime_basic_female.fbx", "foot.fbx")
 app.mount("/gaussian/js", CORSMiddleware(_AllowListStaticFiles(directory=_BACKEND_DIR, names=_VIEWER_ASSETS), allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]), name="gaussian_js")
 
 
@@ -1494,7 +1536,9 @@ def _active_job_view() -> Optional[dict]:
 
 
 def _find_job(job_id: str) -> Optional[dict]:
-    """Look up a job by id across active, queued and completed jobs."""
+    """Look up a job by id across active, queued, side and completed jobs."""
+    if job_id in _side_jobs:
+        return _side_jobs[job_id]
     if _active_job and _active_job.get("id") == job_id:
         return _active_job_view()
     for j in _pending:
@@ -8906,6 +8950,133 @@ async def append_route_turn(req: RouteTurnRequest):
     if not req.turn_clip_urls:
         raise HTTPException(400, "turn_clip_urls is empty")
     return await submit_job("route_turn", lambda job: _run_route_turn_job(job, req), request=req)
+
+
+class RouteExtendRequest(BaseModel):
+    """Clips that continue a finished route splat at its start or its end (route_gs.extend_route): one that starts
+    on the route's last frame goes on after it, one that ends on its first frame goes before it, in whatever order
+    they come.  Each is reconstructed with the route's frames at that end and aligned through them.
+
+    route_ply_url: the route (route_*.ply), or a splat made from it by this job or by /append-route-turn; either way
+    the clips go onto the route as it was built, so running again replaces them rather than adding to them.
+    turn_clip_urls: turns to add to the longer route afterwards (as /append-route-turn), usually the ones it had.
+    """
+    route_ply_url: str
+    clip_urls: list[str]
+    turn_clip_urls: list[str] = []
+    min_angle: float = 40.0
+    # per clip URL, a hand adjustment after the automatic alignment (route_gs.adjustment: scale, yaw, pitch, roll,
+    # right, up, forward), and "start" / "end" where an earlier run placed it (no matching then)
+    adjustments: dict[str, dict[str, float]] = {}
+    placements: dict[str, str] = {}
+
+
+async def _route_core(ply: Path) -> tuple[Path, dict]:
+    """The route as it was built, from it or from a splat made from it: a turn result names its route as base_ply,
+    an extended route names its route as core_ply."""
+    manifest = await _route_manifest(ply)
+    if manifest.get("base_ply"):
+        ply = ply.with_name(manifest["base_ply"])
+        manifest = await _route_manifest(ply)
+    if manifest.get("core_ply"):
+        ply = ply.with_name(manifest["core_ply"])
+        manifest = await _route_manifest(ply)
+    return ply, manifest
+
+
+async def _run_route_extend_job(job: dict, req: RouteExtendRequest) -> dict:
+    import route_gs
+    core_ply, manifest = await _route_core(await resolve_upload(req.route_ply_url))
+    clips = [await resolve_upload(u) for u in req.clip_urls]
+    turns = [await resolve_upload(u) for u in req.turn_clip_urls]
+    # no ComfyUI free here: route_gs frees the card itself just before a clip or turn it has to reconstruct (the
+    # queue may still unload ComfyUI on its own when it switches to this job's family; /adjust-route never does)
+    stem = f"route_ext_{job['id']}"
+    base = UPLOAD_DIR / f"{stem}.ply"
+
+    def cancelled() -> bool:
+        return job.get("status") == "cancelled"
+
+    try:
+        result = await asyncio.to_thread(route_gs.extend_route, core_ply, manifest, clips, base,
+                                         UPLOAD_DIR / "_route_cache", urls=list(req.clip_urls),
+                                         adjustments=req.adjustments, placements=req.placements,
+                                         should_stop=cancelled)
+        final = base
+        if turns:
+            final = UPLOAD_DIR / f"{stem}_turns.ply"
+            ext_manifest = json.loads(base.with_name(base.stem + "_route.json").read_text(encoding="utf-8"))
+            result["turns"] = (await asyncio.to_thread(
+                route_gs.append_route_turn, base, turns, final, UPLOAD_DIR / "_route_cache", ext_manifest,
+                min_angle=req.min_angle, should_stop=cancelled))["turns"]
+            result["gaussians"] = json.loads(final.with_suffix(".json").read_text(encoding="utf-8"))["gaussians"]
+    except route_gs.RouteCancelled:
+        return {}
+    where = "、".join(sorted({"开头" if e["where"] == "start" else "末尾" for e in result["extensions"]}))
+    return {"url": f"/uploads/{final.name}", "meta_url": f"/uploads/{final.with_suffix('.json').name}",
+            "base_url": f"/uploads/{base.name}", "core_url": f"/uploads/{core_ply.name}",
+            "name": f"WorldMirror · 路线{where}接 {len(clips)} 段" + (f" + 转身补洞（{len(turns)} 段）" if turns else ""),
+            **result}
+
+
+@app.post("/extend-route")
+async def extend_route(req: RouteExtendRequest):
+    if not req.clip_urls:
+        raise HTTPException(400, "clip_urls is empty")
+    return await submit_job("route_extend", lambda job: _run_route_extend_job(job, req), request=req)
+
+
+class RouteAdjustRequest(BaseModel):
+    """Hand adjustments of the clips added at a route's ends (route_gs.adjust_route), from the saved runs only: no
+    reconstruction, no matching, no GPU, so it does not wait for renders or unload ComfyUI.
+
+    route_ply_url: a route /extend-route made (or this job, or /append-route-turn on top of either).
+    adjustments: per added clip URL {scale, yaw, pitch, roll, right, up, forward}; a clip not named goes back to its
+    automatic alignment. turn_clip_urls: the turns to put back on, from the reconstruction cache.
+    """
+    route_ply_url: str
+    adjustments: dict[str, dict[str, float]] = {}
+    turn_clip_urls: list[str] = []
+    min_angle: float = 40.0
+
+
+async def _run_route_adjust_job(job: dict, req: RouteAdjustRequest) -> dict:
+    import route_gs
+    ply = await resolve_upload(req.route_ply_url)
+    manifest = await _route_manifest(ply)
+    anchors = {}
+    if manifest.get("base_ply"):           # a turn result: where its turns were anchored, then its route
+        side = ply.with_suffix(".json")
+        if side.exists():
+            anchors = {t["clip"]: t["anchor"] for t in json.loads(side.read_text(encoding="utf-8")).get("turns") or []
+                       if t.get("anchor")}
+        ply = ply.with_name(manifest["base_ply"])
+        manifest = await _route_manifest(ply)
+    if not manifest.get("core_ply"):
+        raise RuntimeError(f"{ply.name} has no clips added at its ends to adjust")
+    stem = f"route_adj_{job['id']}"
+    base = UPLOAD_DIR / f"{stem}.ply"
+    result = await asyncio.to_thread(route_gs.adjust_route, ply, manifest, req.adjustments, base)
+    final = base
+    turns = [await resolve_upload(u) for u in req.turn_clip_urls]
+    if turns:
+        final = UPLOAD_DIR / f"{stem}_turns.ply"
+        adj_manifest = json.loads(base.with_name(base.stem + "_route.json").read_text(encoding="utf-8"))
+        result["turns"] = (await asyncio.to_thread(
+            route_gs.append_route_turn, base, turns, final, UPLOAD_DIR / "_route_cache", adj_manifest,
+            min_angle=req.min_angle, anchors=anchors, cached_only=True))["turns"]
+        result["gaussians"] = json.loads(final.with_suffix(".json").read_text(encoding="utf-8"))["gaussians"]
+    adj_manifest = json.loads(base.with_name(base.stem + "_route.json").read_text(encoding="utf-8"))
+    return {"url": f"/uploads/{final.name}", "meta_url": f"/uploads/{final.with_suffix('.json').name}",
+            "base_url": f"/uploads/{base.name}", "core_url": f"/uploads/{adj_manifest['core_ply']}",
+            "name": "WorldMirror · 路线两端接段（手动调整）" + (f" + 转身补洞（{len(turns)} 段）" if turns else ""),
+            **result}
+
+
+@app.post("/adjust-route")
+async def adjust_route(req: RouteAdjustRequest):
+    # beside the queue: it reads saved runs and writes files, so it need not wait for a render to finish
+    return await submit_side_job("route_adjust", lambda job: _run_route_adjust_job(job, req))
 
 
 @app.post("/generate-route-gaussian")

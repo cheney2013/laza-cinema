@@ -449,7 +449,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
                      "worldTrajectory": "ring", "worldPrompt": ""},
         # in-video: generated turns (H3 pans that start on a frame of the route) to add to the route splat
         # this node holds -- run_canvas_node / append_route_turn bend them onto the route's street.
-        "inputs": ["in-image", "in-video"],
+        # in-route: clips that continue the route at its start or end (one starting on its last frame, or ending on
+        # its first) -- run_canvas_node / extend_route add them and put the in-video turns back on.
+        "inputs": ["in-image", "in-video", "in-route"],
         "outputs": ["out-image", "out-gaussian"],  # out-image: the screenshot of the current view; out-gaussian: the point cloud
     },
     "preview": {
@@ -2193,6 +2195,8 @@ def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = 
     data = {"engine": "flashworld", "worldTrajectory": "ring", "status": "loading",
             "worldJobId": submitted["job_id"], "error": None, "plyUrl": None,
             "routeClips": list(clip_node_ids),
+            # a rebuilt route has none of the clips or turns the node's last route had added
+            "routeBasePly": None, "routeCorePly": None, "routeExtendUrls": None, "routeTurnUrls": None,
             "label": label or f"路线高斯 · {len(urls)} 段（{' → '.join(clip_node_ids)}）· 生成中"}
     if any(n.get("id") == nid for n in canvas["nodes"]):
         revision = _save_node_data(resolved["id"], nid, data, canvas)
@@ -2981,6 +2985,114 @@ def append_route_turn(project: str, node_id: str, turn_clip_node_ids: list[str] 
     return _start_route_turn(resolved, canvas, node, turns, min_angle)
 
 
+def _start_route_extend(resolved: dict[str, Any], canvas: dict[str, Any], node: dict[str, Any],
+                        clips: list[dict[str, Any]],
+                        adjustments: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
+    """Queue POST /extend-route for the route splat on a gaussian node, with the turns wired on its in-video put
+    back on afterwards; the result lands on the same node. The clips always go onto the route as it was built
+    (data.routeCorePly), so running again replaces them. Hand adjustments the node keeps (routeExtendAdjust, per
+    clip URL) go along, updated by `adjustments`."""
+    node_id, data = node["id"], node.setdefault("data", {})
+    urls = []
+    for c in clips:
+        url = _node_url(c)
+        if not url:
+            raise ValueError(f"{c.get('id')} has no finished clip yet.")
+        urls.append(url)
+    route = data.get("routeCorePly") or data.get("routeBasePly") or data.get("plyUrl")
+    if not route or "/route_" not in str(route):
+        raise ValueError(f"gaussian node {node_id} holds no route splat (route_*.ply) to continue; "
+                         "build one with build_route_gaussian first.")
+    turns = _incoming_nodes(canvas, node_id, "in-video")
+    turn_urls = [u for u in (_node_url(t) for t in turns) if u]
+    adjust = {**(data.get("routeExtendAdjust") or {}), **(adjustments or {})}
+    submitted = _request("POST", "/extend-route", json={
+        "route_ply_url": route, "clip_urls": urls, "turn_clip_urls": turn_urls, "adjustments": adjust,
+        "placements": data.get("routeExtendWhere") or {}}, project_id=resolved["id"])
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "loading", "worldJobId": submitted["job_id"], "worldJobKind": "routeExtend",
+        "routeExtends": [c.get("id") for c in clips], "routeExtendUrls": urls, "routeExtendAdjust": adjust,
+        "routeTurns": [t.get("id") for t in turns], "routeTurnUrls": turn_urls, "error": None}, canvas)
+    return {"project_id": resolved["id"], "node_id": node_id, "job_id": submitted["job_id"],
+            "status": submitted.get("status", "queued"), "revision": revision, "route": "route-extend",
+            "clips": len(urls), "turns": len(turn_urls)}
+
+
+@_tool
+def extend_route(project: str, node_id: str, clip_node_ids: list[str] | None = None, scene: str = "",
+                 adjustments: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
+    """Continue the route splat on a gaussian node at its start or its end, in place.
+
+    A clip that starts on the route's last frame (an H3 clip made from it, walking on) is added after the route; one
+    that ends on its first frame is added before it -- found automatically, in whatever order the clips come. Each is
+    reconstructed with WorldMirror together with the route's frames at that end and aligned through them; between its
+    ends the route stays as it was. A clip from the middle of the route, or from elsewhere, is refused. The turns
+    wired on the node's in-video are put back on the longer route. Several minutes and most of the GPU; poll
+    refresh_canvas_node until plyUrl changes. The sidecar <ply>_stitch.json gives each new seam's residual.
+
+    clip_node_ids: video nodes; they are wired into the node's in-route if they are not yet. Without them the node's
+    in-route inputs are used. The clips always go onto the route as built (data.routeCorePly), so running again
+    replaces them rather than stacking them. adjustments: per clip URL a hand adjustment after the automatic
+    alignment, as adjust_route_extension takes it; the node keeps them for later runs.
+    """
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    node = _find_node(canvas["nodes"], node_id)
+    if node.get("type") != "gaussian":
+        raise ValueError(f"{node_id} is a {node.get('type')} node, not a gaussian node.")
+    if (node.get("data") or {}).get("worldJobId"):
+        return {"project_id": resolved["id"], "node_id": node_id,
+                "job_id": node["data"]["worldJobId"], "status": "already_generating"}
+    if clip_node_ids:
+        wired = {n.get("id") for n in _incoming_nodes(canvas, node_id, "in-route")}
+        missing = [f"{cid}>{node_id}.in-route" for cid in clip_node_ids if cid not in wired]
+        if missing:
+            apply_canvas_operations(project, [{"op": "add_edges", "edges": missing}], scene=scene)
+            canvas = _canvas(resolved["id"])
+            node = _find_node(canvas["nodes"], node_id)
+        clips = [_find_node(canvas["nodes"], cid) for cid in clip_node_ids]
+    else:
+        clips = _incoming_nodes(canvas, node_id, "in-route")
+    if not clips:
+        raise ValueError(f"wire the clip(s) that continue the route into {node_id}'s in-route, or pass clip_node_ids.")
+    return _start_route_extend(resolved, canvas, node, clips, adjustments)
+
+
+@_tool
+def adjust_route_extension(project: str, node_id: str, adjustments: dict[str, dict[str, float]],
+                           scene: str = "") -> dict[str, Any]:
+    """Hand-adjust the clips added at the ends of the route splat on a gaussian node (extend_route), in place.
+
+    adjustments: per added clip URL (the node's routeExtendUrls) {scale, yaw, pitch, roll, right, up, forward}, all
+    about the seam camera where that clip meets the route: scale (1 = as aligned), yaw degrees turning the clip's far
+    end to the right, pitch lifting it, roll lowering its right side, then right / up / forward in metres. A clip not
+    named goes back to its automatic alignment. The route is merged again from the saved reconstructions and the
+    node's turns put back on -- no reconstruction, no GPU, about a minute; poll refresh_canvas_node. The route's
+    manifest (<ply>_route.json) has each added clip's depth_scale_hint: the scale the depth maps suggest, relative to
+    the automatic one. The studio's 手动调整接段 does the same with sliders and a live preview.
+    """
+    resolved = _resolve_project(project, scene)
+    canvas = _canvas(resolved["id"])
+    node = _find_node(canvas["nodes"], node_id)
+    data = node.setdefault("data", {})
+    if node.get("type") != "gaussian" or not data.get("routeExtendUrls"):
+        raise ValueError(f"{node_id} holds no route with clips added at its ends (extend_route first).")
+    if data.get("worldJobId"):
+        return {"project_id": resolved["id"], "node_id": node_id, "job_id": data["worldJobId"],
+                "status": "already_generating"}
+    unknown = [u for u in adjustments if u not in data["routeExtendUrls"]]
+    if unknown:
+        raise ValueError(f"not clips added to this route: {unknown}; they are {data['routeExtendUrls']}")
+    submitted = _request("POST", "/adjust-route", json={
+        "route_ply_url": data.get("plyUrl"), "adjustments": adjustments,
+        "turn_clip_urls": data.get("routeTurnUrls") or []}, project_id=resolved["id"])
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "loading", "worldJobId": submitted["job_id"], "worldJobKind": "routeAdjust",
+        "routeExtendAdjust": adjustments, "error": None}, canvas)
+    return {"project_id": resolved["id"], "node_id": node_id, "job_id": submitted["job_id"],
+            "status": submitted.get("status", "queued"), "revision": revision}
+
+
 def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                          node: dict[str, Any]) -> dict[str, Any]:
     """Start a 高斯模型 node from the picture on its in-image edge.
@@ -2994,6 +3106,9 @@ def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     if data.get("worldJobId"):
         return {"project_id": resolved["id"], "node_id": node_id,
                 "job_id": data["worldJobId"], "status": "already_generating"}
+    extensions = _incoming_nodes(canvas, node_id, "in-route")
+    if extensions:              # puts the in-video turns back on as well
+        return _start_route_extend(resolved, canvas, node, extensions)
     turns = _incoming_nodes(canvas, node_id, "in-video")
     if turns:
         return _start_route_turn(resolved, canvas, node, turns)
@@ -4758,6 +4873,9 @@ def refresh_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str
                     or f"FlashWorld · {data.get('worldTrajectory') or 'ring'}",
                     "worldVideoUrl": result.get("video_url"),
                     "routeBasePly": result.get("base_url") or data.get("routeBasePly"),
+                    "routeCorePly": result.get("core_url") or data.get("routeCorePly"),
+                    **({"routeExtendWhere": {e["url"]: e["where"] for e in result["extensions"] if e.get("url")}}
+                       if isinstance(result.get("extensions"), list) else {}),
                     "status": "loading", "worldJobId": None, "worldJobKind": None, "error": None}, canvas)
             return {"project_id": resolved["id"], "node_id": node_id, "status": "done",
                     "ply_url": ply, "revision": revision}

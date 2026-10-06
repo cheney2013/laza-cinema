@@ -53,7 +53,11 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   const currentShadow = selected ? selectedShadow : defaultShadow;
 
   const iframeReadyRef = useRef(false);
-
+  // hand adjustment of the clips added at the route's ends: the viewer shows the panel and moves them live; 应用 comes
+  // back here and goes to /adjust-route (cached runs only, no GPU)
+  const [adjusting, setAdjusting] = useState(false);
+  const adjustOnLoadRef = useRef(false);
+  const adjustApplyRef = useRef<((adjustments: Record<string, Record<string, number>>) => void) | null>(null);
 
   const plyFilenameRef = useRef(data.plyFilename);
   useEffect(() => { plyFilenameRef.current = data.plyFilename; }, [data.plyFilename]);
@@ -73,6 +77,12 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         plyOriginalName: ((worldResult as any).name as string) || `FlashWorld · ${data.worldTrajectory ?? 'ring'}`,
         worldVideoUrl: (worldResult as any).video_url,
         ...((worldResult as any).base_url ? { routeBasePly: (worldResult as any).base_url as string } : {}),
+        ...((worldResult as any).core_url ? { routeCorePly: (worldResult as any).core_url as string } : {}),
+        // where each added clip went, so the next run needs no matching for it
+        ...(Array.isArray((worldResult as any).extensions) ? {
+          routeExtendWhere: Object.fromEntries(((worldResult as any).extensions as any[])
+            .filter((e) => e.url).map((e) => [e.url as string, e.where as string])),
+        } : {}),
         status: 'loading',
         worldJobId: undefined,
         worldJobKind: undefined,
@@ -118,6 +128,15 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   // compared by clip file, not node id: a turn re-rendered in place keeps its id
   const turnsPending = turnClips.length > 0 && Boolean(routeBase) && !data.worldJobId
     && (data.routeTurnUrls ?? []).join('|') !== turnClips.join('|');
+  // Clips on in-route continue the route at its start or end: one that starts on the route's last frame goes after
+  // it, one that ends on its first goes before it (route_gs.extend_route). They always go onto the route as it was
+  // built (routeCorePly), and the turns on in-video are put back on afterwards.
+  const extendInputs = connected.filter((n) => n.targetHandle === 'in-route' && (n.generatedUrl || n.url));
+  const extendClips = extendInputs.map((n) => (n.generatedUrl || n.url) as string);
+  const extendIds = extendInputs.map((n) => n.id);
+  const routeCore = (data.routeCorePly as string | undefined) || routeBase;
+  const extendPending = extendClips.length > 0 && Boolean(routeCore) && !data.worldJobId
+    && (data.routeExtendUrls ?? []).join('|') !== extendClips.join('|');
 
   // Backfill sourceImageUrl for existing nodes
   useEffect(() => {
@@ -136,6 +155,20 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
 
       if (msg.type === 'MESH_LOADED') {
         updateNodeData(id, { status: 'ready', error: undefined });
+        setAdjusting(false);
+        if (adjustOnLoadRef.current) {
+          adjustOnLoadRef.current = false;
+          iframeRef.current?.contentWindow?.postMessage({ type: 'ROUTE_ADJUST_START' }, '*');
+        }
+      } else if (msg.type === 'ROUTE_ADJUST_STARTED') {
+        setAdjusting(true);
+      } else if (msg.type === 'ROUTE_ADJUST_EXIT') {
+        setAdjusting(false);
+      } else if (msg.type === 'ROUTE_ADJUST_ERROR') {
+        setAdjusting(false);
+        updateNodeData(id, { error: msg.error });
+      } else if (msg.type === 'ROUTE_ADJUST_APPLY') {
+        adjustApplyRef.current?.(msg.adjustments || {});
       } else if (msg.type === 'MESH_ERROR') {
         updateNodeData(id, { status: 'error', error: msg.error || 'Load failed' });
       } else if (msg.type === 'CAPTURE_RESULT') {
@@ -220,6 +253,48 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
       updateNodeData(id, { status: 'error', error: err.message });
     }
   }, [id, routeBase, turnClips, turnIds, updateNodeData]);
+
+  const handleExtendRoute = useCallback(async () => {
+    if (!routeCore || extendClips.length === 0) return;
+    updateNodeData(id, { status: 'loading', error: undefined });
+    try {
+      const { job_id } = await api.extendRoute({
+        route_ply_url: routeCore, clip_urls: extendClips, turn_clip_urls: turnClips,
+        // hand adjustments stay with their clips; a clip placed before needs no matching again
+        adjustments: data.routeExtendAdjust ?? {}, placements: data.routeExtendWhere ?? {},
+      });
+      updateNodeData(id, {
+        worldJobId: job_id, worldJobKind: 'routeExtend', routeExtends: extendIds, routeExtendUrls: extendClips,
+        routeTurns: turnIds, routeTurnUrls: turnClips,
+      });
+    } catch (err: any) {
+      updateNodeData(id, { status: 'error', error: err.message });
+    }
+  }, [id, routeCore, extendClips, extendIds, turnClips, turnIds, updateNodeData, data.routeExtendAdjust, data.routeExtendWhere]);
+
+  const hasAddedClips = (data.routeExtendUrls?.length ?? 0) > 0 && typeof data.plyUrl === 'string';
+  const handleStartAdjust = useCallback(() => {
+    if (!hasAddedClips) return;
+    if (!viewerActive || !iframeReadyRef.current || data.status !== 'ready') {
+      adjustOnLoadRef.current = true;           // opens once the viewer has the route on screen
+      setViewerActive(true);
+      return;
+    }
+    iframeRef.current?.contentWindow?.postMessage({ type: 'ROUTE_ADJUST_START' }, '*');
+  }, [hasAddedClips, viewerActive, data.status]);
+
+  adjustApplyRef.current = async (adjustments) => {
+    if (!data.plyUrl) return;
+    updateNodeData(id, { status: 'loading', error: undefined });
+    try {
+      const { job_id } = await api.adjustRoute({
+        route_ply_url: data.plyUrl as string, adjustments, turn_clip_urls: data.routeTurnUrls ?? [],
+      });
+      updateNodeData(id, { worldJobId: job_id, worldJobKind: 'routeAdjust', routeExtendAdjust: adjustments });
+    } catch (err: any) {
+      updateNodeData(id, { status: 'error', error: err.message });
+    }
+  };
 
   const handleCancel = useCallback(async () => {
     cancelledRef.current = true;
@@ -355,6 +430,26 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               {t('接转身视频（补身后）')}
             </button>
           )}
+          {extendClips.length > 0 && (
+            <button
+              onClick={() => { setShowSettings(false); void handleExtendRoute(); }}
+              disabled={!routeCore || data.status === 'loading' || Boolean(data.worldJobId || data.sharpJobId)}
+              className={`mt-2 w-full rounded-lg px-3 py-1.5 text-xs font-medium ${routeCore ? 'border border-white/15 bg-white/10 text-white hover:bg-white/20' : 'cursor-not-allowed bg-white/5 text-zinc-600'}`}
+              title={routeCore ? t('连着的路线视频会自动判断接在路线开头还是末尾，对齐后接上，转身视频重新接回（约 5 分钟）') : t('这个节点还没有路线高斯（route_*.ply）')}
+            >
+              {t('接路线视频（开头/末尾）')}
+            </button>
+          )}
+          {hasAddedClips && (
+            <button
+              onClick={() => { setShowSettings(false); handleStartAdjust(); }}
+              disabled={data.status === 'loading' || Boolean(data.worldJobId || data.sharpJobId) || adjusting}
+              className="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20"
+              title={t('在查看器里用滑条，绕接缝处的相机调整接上去那段的比例、方向和位置；应用后重新合成，不占显卡')}
+            >
+              {t('手动调整接段')}
+            </button>
+          )}
         </div>
       )}
       </div>
@@ -449,7 +544,32 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               </div>
             )}
 
-            {turnsPending && !isOutdated && (
+            {extendPending && !isOutdated && (
+              <div style={{
+                position: 'absolute', top: 12, left: 0, right: 0, zIndex: 45,
+                display: 'flex', justifyContent: 'center', pointerEvents: 'none'
+              }}>
+                <button
+                  className="nodrag"
+                  onClick={handleExtendRoute}
+                  disabled={data.status === 'loading' || isCapturing}
+                  title={t('连着的路线视频会自动判断接在路线开头还是末尾，对齐后接上，转身视频重新接回（约 5 分钟）')}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, pointerEvents: 'auto',
+                    background: 'rgba(20,184,166,0.95)', color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.2)', fontSize: 12, fontWeight: 500,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
+                    cursor: (data.status === 'loading' || isCapturing) ? 'not-allowed' : 'pointer',
+                    opacity: (data.status === 'loading' || isCapturing) ? 0.7 : 1, transition: 'all 0.2s',
+                  }}
+                >
+                  {t('接路线视频（开头/末尾）')}
+                </button>
+              </div>
+            )}
+
+            {/* the route-clip button puts the turns back on too, so it stands in for this one */}
+            {turnsPending && !extendPending && !isOutdated && (
               <div style={{
                 position: 'absolute', top: 12, left: 0, right: 0, zIndex: 45,
                 display: 'flex', justifyContent: 'center', pointerEvents: 'none'
@@ -483,6 +603,8 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
                 <span style={{ fontSize: 12, color: '#aaa' }}>
                   {isCapturing ? t('正在截图中...')
                     : data.worldJobId && data.worldJobKind === 'routeTurn' ? t('转身视频重建、掰正后接到路线上，约 5 分钟...')
+                    : data.worldJobId && data.worldJobKind === 'routeExtend' ? t('路线视频重建、对齐后接到路线上，约 5 分钟...')
+                    : data.worldJobId && data.worldJobKind === 'routeAdjust' ? t('按手动调整重新合成路线...')
                     : data.worldJobId ? t('FlashWorld 生成中，约 5 分钟...')
                     : data.sharpJobId ? t('正在生成高斯模型...') : t('正在加载模型...')}
                 </span>
@@ -571,6 +693,7 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
 
           <IconHandle type="target" id="in-image" portType="image" nodeId={id} style={{ top: '50%' }} />
           <IconHandle type="target" id="in-video" portType="video" nodeId={id} style={{ top: '72%' }} title={t('转身视频（接到路线高斯上）')} />
+          <IconHandle type="target" id="in-route" portType="video" nodeId={id} style={{ top: '88%' }} title={t('路线视频（接在路线开头或末尾）')} />
           <IconHandle type="source" id="out-image" portType="image" nodeId={id} style={{ top: '35%' }} title={t('当前视图截图')} />
           <IconHandle type="source" id="out-gaussian" portType="gaussian" nodeId={id} style={{ top: '65%' }} title={t('高斯点云')} />
         </div>

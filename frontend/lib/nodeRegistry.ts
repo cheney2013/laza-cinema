@@ -581,6 +581,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       { id: 'in-image', portType: 'image', label: '渲染参考图', acceptedTypes: ['image', 'character'] },
       // H3 pans that start on a frame of the route splat this node holds: added to it, bent onto the route's street
       { id: 'in-video', portType: 'video', label: '转身视频（接到路线高斯上）', acceptedTypes: ['video'] },
+      // clips that continue the route: one starting on its last frame goes after it, one ending on its first before it
+      { id: 'in-route', portType: 'video', label: '路线视频（接在路线开头或末尾）', acceptedTypes: ['video'] },
     ],
     outputs: [
       { id: 'out-image', portType: 'image', label: '当前视图截图', providesTypes: ['image'] },

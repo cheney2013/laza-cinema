@@ -146,6 +146,36 @@
             font-size: 10px; color: #444;
             cursor: default;
         }
+        /* top: clear of the fullscreen button; bottom: clear of the bar the canvas node lays over the viewer */
+        #adjustPanel {
+            position: absolute; left: 8px; top: 42px; z-index: 30; width: 250px; max-height: calc(100% - 92px);
+            overflow-y: auto; background: rgba(16,16,20,0.9); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #ccc;
+        }
+        #adjustPanel .adj-buttons { position: sticky; bottom: -8px; background: rgba(16,16,20,0.95); padding: 4px 0; }
+        #adjustPanel.hidden { display: none; }
+        #adjustPanel .adj-title { font-size: 12px; color: #eee; margin-bottom: 4px; }
+        #adjustPanel .adj-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+        #adjustPanel .adj-row label { width: 40px; color: #999; flex-shrink: 0; }
+        #adjustPanel .adj-row input[type=range] { flex: 1; min-width: 0; cursor: pointer; }
+        #adjustPanel .adj-row input[type=number] {
+            width: 58px; background: #252525; border: 1px solid #3a3a3a; color: #ddd; font-size: 10px;
+            padding: 2px 4px; border-radius: 4px;
+        }
+        #adjustPanel .adj-note { color: #777; font-size: 10px; margin: 4px 0; line-height: 1.4; }
+        #adjustPanel .adj-note a { color: #7ab4ff; }
+        #adjustPanel .adj-buttons { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+        #adjustPanel select {
+            width: 100%; background: #252525; color: #ddd; border: 1px solid #3a3a3a; border-radius: 4px;
+            font-size: 11px; padding: 2px; margin-bottom: 4px;
+        }
+        #adjustPanel .adj-keys { color: #9ab; font-size: 10px; line-height: 1.5; margin: 2px 0 4px; }
+        #adjustPanel .adj-keys b { color: #cde; font-weight: normal; background: rgba(255,255,255,0.08); padding: 0 3px; border-radius: 3px; }
+        /* the seam point the clip turns and scales about */
+        #adjMarker {
+            position: absolute; z-index: 25; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+            border: 2px solid #3ee0c8; box-shadow: 0 0 0 2px rgba(0,0,0,0.6); pointer-events: none; display: none;
+        }
     </style>
 </head>
 <body>
@@ -171,6 +201,25 @@
 
         <div id="cameraInfo"></div>
         <button id="fsBtn" title="全屏（F，Esc 退出）">⤢</button>
+
+        <div id="adjMarker"></div>
+        <div id="adjustPanel" class="hidden">
+            <div class="adj-title">手动调整接段</div>
+            <select id="adjPart"></select>
+            <div class="adj-keys">
+                鼠标：<b>右键拖</b>移动 · <b>Shift</b>+右键拖 转向 · <b>Ctrl</b>+右键拖 升降 · <b>Ctrl</b>+滚轮 缩放<br>
+                键盘：<b>方向键</b>移动 · <b>PgUp</b>/<b>PgDn</b> 升降 · <b>,</b> <b>.</b> 转向 · <b>[</b> <b>]</b> 缩放 · 按住 <b>Shift</b> 更快<br>
+                左键拖、WASD 照旧看和走；青色圆圈是接缝点，转向和缩放都绕它
+            </div>
+            <div id="adjRows"></div>
+            <div class="adj-note" id="adjHint"></div>
+            <div class="adj-note">偏移单位是米，方向以接缝处的相机为准。接缝附近以应用后的结果为准：应用时会重新切开接缝。</div>
+            <div class="adj-buttons">
+                <button class="ctrl-btn primary" id="adjApply">应用</button>
+                <button class="ctrl-btn" id="adjReset">回到自动</button>
+                <button class="ctrl-btn" id="adjExit">退出</button>
+            </div>
+        </div>
     </div>
 
     <div id="controlsBar">
@@ -193,6 +242,7 @@
          ?v= because the browser would otherwise keep the old bundle. -->
     <script src="/gaussian/js/gsplat-bundle.js?v=5"></script>
     <script src="/gaussian/js/gs_ply_loader.js?v=1"></script>
+    <script src="/gaussian/js/gs_route_adjust.js?v=1"></script>
     <script src="/gaussian/js/precise_orbit_controls.js"></script>
     <script src="/gaussian/js/fly_controls.js"></script>
 
@@ -224,6 +274,8 @@
         let currentScale = 0.3;
         let gaussianScaleCompensation = 1.0;
         let isLoaded = false;
+        let loadedUrl = null;        // the PLY on screen, when it came by URL (its route manifest sits beside it)
+        let adjustState = null;      // hand adjustment of a route's added clips, while it is open
 
         const DEFAULT_FOCAL_LENGTH = 30;
         const SCALE_DENSITY_BOOST = 3.0;
@@ -318,6 +370,7 @@
         }
 
         async function loadPlyFromUrl(url) {
+            loadedUrl = url;
             showLoading('正在加载 PLY 文件...');
             try {
                 const resp = await fetch(url);
@@ -440,6 +493,7 @@
 
         async function loadPLYFromData(arrayBuffer, filename, extrinsics, intrinsics) {
             try {
+                if (adjustState) endRouteAdjust(false);
                 pointCloudTargetZ = null;
                 arrayBuffer = pointCloudToSplatPly(arrayBuffer);
                 // Clear scene
@@ -609,6 +663,7 @@
         let scaleUpdatePending = false;
 
         function updateGaussianScale(scale) {
+            if (adjustState) return;      // the pieces being adjusted are copies of the splat at its present size
             scale = Math.max(0.01, Math.min(100, parseFloat(scale) || 1.0));
             currentScale = scale;
             if (!currentSplat || !currentSplat.data || !currentSplat.data.scales) return;
@@ -670,7 +725,7 @@
         }
 
         async function captureScreenshot() {
-            if (!renderer || !isLoaded) return null;
+            if (!renderer || !isLoaded || adjustState) return null;      // a preview of an adjustment is not a view
             if (animationId) cancelAnimationFrame(animationId);
             controls.update();
             renderer.render(scene, camera);
@@ -705,6 +760,7 @@
             renderUntil = performance.now() + RENDER_TAIL_MS;
             const frame = () => {
                 controls.update();
+                if (adjustState) adjustFrame();
                 const signature = viewSignature();
                 if (signature !== lastSignature) {
                     lastSignature = signature;
@@ -712,6 +768,7 @@
                 }
                 updateCameraInfo();
                 renderer.render(scene, camera);
+                if (adjustState) placeAdjustMarker();
                 if (performance.now() < renderUntil) {
                     animationId = requestAnimationFrame(frame);
                 } else {
@@ -772,6 +829,13 @@
             if (!e.ctrlKey) return;
             e.preventDefault();
             e.stopPropagation();
+            const p = adjustPart();
+            if (p) {                       // hand adjustment open: Ctrl + wheel scales the added clip instead
+                const up = (e.deltaY || e.deltaX) < 0, by = e.shiftKey ? 1.02 : 1.005;
+                changeClip(p, 'scale', up ? by : 1 / by, true);
+                afterClipChange(p);
+                return;
+            }
             const next = Math.min(100, Math.max(0.01, currentScale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
             updateGaussianScale(next);
             scaleRange.value = Math.min(next, 10);
@@ -851,6 +915,338 @@
         document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
         document.getElementById('btnMode').addEventListener('click', () => setControlMode(controlMode === 'fly' ? 'orbit' : 'fly'));
 
+        // ── Hand adjustment of clips added at a route's ends (route_gs.extend_route) ───────────────────────────
+        // The node opens it. The route's manifest (beside the PLY) gives each added clip's rows in the file and the
+        // seam camera its adjustment is about; those rows become objects of their own in a scene of their own, moved
+        // live with gsplat's object transform by the backend's own sums (gs_route_adjust.js). 应用 hands the numbers
+        // to the node, which has the backend write the route again; the seam is cut again there, so right at the
+        // seam the result can differ a little from this preview.
+        const ADJ_FIELDS = [      // key, label, slider range, step, neutral value
+            ['scale', '比例 ×', 0.85, 1.15, 0.001, 1], ['yaw', '偏航 °', -20, 20, 0.1, 0], ['pitch', '俯仰 °', -10, 10, 0.1, 0],
+            ['roll', '横滚 °', -10, 10, 0.1, 0], ['right', '右移 m', -5, 5, 0.01, 0], ['up', '上移 m', -3, 3, 0.01, 0],
+            ['forward', '前移 m', -5, 5, 0.01, 0],
+        ];
+        let adjustTimer = null;
+
+        function sliceSplatData(data, ranges) {         // rows [a, b) of a SplatData, as one new SplatData
+            const n = ranges.reduce((s, [a, b]) => s + (b - a), 0);
+            const pos = new Float32Array(3 * n), rot = new Float32Array(4 * n), sc = new Float32Array(3 * n), col = new Uint8Array(4 * n);
+            let o = 0;
+            for (const [a, b] of ranges) {
+                pos.set(data.positions.subarray(3 * a, 3 * b), 3 * o);
+                rot.set(data.rotations.subarray(4 * a, 4 * b), 4 * o);
+                sc.set(data.scales.subarray(3 * a, 3 * b), 3 * o);
+                col.set(data.colors.subarray(4 * a, 4 * b), 4 * o);
+                o += b - a;
+            }
+            return new SPLAT.SplatData(n, pos, rot, sc, col);
+        }
+
+        async function startRouteAdjust() {
+            if (adjustState) return;
+            const fail = (error) => notifyParent({ type: 'ROUTE_ADJUST_ERROR', error });
+            if (!currentSplat || !currentSplat.data || currentSplat.data.detached || !loadedUrl) return fail('还没有加载路线高斯');
+            let m;
+            try {
+                const r = await fetch(loadedUrl.replace(/\.ply(\?.*)?$/, '_route.json'), { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                m = await r.json();
+            } catch (err) { return fail('读不到这条路线的清单：' + err.message); }
+            const data = currentSplat.data, n = data.vertexCount;
+            const added = (m.clips || []).filter((c) => c.auto_transform && Array.isArray(c.rows) && c.rows[1] <= n);
+            if (!added.length) return fail('这条路线没有可以手动调整的接段');
+            const toStored = (m.metres_per_unit || 30.5) * (m.scene_scale || 0.1);
+            const rest = [];
+            let at = 0;
+            for (const [a, b] of added.map((c) => c.rows).sort((x, y) => x[0] - y[0])) {
+                if (a > at) rest.push([at, a]);
+                at = Math.max(at, b);
+            }
+            if (at < n) rest.push([at, n]);
+            const parts = added.map((c) => ({
+                entry: c, key: c.url || c.clip, splat: new SPLAT.Splat(sliceSplatData(data, [c.rows])),
+                cur: { ...(c.adjust || {}) }, next: { ...(c.adjust || {}) },
+                pivot: c.pivot.map((v) => v * toStored), axes: c.axes, upm: m.scene_scale || 0.1, hint: c.depth_scale_hint,
+            }));
+            // one new scene with all the pieces: the renderer packs it once (adding them one by one to the old scene
+            // rebuilt the render data after every object)
+            const adjScene = new SPLAT.Scene();
+            adjScene.addObject(new SPLAT.Splat(sliceSplatData(data, rest)));
+            for (const p of parts) adjScene.addObject(p.splat);
+            adjustState = { scene: scene, parts, sel: 0 };
+            scene = adjScene;
+            buildAdjustPanel();
+            wakeRender();
+            notifyParent({ type: 'ROUTE_ADJUST_STARTED' });
+        }
+
+        function endRouteAdjust(tellParent) {
+            if (!adjustState) return;
+            scene = adjustState.scene;           // the splat as loaded, untouched
+            adjustState = null;
+            clearTimeout(adjustTimer);
+            adjustTimer = null;
+            adjustKeys.clear();
+            adjustDrag = null;
+            document.getElementById('adjMarker').style.display = 'none';
+            document.getElementById('adjustPanel').classList.add('hidden');
+            wakeRender();
+            if (tellParent) notifyParent({ type: 'ROUTE_ADJUST_EXIT' });
+        }
+
+        function previewAdjust() {
+            adjustTimer = null;
+            lastAdjustPreview = performance.now();
+            if (!adjustState) return;
+            for (const p of adjustState.parts) {
+                const d = window.routeAdjustDelta(p.next, p.cur, p.pivot, p.axes, p.upm);
+                p.splat.position = new SPLAT.Vector3(d.position[0], d.position[1], d.position[2]);
+                p.splat.rotation = new SPLAT.Quaternion(d.rotation[0], d.rotation[1], d.rotation[2], d.rotation[3]);
+                p.splat.scale = new SPLAT.Vector3(d.scale, d.scale, d.scale);
+            }
+            wakeRender();
+        }
+        // Every change sends all positions to the sort worker again (13 M splats: ~0.1 s), so while a drag or a held
+        // key goes on the clip moves on screen at most every ADJUST_PREVIEW_MS; the panel's numbers follow at once.
+        const ADJUST_PREVIEW_MS = 150;
+        let lastAdjustPreview = 0;
+        function scheduleAdjustPreview() {
+            if (adjustTimer) return;
+            adjustTimer = setTimeout(previewAdjust, Math.max(0, ADJUST_PREVIEW_MS - (performance.now() - lastAdjustPreview)));
+        }
+
+        // ── moving the clip with the mouse and the keyboard; the sliders do the same, and both show the same numbers ──
+        // right-drag moves it along the ground as seen from here (right on screen is right, up on screen is away),
+        // Shift turns it, Ctrl lifts it, Ctrl + wheel scales it; arrows / PgUp PgDn / , . / [ ] do the same from the
+        // keyboard (a tap is a small step, holding goes on, Shift x4). Left-drag and WASD still look and walk.
+        const ADJ_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Comma',
+                                  'Period', 'BracketLeft', 'BracketRight']);
+        const ADJ_RATE = { move: 0.6, lift: 0.3, turn: 5, scale: 0.02 };      // m/s, m/s, deg/s, fraction/s held
+        const ADJ_TAP = { move: 0.05, lift: 0.03, turn: 0.25, scale: 0.0025 };  // one tap
+        const adjustKeys = new Set();
+        let adjustDrag = null, adjustTick = 0, adjustShift = false, adjustInputs = {};
+        const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+        function adjustPart() { return adjustState ? adjustState.parts[adjustState.sel] : null; }
+
+        // the seam camera's up, and the viewing camera's right and forward laid flat on its ground (splat units)
+        function adjustBasis(p) {
+            const C = p.axes;
+            const up = [-C[0][1], -C[1][1], -C[2][1]];
+            const m = SPLAT.Matrix3.RotationFromQuaternion(camera.rotation).buffer;
+            const flat = (v, fallback) => {
+                const d = dot3(v, up), w = [v[0] - d * up[0], v[1] - d * up[1], v[2] - d * up[2]], n = Math.hypot(w[0], w[1], w[2]);
+                return n > 1e-6 ? w.map((x) => x / n) : fallback;
+            };
+            return {
+                up,
+                right: flat([m[0], m[3], m[6]], [C[0][0], C[1][0], C[2][0]]),
+                fwd: flat([m[2], m[5], m[8]], [C[0][2], C[1][2], C[2][2]]),
+            };
+        }
+        // where the clip's seam point is now: the adjustment keeps it at pivot + offset whatever it turns or scales
+        function adjustJunction(p) {
+            const C = p.axes, o = [p.next.right || 0, -(p.next.up || 0), p.next.forward || 0];
+            return [0, 1, 2].map((i) => p.pivot[i] + (C[i][0] * o[0] + C[i][1] * o[1] + C[i][2] * o[2]) * p.upm);
+        }
+        function unitsPerPixel(p) {        // splat units a CSS pixel covers at the clip's seam point
+            const j = adjustJunction(p), c = camera.position;
+            const dist = Math.hypot(j[0] - c.x, j[1] - c.y, j[2] - c.z);
+            return dist / (camera.data.fx || 500) * (canvas.width / Math.max(1, canvas.clientWidth));
+        }
+        function moveClip(p, d) {          // by d splat units; the offsets are metres along the seam camera's axes
+            const C = p.axes;
+            const l = [0, 1, 2].map((j) => (C[0][j] * d[0] + C[1][j] * d[1] + C[2][j] * d[2]) / p.upm);
+            p.next.right = (p.next.right || 0) + l[0];
+            p.next.up = (p.next.up || 0) - l[1];
+            p.next.forward = (p.next.forward || 0) + l[2];
+        }
+        function changeClip(p, k, by, times) {
+            const v = typeof p.next[k] === 'number' ? p.next[k] : (k === 'scale' ? 1 : 0);
+            p.next[k] = times ? v * by : v + by;
+        }
+        function afterClipChange(p, inFrame) {
+            syncAdjustRows();
+            scheduleAdjustPreview();
+            const f = (k, d) => (typeof p.next[k] === 'number' ? p.next[k] : (k === 'scale' ? 1 : 0)).toFixed(d);
+            showHud(`接段${p.entry.where === 'start' ? '（开头）' : '（末尾）'}  右移 ${f('right', 2)} · 上移 ${f('up', 2)} · ` +
+                    `前移 ${f('forward', 2)} m · 偏航 ${f('yaw', 1)}° · 比例 ×${f('scale', 3)}`);
+            // not from inside a frame: waking a stopped loop draws a frame at once, which would step the held keys
+            // again from inside this one (each step a little more time, until the stack ran out: 8.9 m for one tap)
+            if (!inFrame) wakeRender();
+        }
+        function stepClipKey(code, fast, dt) {      // dt null: one tap (an input event); a number: a frame's share
+            const p = adjustPart();
+            if (!p) return;
+            const amt = (kind) => (dt === null ? ADJ_TAP[kind] : ADJ_RATE[kind] * dt) * fast;
+            const b = adjustBasis(p), along = (v, s) => v.map((x) => x * s * p.upm);
+            switch (code) {
+                case 'ArrowRight': moveClip(p, along(b.right, amt('move'))); break;
+                case 'ArrowLeft': moveClip(p, along(b.right, -amt('move'))); break;
+                case 'ArrowUp': moveClip(p, along(b.fwd, amt('move'))); break;
+                case 'ArrowDown': moveClip(p, along(b.fwd, -amt('move'))); break;
+                case 'PageUp': moveClip(p, along(b.up, amt('lift'))); break;
+                case 'PageDown': moveClip(p, along(b.up, -amt('lift'))); break;
+                case 'Period': changeClip(p, 'yaw', amt('turn')); break;
+                case 'Comma': changeClip(p, 'yaw', -amt('turn')); break;
+                case 'BracketRight': changeClip(p, 'scale', 1 + amt('scale'), true); break;
+                case 'BracketLeft': changeClip(p, 'scale', 1 / (1 + amt('scale')), true); break;
+            }
+            afterClipChange(p, dt !== null);
+        }
+        function adjustFrame() {           // every frame while the panel is open: held keys go on moving the clip
+            const now = performance.now();
+            if (adjustKeys.size) {
+                const dt = Math.min((now - adjustTick) / 1000, 0.1);
+                for (const code of adjustKeys) stepClipKey(code, adjustShift ? 4 : 1, dt);
+                renderUntil = now + RENDER_TAIL_MS;
+            }
+            adjustTick = now;
+        }
+        function placeAdjustMarker() {     // the seam point on screen, from this frame's view
+            const el = document.getElementById('adjMarker'), p = adjustPart();
+            if (!p) { el.style.display = 'none'; return; }
+            const j = adjustJunction(p), m = camera.data.viewProj.buffer;
+            const x = m[0] * j[0] + m[4] * j[1] + m[8] * j[2] + m[12];
+            const y = m[1] * j[0] + m[5] * j[1] + m[9] * j[2] + m[13];
+            const w = m[3] * j[0] + m[7] * j[1] + m[11] * j[2] + m[15];
+            const rc = canvas.getBoundingClientRect(), rv = document.getElementById('viewerContainer').getBoundingClientRect();
+            const sx = rc.left - rv.left + (x / w + 1) / 2 * rc.width, sy = rc.top - rv.top + (1 - y / w) / 2 * rc.height;
+            if (w <= 0 || sx < 0 || sy < 0 || sx > rv.width || sy > rv.height) { el.style.display = 'none'; return; }
+            el.style.left = sx + 'px';
+            el.style.top = sy + 'px';
+            el.style.display = 'block';
+        }
+
+        // Captured on the window, ahead of the fly / orbit controls (they listen on the canvas and the window later):
+        // while the panel is open the right button and these keys belong to the clip.
+        window.addEventListener('mousedown', (e) => {
+            if (!adjustState || e.button !== 2 || e.target !== canvas) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            adjustDrag = { x: e.clientX, y: e.clientY };
+        }, true);
+        window.addEventListener('mousemove', (e) => {
+            if (!adjustDrag) return;
+            const p = adjustPart();
+            if (!p) { adjustDrag = null; return; }
+            e.stopImmediatePropagation();
+            const dx = e.clientX - adjustDrag.x, dy = e.clientY - adjustDrag.y;
+            adjustDrag.x = e.clientX;
+            adjustDrag.y = e.clientY;
+            if (e.shiftKey) {
+                changeClip(p, 'yaw', dx * 0.1);                                    // 0.1 degree a pixel
+            } else {
+                const k = unitsPerPixel(p), b = adjustBasis(p);
+                if (e.ctrlKey) moveClip(p, b.up.map((u) => -dy * k * u));
+                else moveClip(p, [0, 1, 2].map((i) => b.right[i] * dx * k - b.fwd[i] * dy * k));
+            }
+            afterClipChange(p);
+        }, true);
+        window.addEventListener('mouseup', (e) => {
+            if (adjustDrag && e.button === 2) { adjustDrag = null; e.stopImmediatePropagation(); }
+        }, true);
+        window.addEventListener('contextmenu', (e) => { if (adjustState) e.preventDefault(); }, true);
+        window.addEventListener('keydown', (e) => {
+            adjustShift = e.shiftKey;
+            if (!adjustState || !ADJ_KEYS.has(e.code)) return;
+            if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (!adjustKeys.has(e.code)) {
+                adjustKeys.add(e.code);
+                adjustTick = performance.now();
+                stepClipKey(e.code, e.shiftKey ? 4 : 1, null);
+            }
+        }, true);
+        window.addEventListener('keyup', (e) => {
+            adjustShift = e.shiftKey;
+            if (!e.code) adjustKeys.clear();        // a key-up that does not say which key: let go of them all
+            if (!ADJ_KEYS.has(e.code)) return;
+            adjustKeys.delete(e.code);
+            if (adjustState) e.stopImmediatePropagation();
+        }, true);
+        window.addEventListener('blur', () => { adjustKeys.clear(); adjustDrag = null; });
+
+        function buildAdjustPanel() {
+            const sel = document.getElementById('adjPart');
+            sel.innerHTML = adjustState.parts.map((p, i) =>
+                `<option value="${i}">${p.entry.where === 'start' ? '开头' : '末尾'}：${String(p.key).split(/[\\/]/).pop()}</option>`).join('');
+            sel.style.display = adjustState.parts.length > 1 ? '' : 'none';
+            sel.onchange = () => { adjustState.sel = Number(sel.value); fillAdjustRows(); };
+            fillAdjustRows();
+            document.getElementById('adjustPanel').classList.remove('hidden');
+        }
+
+        const fmtAdjust = (k, v) => v.toFixed(k === 'scale' ? 3 : 2);
+        function syncAdjustRows() {        // the sliders and boxes show what the mouse and the keys did
+            const p = adjustPart();
+            if (!p) return;
+            for (const [k, , , , , neutral] of ADJ_FIELDS) {
+                const io = adjustInputs[k];
+                if (!io) continue;
+                const v = typeof p.next[k] === 'number' ? p.next[k] : neutral;
+                io.range.value = v;
+                if (document.activeElement !== io.box) io.box.value = fmtAdjust(k, v);
+            }
+        }
+
+        function fillAdjustRows() {
+            const p = adjustState.parts[adjustState.sel];
+            const rows = document.getElementById('adjRows');
+            rows.innerHTML = '';
+            adjustInputs = {};
+            const setters = {};
+            for (const [k, label, lo, hi, step, neutral] of ADJ_FIELDS) {
+                const v = typeof p.next[k] === 'number' ? p.next[k] : neutral;
+                const row = document.createElement('div');
+                row.className = 'adj-row';
+                row.innerHTML = `<label>${label}</label><input type="range" min="${lo}" max="${hi}" step="${step}"><input type="number" step="${step}">`;
+                const [range, box] = row.querySelectorAll('input');
+                range.value = v;
+                box.value = fmtAdjust(k, v);
+                adjustInputs[k] = { range, box };
+                setters[k] = (val) => {
+                    const x = parseFloat(val);
+                    if (!Number.isFinite(x)) return;
+                    p.next[k] = x;
+                    range.value = x;
+                    box.value = fmtAdjust(k, x);
+                    scheduleAdjustPreview();
+                };
+                range.addEventListener('input', () => setters[k](range.value));
+                box.addEventListener('change', () => setters[k](box.value));
+                rows.appendChild(row);
+            }
+            const hint = document.getElementById('adjHint');
+            if (p.hint && Math.abs(p.hint - 1) > 0.002) {
+                hint.innerHTML = `深度图估出的比例是自动对齐的 ×${p.hint.toFixed(3)}（自动对齐用的是相机间距）<br><a href="#" id="adjUseHint">比例用 ×${p.hint.toFixed(3)}</a>`;
+                document.getElementById('adjUseHint').onclick = (ev) => { ev.preventDefault(); setters.scale(p.hint.toFixed(3)); };
+            } else {
+                hint.textContent = '';
+            }
+        }
+
+        document.getElementById('adjApply').addEventListener('click', () => {
+            if (!adjustState) return;
+            const adjustments = {};
+            for (const p of adjustState.parts) {
+                const a = {};
+                for (const [k, , , , , neutral] of ADJ_FIELDS) {
+                    if (typeof p.next[k] === 'number' && p.next[k] !== neutral) a[k] = p.next[k];
+                }
+                adjustments[p.key] = a;
+            }
+            notifyParent({ type: 'ROUTE_ADJUST_APPLY', adjustments });
+        });
+        document.getElementById('adjReset').addEventListener('click', () => {
+            if (!adjustState) return;
+            adjustState.parts[adjustState.sel].next = {};
+            fillAdjustRows();
+            scheduleAdjustPreview();
+        });
+        document.getElementById('adjExit').addEventListener('click', () => endRouteAdjust(true));
+
         // ── postMessage API ──────────────────────────────────────────────────
         window.addEventListener('message', async (e) => {
             const msg = e.data;
@@ -888,7 +1284,12 @@
                 toggleFullscreen();
             } else if (msg.type === 'SET_MODE') {
                 setControlMode(msg.mode === 'orbit' ? 'orbit' : 'fly');
+            } else if (msg.type === 'ROUTE_ADJUST_START') {
+                await startRouteAdjust();
+            } else if (msg.type === 'ROUTE_ADJUST_EXIT') {
+                if (adjustState) endRouteAdjust(true);
             } else if (msg.type === 'SET_SCALE') {
+                if (adjustState) return;          // the adjusted pieces are copies of the splat as it was sized
                 const s = parseFloat(msg.scale) || 1.0;
                 updateGaussianScale(s);
                 scaleRange.value = Math.min(s, 10);

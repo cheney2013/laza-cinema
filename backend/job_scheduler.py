@@ -101,7 +101,7 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
         family = "audio"
     elif job_type in ("gaussian", "gaussian_model"):
         family = "gaussian"
-    elif job_type in ("world_gaussian", "route_gaussian", "route_turn"):
+    elif job_type in ("world_gaussian", "route_gaussian", "route_turn", "route_extend"):
         family = "flashworld"
     elif job_type == "interpolate":
         family = "rife"

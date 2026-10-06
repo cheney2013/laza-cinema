@@ -339,11 +339,22 @@ export interface GaussianNodeData extends SizedNodeData {
   worldTrajectory?: 'ring' | 'orbit' | 'pan';
   worldPrompt?: string;
   worldJobId?: string;
-  /** What worldJobId runs: unset = FlashWorld, 'routeTurn' = turn videos added to the route splat. */
-  worldJobKind?: 'routeTurn';
+  /** What worldJobId runs: unset = FlashWorld, 'routeTurn' = turn videos added to the route splat,
+   *  'routeExtend' = clips added at the route's start or end (and the turns put back on),
+   *  'routeAdjust' = the route written again with the added clips' hand adjustments. */
+  worldJobKind?: 'routeTurn' | 'routeExtend' | 'routeAdjust';
   worldVideoUrl?: string;
   /** The route splat (route_*.ply) without turns: turns are added to it again, never on top of a result. */
   routeBasePly?: string;
+  /** The route as it was built, without added clips or turns: clips are added to it again, never on top. */
+  routeCorePly?: string;
+  /** Ids of the clips added at the route's ends, and their files (what says the splat is stale). */
+  routeExtends?: string[];
+  routeExtendUrls?: string[];
+  /** Per added clip URL, its hand adjustment (scale, yaw, pitch, roll, right, up, forward), kept on every re-run. */
+  routeExtendAdjust?: Record<string, Record<string, number>>;
+  /** Per added clip URL, the end it went on ('start' | 'end'): a re-run needs no matching for it. */
+  routeExtendWhere?: Record<string, string>;
   /** Ids of the turn videos the current splat was made with. */
   routeTurns?: string[];
   /** Their clip files: a turn re-rendered in place keeps its node id, so this is what says the splat is stale. */

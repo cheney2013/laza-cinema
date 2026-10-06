@@ -875,6 +875,23 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  extendRoute: (req: {
+    route_ply_url: string; clip_urls: string[]; turn_clip_urls?: string[];
+    adjustments?: Record<string, Record<string, number>>; placements?: Record<string, string>;
+  }) =>
+    request<{ job_id: string; status: string }>('/extend-route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
+  adjustRoute: (req: { route_ply_url: string; adjustments: Record<string, Record<string, number>>; turn_clip_urls?: string[] }) =>
+    request<{ job_id: string; status: string }>('/adjust-route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   // `ids` asks the backend for a definitive answer about those jobs: each comes
   // back under `tracked` in whatever state it is in, or in `missing` when the
   // backend has no record of it (restart, history pruned).
