@@ -6,6 +6,7 @@ checkouts, local edits on top of them, and plain copies that have no git history
   tools/comfyui_setup/setup.json  ComfyUI commit + version, and for every custom node pack: its
                                   git remote and commit, or "copy" when it is not a checkout
   tools/comfyui_setup/patches/<pack>.patch   the uncommitted edits of every modified checkout
+                                  (ComfyUI.patch: those of ComfyUI itself)
   tools/comfyui_setup/requirements.txt   pip freeze of ComfyUI's own .venv, when it has one
   --zip PATH                      optionally, a zip of the packs that are not git checkouts, and of
                                   the git packs whose repository has since disappeared (the only way
@@ -126,6 +127,11 @@ def main() -> int:
     (out / "setup.json").write_text(json.dumps(setup, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     written = 0
+    # Local edits to ComfyUI itself (comfy_extras/nodes_minimax_h3.py's reference-video sizing).
+    core_diff = git(comfy, "diff", "HEAD") if setup["comfyui"]["uncommitted_files"] else ""
+    if core_diff:
+        (out / "patches" / "ComfyUI.patch").write_text(core_diff + "\n", encoding="utf-8")
+        written += 1
     for pack in packs:
         if pack["source"] != "git" or not pack["modified_files"]:
             continue

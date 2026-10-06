@@ -1,0 +1,18 @@
+diff --git a/comfy_extras/nodes_minimax_h3.py b/comfy_extras/nodes_minimax_h3.py
+index 1ad3c6a4..17f4e599 100644
+--- a/comfy_extras/nodes_minimax_h3.py
++++ b/comfy_extras/nodes_minimax_h3.py
+@@ -322,6 +322,13 @@ class MiniMaxH3ReferenceToVideo(io.ComfyNode):
+             if vw * vh < cw * ch:
+                 cw = max(CANVAS_MULTIPLE, round(vw / CANVAS_MULTIPLE) * CANVAS_MULTIPLE)
+                 ch = max(CANVAS_MULTIPLE, round(vh / CANVAS_MULTIPLE) * CANVAS_MULTIPLE)
++            # Local patch (LAZA CINEMA STUDIO, 2026-10-07): a reference video with the generation's
++            # own aspect, at least as large, is sized to the generation canvas. adapt_canvas snaps
++            # each axis separately, which made a 1376x768 clip 1344x768 (-2.3 % width); a
++            # [video continuation] continued the squeezed picture, 2.4 % narrower every link.
++            # AI Toolkit's H3 port sizes reference videos to the target the same way.
++            if abs(vw * height - vh * width) <= 0.005 * vh * width and vw * vh >= width * height:
++                cw, ch = width, height
+             frames = _resize(video_frames, cw, ch, "disabled")
+             if frames.shape[0] > frame_count:
+                 frames = frames[:frame_count]
