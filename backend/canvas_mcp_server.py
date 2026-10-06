@@ -440,7 +440,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # walk a 1.5 m circle looking out -- all round, and a metre or two of room to
         # move; "orbit": push in and arc left round a point 10 m ahead; "pan": turn in
         # place), described by worldPrompt (English, including what is off-picture).
-        # ~5 min. render_gaussian_view takes a still from any camera in the result.
+        # Optional worldVfov (the picture's vertical field of view, default 45; give the
+        # camera's own when the splat must line up with another), worldRadius, worldDegrees,
+        # worldDistance. ~5 min. render_gaussian_view takes a still from any camera in the result.
         "label": "高斯模型 (3DGS PLY)",
         "defaults": {"plyUrl": None, "plyFilename": None, "plyOriginalName": None,
                      "generatedUrl": None, "status": "idle", "engine": "sharp",
@@ -2931,9 +2933,13 @@ def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     image_url = _node_url(sources[0])
     if (data.get("engine") or "sharp") == "flashworld":
         trajectory = data.get("worldTrajectory") or "ring"
-        submitted = _request("POST", "/generate-world-gaussian", json={
-            "image_url": image_url, "prompt": str(data.get("worldPrompt") or ""),
-            "trajectory": trajectory}, project_id=resolved["id"])
+        body = {"image_url": image_url, "prompt": str(data.get("worldPrompt") or ""), "trajectory": trajectory}
+        # the picture's vertical field of view (default 45): match the camera the splat has to line up with
+        for key, field in (("worldVfov", "vfov"), ("worldRadius", "radius"), ("worldDegrees", "degrees"),
+                           ("worldDistance", "distance")):
+            if data.get(key) is not None:
+                body[field] = float(data[key])
+        submitted = _request("POST", "/generate-world-gaussian", json=body, project_id=resolved["id"])
         revision = _save_node_data(resolved["id"], node_id, {
             "status": "loading", "worldJobId": submitted["job_id"], "error": None,
             "sourceImageUrl": image_url, "plyUrl": None, "generatedUrl": None}, canvas)
