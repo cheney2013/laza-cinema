@@ -387,6 +387,27 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     }),
   },
   {
+    type: 'videoOrbit',
+    label: '360 环绕',
+    cat: '编辑 & 修复',
+    color: '#38bdf8',
+    inputs: [
+      { id: 'in-image', portType: 'image', label: '要环绕的图片 (必需 · 同时作首帧和末帧)', acceptedTypes: ['image', 'character', 'pose', 'gaussian'] },
+    ],
+    outputs: [{ id: 'out-video', portType: 'video', label: '环绕视频' }],
+    createData: () => ({
+      generatedUrl: null,
+      status: 'idle',
+      // The official Space's defaults: 768x768, LoRA 1.0, 3 s (28 steps, set by the base).
+      width: 768,
+      height: 768,
+      duration: 3,
+      seed: 904231,
+      seedMode: 'fixed',
+      loraStrength: 1,
+    }),
+  },
+  {
     type: 'charswap',
     label: '换人 · Viggle',
     cat: '编辑 & 修复',
@@ -756,7 +777,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
 export const NODE_USAGE_ORDER = [
   'image', 'video', 'prompt', 'videoUpscale', 'characterSheet', 'audioGen',
   'videoBridge', 'videoReshot', 'videoContinue', 'videoEdit', 'wardrobeSwap',
-  'charswap', 'videoReangle', 'audioRefine', 'videoFrames',
+  'charswap', 'videoReangle', 'videoOrbit', 'audioRefine', 'videoFrames',
   'chainPreview', 'videoCompare', 'videoTrim', 'depthVideo', 'videoInterpolate', 'inpaint',
   'preview', 'pose', 'gaussian', 'gaussianViewer',
 ];

@@ -423,6 +423,7 @@ _REPLAYABLE: dict[str, tuple[str, str]] = {
     "upscale": ("VideoUpscaleRequest", "_run_video_upscale_job"),
     "charswap": ("CharswapRequest", "_run_charswap_job"),
     "reangle": ("ReangleRequest", "_run_reangle_split_job"),
+    "orbit": ("OrbitRequest", "_run_orbit_job"),
 }
 
 
@@ -9849,6 +9850,76 @@ async def reangle_still(req: ReangleStillRequest):
     return await submit_job(
         "reangle_still", lambda job: _run_reangle_still_job(job, req), request=req,
         video_url=req.video_url,
+    )
+
+
+# pablodawson/MiniMax-H3-360-Orbit-LoRA, saved here under the name of the file it was released as.
+ORBIT_LORA = "h3/minimax_h3_flf2v_lora_v1.safetensors"
+# The one prompt the LoRA was trained on. The official Space fixes it ("Prompt (fixed)"), and a LoRA trained on
+# a single sentence follows it only when it is sent verbatim, so the node never takes another.
+ORBIT_PROMPT = (
+    "One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and object in "
+    "exactly the same world position, orientation, shape and pose throughout the shot. Airborne objects remain "
+    "suspended at the captured height and angle: no wobbling, shaking, spinning, drifting, falling or continued "
+    "action. Keep faces, hands, clothing, liquids and the background motionless while retaining their natural "
+    "appearance. Camera parallax is the only source of apparent movement. No cuts, zoom, morphing or added objects."
+)
+
+
+def _orbit_frames(duration: float) -> int:
+    """Seconds -> the next frame count H3's video VAE decodes (17k + 5 at 24 fps), as the official Space does."""
+    n = max(5, round(float(duration) * 24))
+    return n + (5 - n % 17) % 17
+
+
+class OrbitRequest(BaseModel):
+    """One picture orbited by the camera while the scene stays frozen (360-Orbit LoRA on H3 FL2VA).
+
+    The picture is both the first and the last frame, which is the wiring the LoRA was trained with: the camera
+    leaves the picture and comes back to it. Defaults are the official Space's (768x768, LoRA 1.0, 3 s); the 28 steps are the fl2va preset's own count
+    for a run with no speed LoRA, so the request has no step count to give.
+
+    Measured 2026-10-05 on a street frame: the swing is about +-120 degrees, not a full turn, and a frame with a
+    clear subject in the middle holds better than a wide street. Backgrounds the picture never showed are invented.
+    """
+    image_url: str
+    width: int = 768
+    height: int = 768
+    duration: float = 3.0            # seconds; snapped up to the 17k+5 frame grid
+    seed: int = 904231
+    lora_strength: float = 1.0
+    # Read by the job scheduler, which keys the loaded-model family on it.
+    motion_preset: str = "fl2va"
+    length: int = 0                  # filled from `duration`, and steps from the preset, so the scheduler can size it
+    steps: int = 28
+
+
+async def _run_orbit_job(job: dict, req: OrbitRequest) -> dict:
+    length = _orbit_frames(req.duration)
+    job["batch_info"] = "ORBIT"
+    save_state()
+    vreq = VideoRequest(
+        prompt=ORBIT_PROMPT, raw_prompt=True,
+        image_url=req.image_url,
+        # Same picture pinned at the last frame: sent as a guide, as the node that made the first test did.
+        guide_frames=[{"url": req.image_url, "frame_index": -1}],
+        width=req.width, height=req.height, length=length, seed=req.seed,
+        motion_preset="fl2va", accel_lora="none",
+        style_loras=[{"name": ORBIT_LORA, "strength": float(req.lora_strength)}],
+        block_sparse=True, shift_video=12.0,
+    )
+    result = await _run_video_job(job, vreq)
+    return {**result, "width": req.width, "height": req.height, "length": length}
+
+
+@app.post("/orbit")
+async def orbit(req: OrbitRequest):
+    """Orbit the camera 360-style around one picture, the scene frozen."""
+    require_node("videoOrbit")      # the FL2VA int8 checkpoint has no w4a8 build for a 16 GB card
+    req.length = _orbit_frames(req.duration)
+    return await submit_job(
+        "orbit", lambda job: _run_orbit_job(job, req), request=req,
+        image_url=req.image_url,
     )
 
 

@@ -29,6 +29,7 @@ import CharacterSheetNode from './nodes/CharacterSheetNode';
 import VideoEditNode, { VideoReshotNode, VideoBridgeNode, VideoContinueNode, VideoFramesNode } from './nodes/VideoEditNode';
 import CharswapNode from './nodes/CharswapNode';
 import ReangleNode from './nodes/ReangleNode';
+import OrbitNode from './nodes/OrbitNode';
 import AudioRefineNode from './nodes/AudioRefineNode';
 import VideoUpscaleNode from './nodes/VideoUpscaleNode';
 import VideoInterpolateNode from './nodes/VideoInterpolateNode';
@@ -156,6 +157,7 @@ const nodeTypes = {
   videoFrames: VideoFramesNode,
   charswap: CharswapNode,
   videoReangle: ReangleNode,
+  videoOrbit: OrbitNode,
   audioRefine: AudioRefineNode,
   videoUpscale: VideoUpscaleNode,
   videoInterpolate: VideoInterpolateNode,

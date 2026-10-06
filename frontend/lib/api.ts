@@ -376,6 +376,15 @@ export interface CharswapRequest {
   face_prompt?: string;
 }
 
+export interface OrbitRequest {
+  image_url: string;                 // both the first and the last frame
+  width?: number;
+  height?: number;
+  duration?: number;                 // seconds, snapped up to the 17k+5 grid
+  seed?: number;
+  lora_strength?: number;
+}
+
 export interface ReangleRequest {
   video_url: string;                 // the accepted clip; performance and sound are kept
   start_frame?: number;
@@ -731,6 +740,14 @@ export const api = {
    */
   reangle: (req: ReangleRequest) =>
     request<{ job_id: string; status: string }>('/reangle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
+  /** 360 环绕: one picture circled by the camera while the scene stays frozen (360-Orbit LoRA on H3 FL2VA). */
+  orbit: (req: OrbitRequest) =>
+    request<{ job_id: string; status: string }>('/orbit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),

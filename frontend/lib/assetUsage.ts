@@ -131,6 +131,7 @@ const NODE_TITLES: Record<string, string> = {
   inpaint: '局部重绘',
   charswap: '换人 · Viggle',
   videoReangle: '换机位 · CrossView',
+  videoOrbit: '360 环绕',
   audioRefine: '声音精修',
   gaussian: '3D高斯',
   gaussianViewer: '高斯查看',

@@ -59,7 +59,7 @@ DEFAULT_SECONDS = {
 HEAVY = {"h3", "viggle", "qwen", "flux2", "flashworld"}
 
 H3_TYPES = {"video", "video_edit", "video_edit_window", "video_cleanup", "video_continue_tail",
-            "wardrobe_swap_h3", "character_sheet", "video_reshot", "av_bridge", "reangle", "audio_refine"}
+            "wardrobe_swap_h3", "character_sheet", "video_reshot", "av_bridge", "reangle", "audio_refine", "orbit"}
 
 
 def base_family(family: str) -> str:

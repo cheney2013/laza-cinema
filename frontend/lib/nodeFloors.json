@@ -127,6 +127,10 @@
    "width": 340,
    "height": 420
   },
+  "videoOrbit": {
+   "width": 340,
+   "height": 380
+  },
   "wardrobeSwap": {
    "width": 300,
    "height": 340

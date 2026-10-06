@@ -508,6 +508,22 @@ export interface ReangleNodeData extends Record<string, unknown> {
 
 export type ReangleNode = Node<ReangleNodeData, 'videoReangle'>;
 
+/** 360 环绕: one picture circled by the camera while the scene stays frozen (backend /orbit). */
+export interface OrbitNodeData extends Record<string, unknown> {
+  generatedUrl: string | null;
+  status: string;
+  width: number;
+  height: number;
+  duration: number;
+  seed: number;
+  seedMode?: string;
+  loraStrength: number;
+  jobId?: string;
+  error?: string;
+}
+
+export type OrbitNode = Node<OrbitNodeData, 'videoOrbit'>;
+
 /** 声音精修: the sound of any clip redone against its frozen picture (backend /audio-refine). */
 export interface AudioRefineNodeData extends Record<string, unknown> {
   generatedUrl: string | null;

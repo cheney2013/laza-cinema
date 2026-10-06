@@ -67,7 +67,7 @@ MACHINE_PROFILES: dict[str, dict] = {
         # them in 32 GB of RAM. Presets are refused with a clear message; node types are hidden
         # from the studio and refused by the backend. Viggle's pruned build has no smaller version.
         "disabled_presets": ["fused", "hybrid", "ref2va_full", "hyperflow"],
-        "disabled_node_types": ["charswap"],
+        "disabled_node_types": ["charswap", "videoOrbit"],
         # Video enhance: the latent refine loads the fused int8 base (21 GB), so ESRGAN is the default
         # here and the latent method is refused. lms (same-size sharpen) runs on the substituted preset.
         "upscale_method": "esrgan",
@@ -139,7 +139,7 @@ def substitute_preset(name: str) -> str:
 
 
 #: Node type -> the backend job that runs it, for the message below.
-_NODE_LABELS = {"charswap": "换人 (Viggle)"}
+_NODE_LABELS = {"charswap": "换人 (Viggle)", "videoOrbit": "360 环绕"}
 
 
 def require_preset(name: str) -> None:

@@ -49,7 +49,7 @@ export interface StageLayoutOptions {
 }
 
 const GENERATOR_TYPES = new Set(['video', 'videoEdit', 'videoReshot', 'videoBridge', 'videoContinue', 'videoFrames',
-  'charswap', 'videoReangle', 'audioRefine']);
+  'charswap', 'videoReangle', 'videoOrbit', 'audioRefine']);
 const IMAGE_TYPES = new Set(['image']);
 const NOTE_TYPES = new Set(['prompt']);
 

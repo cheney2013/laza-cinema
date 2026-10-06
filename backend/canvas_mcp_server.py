@@ -290,6 +290,18 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "inputs": ["in-video", "in-ref-image"],
         "outputs": ["out-video"],
     },
+    "videoOrbit": {
+        "label": "360 环绕",
+        # One picture seen by a camera that circles the frozen scene (the 360-Orbit LoRA on H3 FL2VA).
+        # The picture on in-image is both first and last frame; the prompt is the LoRA's own fixed
+        # sentence, so the node has none. Official defaults: 768x768, LoRA 1.0, 3 s (28 steps, fixed).
+        # Measured: the swing is about +-120 degrees, not a full turn; a clear subject in the middle holds best.
+        "defaults": {"generatedUrl": None, "status": "idle", "width": 768, "height": 768,
+                     "duration": 3.0, "seed": 904231, "seedMode": "fixed",
+                     "loraStrength": 1.0},
+        "inputs": ["in-image"],
+        "outputs": ["out-video"],
+    },
     "titleBlock": {
         "label": "标题块",
         # tools/title_block.py `build`: a transparent PNG as tall as the cover, the logo (the picture on
@@ -1704,7 +1716,7 @@ def run_canvas_node(project: str, node_id: str, scene: str = "",
                     prompt_source: str = "") -> dict[str, Any]:
     """Start one visible canvas generation node and persist its queued job id.
 
-    Supports H3 video, videoEdit, videoUpscale, charswap, videoReangle, qwenImage, gaussian and audioGen nodes. Inputs are
+    Supports H3 video, videoEdit, videoUpscale, charswap, videoReangle, videoOrbit, qwenImage, gaussian and audioGen nodes. Inputs are
     resolved strictly from the node's incoming canvas edges, matching the
     studio UI. This starts the node
     but does not wait; call refresh_canvas_node until it reaches done or error.
@@ -2459,6 +2471,8 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         return _run_charswap_locked(resolved, canvas, node)
     if node.get("type") == "videoReangle":
         return _run_reangle_locked(resolved, canvas, node)
+    if node.get("type") == "videoOrbit":
+        return _run_orbit_locked(resolved, canvas, node)
     if node.get("type") == "audioRefine":
         return _run_audio_refine_locked(resolved, canvas, node)
     if node.get("type") == "characterSheet":
@@ -2474,7 +2488,7 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
     if node.get("type") == "audioGen":
         return _run_audio_gen_locked(resolved, canvas, node)
     if node.get("type") != "video":
-        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, depthVideo, charswap, videoReangle, audioRefine, characterSheet, qwenImage, titleBlock, gaussian and audioGen "
+        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, depthVideo, charswap, videoReangle, videoOrbit, audioRefine, characterSheet, qwenImage, titleBlock, gaussian and audioGen "
                          f"nodes, got {node.get('type')!r}.")
     data = node.setdefault("data", {})
     if data.get("status") == "generating" and data.get("jobId"):
@@ -3131,6 +3145,39 @@ def _run_reangle_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         "project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
         "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
         "revision": revision, "seed": payload["seed"], "input_counts": {"in-video": 1, "in-ref-image": len(refs)},
+    }
+
+
+def _run_orbit_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    """Start a 360 环绕 node (POST /orbit): the picture on in-image, circled by the camera."""
+    node_id = node["id"]
+    data = node.setdefault("data", {})
+    if data.get("status") == "generating" and data.get("jobId"):
+        return {"project_id": resolved["id"], "node_id": node_id,
+                "job_id": data["jobId"], "status": "already_generating"}
+    sources = _incoming_nodes(canvas, node_id, "in-image")
+    if len(sources) != 1:
+        raise ValueError(f"videoOrbit node {node_id} needs exactly one picture on in-image, has {len(sources)}.")
+    image_url = _node_url(sources[0])
+    if not image_url:
+        raise ValueError(f"videoOrbit node {node_id}: picture {sources[0].get('id')} has no file yet.")
+    payload = {
+        "image_url": image_url,
+        "width": int(data.get("width") or 768), "height": int(data.get("height") or 768),
+        "duration": float(data.get("duration") or 3.0),
+        "seed": int(data.get("seed") if data.get("seed") is not None else 904231),
+        "lora_strength": float(data.get("loraStrength") if data.get("loraStrength") is not None else 1.0),
+    }
+    submitted = _request("POST", "/orbit", json=payload, project_id=resolved["id"])
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "generating", "jobId": submitted["job_id"], "error": None,
+        "pendingTake": {"params": {k: payload[k] for k in ("width", "height", "duration", "seed",
+                                                            "lora_strength")}, "inputs": [image_url]},
+    }, canvas)
+    return {
+        "project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
+        "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
+        "revision": revision, "seed": payload["seed"], "input_counts": {"in-image": 1},
     }
 
 
@@ -3976,7 +4023,7 @@ def _adopt_locked(resolved: dict[str, Any], node_id: str, url: str, label: str |
                   set_prompt: bool, keep_url: bool) -> dict[str, Any]:
     canvas = _canvas(resolved["id"])
     node = _find_node(canvas["nodes"], node_id)
-    if node.get("type") not in {"video", *EDIT_TYPES, "charswap", "videoReangle"}:
+    if node.get("type") not in {"video", *EDIT_TYPES, "charswap", "videoReangle", "videoOrbit"}:
         raise ValueError(f"adopt_render needs a video-type node, got {node.get('type')!r}.")
 
     # The backend reads the file: it is on the backend's disk, and this MCP may be
@@ -4092,7 +4139,7 @@ _GROUP_HEADER_H = 34
 _GROUP_PADDING = 32
 
 _GENERATOR_TYPES = {"video", "videoEdit", "videoReshot", "videoBridge", "videoContinue", "videoFrames",
-                    "charswap", "videoReangle"}
+                    "charswap", "videoReangle", "videoOrbit"}
 _IMAGE_TYPES = {"image"}
 _NOTE_TYPES = {"prompt"}
 STAGE_NAMES = ("notes", "inputs", "plates", "frames", "references", "segments", "dock")

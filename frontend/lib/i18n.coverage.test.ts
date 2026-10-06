@@ -52,7 +52,7 @@ function unescapeLiteral(raw: string): string {
  */
 const SAME_IN_BOTH = new Set([
   '素材', '未使用', '保存中…', '管理', '字幕', '音量', '保存', '文', '空',
-  '水平', '垂直', '左', '右', '固定', '生成', '正方形',
+  '水平', '垂直', '左', '右', '固定', '生成', '正方形', '秒数',
   // 生成图片 node's speed picker label: 速度 is the Japanese word for it too
   '速度',
   // the same words with the punctuation or icon they are rendered with
