@@ -189,8 +189,10 @@
         <span class="ctrl-help" id="ctrlHelp">拖拽转头 · WASD 移动 · Space/E 升 Q/C 降 · Shift 加速 · 滚轮调速 · M 切换环绕</span>
     </div>
 
-    <!-- gsplat.js bundle -->
-    <script src="/gaussian/js/gsplat-bundle.js"></script>
+    <!-- gsplat.js bundle (patched: see its first line): the depth index goes to the GPU once per sort, not every frame.
+         ?v= because the browser would otherwise keep the old bundle. -->
+    <script src="/gaussian/js/gsplat-bundle.js?v=5"></script>
+    <script src="/gaussian/js/gs_ply_loader.js?v=1"></script>
     <script src="/gaussian/js/precise_orbit_controls.js"></script>
     <script src="/gaussian/js/fly_controls.js"></script>
 
@@ -299,6 +301,9 @@
 
                 ['pointerdown', 'pointermove', 'wheel', 'keydown', 'input', 'change', 'message', 'resize'].forEach((type) =>
                     window.addEventListener(type, wakeRender, { passive: true }));
+                // A sort that lands after the render tail (a big splat, the first sort after loading) would otherwise
+                // wait for the next input before it is drawn.
+                window.addEventListener('gsplat-sorted', wakeRender);
                 startRenderLoop();
 
                 // If we have a file param, load immediately
@@ -470,12 +475,19 @@
                     nativeImageHeight = null;
                 }
 
-                const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
-                const blobUrl = URL.createObjectURL(blob);
-
                 loadingText.textContent = '正在解析高斯泼溅数据...';
-                await SPLAT.PLYLoader.LoadAsync(blobUrl, scene);
-                URL.revokeObjectURL(blobUrl);
+                // gs_ply_loader.js builds the same SplatData as gsplat's PLYLoader, bit for bit, in a tenth of the
+                // time (13 M splat route: 0.54 s against 3.3 s of parsing plus 0.5 s handing the file through a
+                // Blob, 2026-10-06). It takes the usual all-float layout; any other file goes to gsplat's parser.
+                const parsed = window.parseGaussianPly ? window.parseGaussianPly(arrayBuffer) : null;
+                if (parsed) {
+                    scene.addObject(new SPLAT.Splat(new SPLAT.SplatData(
+                        parsed.vertexCount, parsed.positions, parsed.rotations, parsed.scales, parsed.colors)));
+                } else {
+                    const magic = new Uint8Array(arrayBuffer, 0, Math.min(4, arrayBuffer.byteLength));
+                    if (magic[0] !== 112 || magic[1] !== 108 || magic[2] !== 121 || magic[3] !== 10) throw new Error('Invalid PLY file');
+                    SPLAT.PLYLoader.LoadFromArrayBuffer(arrayBuffer, scene);
+                }
 
                 if (scene.objects && scene.objects.length > 0) {
                     currentSplat = scene.objects[scene.objects.length - 1];

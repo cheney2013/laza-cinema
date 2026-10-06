@@ -1,3 +1,5 @@
+// Patched (ai-cinima, 2026-10-06): the depth index is uploaded when a new sort arrives (onmessage), not again
+// every frame, and a new sort fires window event "gsplat-sorted", so a page that renders on demand can draw it.
 var GSPLAT = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -1860,7 +1862,7 @@ void main () {
         this._worker = Vt(), this._worker.onmessage = (V) => {
           if (V.data.depthIndex) {
             const { depthIndex: w } = V.data;
-            this._depthIndex = w, e.bindBuffer(e.ARRAY_BUFFER, Z), e.bufferData(e.ARRAY_BUFFER, w, e.STATIC_DRAW);
+            this._depthIndex = w, e.bindBuffer(e.ARRAY_BUFFER, Z), e.bufferData(e.ARRAY_BUFFER, w, e.STATIC_DRAW), typeof window < "u" && window.dispatchEvent(new Event("gsplat-sorted"));
           }
         };
       };
@@ -1959,7 +1961,7 @@ void main () {
             [V.buffer, w.buffer, P.buffer]
           ), this.renderData.dataChanged = false, this.renderData.transformsChanged = false, this.renderData.colorTransformsChanged = false;
         }
-        this._camera.update(), this._worker?.postMessage({ viewProj: this._camera.data.viewProj.buffer }), e.viewport(0, 0, i.width, i.height), e.clearColor(0, 0, 0, 0), e.clear(e.COLOR_BUFFER_BIT), e.disable(e.DEPTH_TEST), e.enable(e.BLEND), e.blendFuncSeparate(e.ONE_MINUS_DST_ALPHA, e.ONE, e.ONE_MINUS_DST_ALPHA, e.ONE), e.blendEquationSeparate(e.FUNC_ADD, e.FUNC_ADD), e.uniformMatrix4fv(A, false, this._camera.data.projectionMatrix.buffer), e.uniformMatrix4fv(r, false, this._camera.data.viewMatrix.buffer), e.bindBuffer(e.ARRAY_BUFFER, W), e.vertexAttribPointer(B, 2, e.FLOAT, false, 0, 0), e.bindBuffer(e.ARRAY_BUFFER, Z), e.bufferData(e.ARRAY_BUFFER, this.depthIndex, e.STATIC_DRAW), e.vertexAttribIPointer(C, 1, e.INT, 0, 0), e.vertexAttribDivisor(C, 1), e.drawArraysInstanced(e.TRIANGLE_FAN, 0, 4, this.depthIndex.length);
+        this._camera.update(), this._worker?.postMessage({ viewProj: this._camera.data.viewProj.buffer }), e.viewport(0, 0, i.width, i.height), e.clearColor(0, 0, 0, 0), e.clear(e.COLOR_BUFFER_BIT), e.disable(e.DEPTH_TEST), e.enable(e.BLEND), e.blendFuncSeparate(e.ONE_MINUS_DST_ALPHA, e.ONE, e.ONE_MINUS_DST_ALPHA, e.ONE), e.blendEquationSeparate(e.FUNC_ADD, e.FUNC_ADD), e.uniformMatrix4fv(A, false, this._camera.data.projectionMatrix.buffer), e.uniformMatrix4fv(r, false, this._camera.data.viewMatrix.buffer), e.bindBuffer(e.ARRAY_BUFFER, W), e.vertexAttribPointer(B, 2, e.FLOAT, false, 0, 0), e.bindBuffer(e.ARRAY_BUFFER, Z), e.vertexAttribIPointer(C, 1, e.INT, 0, 0), e.vertexAttribDivisor(C, 1), e.drawArraysInstanced(e.TRIANGLE_FAN, 0, 4, this.depthIndex.length);
       }, this._dispose = () => {
         if (!this._scene || !this._camera || !this.renderData) {
           console.error("Cannot dispose without scene and camera");

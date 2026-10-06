@@ -1010,11 +1010,19 @@ class _RevalidatingStaticFiles(StaticFiles):
     Chrome keeps the old bytes by heuristic and keeps playing the old file
     after the disk has changed (2026-09-06). ETag/Last-Modified revalidation
     is one cheap 304 per load; a stale media file cost an hour.
+
+    Files go out 1 MB at a time, not Starlette's 64 KB: the per-chunk cost,
+    not the disk, was the limit. A 740 MB route splat reached the gaussian
+    viewer in 0.55 s instead of 2.2 s (2026-10-06).
     """
+
+    CHUNK_SIZE = 1024 * 1024
 
     def file_response(self, *args, **kwargs):  # type: ignore[override]
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "no-cache"
+        if isinstance(response, FileResponse):
+            response.chunk_size = self.CHUNK_SIZE
         return response
 
 
@@ -1046,9 +1054,9 @@ class _AllowListStaticFiles(StaticFiles):
         return super().lookup_path(path)
 
 
-# What the viewer pages load from /gaussian/js/: gaussian_viewer.html its three
+# What the viewer pages load from /gaussian/js/: gaussian_viewer.html its four
 # scripts, pose_viewer.html the mannequin and foot models.
-_VIEWER_ASSETS = ("gsplat-bundle.js", "precise_orbit_controls.js", "fly_controls.js",
+_VIEWER_ASSETS = ("gsplat-bundle.js", "gs_ply_loader.js", "precise_orbit_controls.js", "fly_controls.js",
                   "anime_basic_female.fbx", "foot.fbx")
 app.mount("/gaussian/js", CORSMiddleware(_AllowListStaticFiles(directory=_BACKEND_DIR, names=_VIEWER_ASSETS), allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]), name="gaussian_js")
 
