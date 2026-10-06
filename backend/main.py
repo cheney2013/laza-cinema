@@ -8843,10 +8843,13 @@ async def gaussian_render_view(req: GaussianViewRequest):
 class RouteGaussianRequest(BaseModel):
     """Several clips of one continuous camera move, in route order -> one splat (see route_gs.py).
 
-    clip_urls: the clips' video files (/comfy_output/... or /uploads/...). frame_step: sample every n-th frame
-    (widened so that no run gets more than max_frames frames). shared_frames: how many sampled frames of a clip
-    are repeated at the start of the next one, to align them. metres_per_unit: the first clip's reconstruction
-    unit in metres -- an assumption, nothing measures it.
+    clip_urls: the clips' video files (/comfy_output/... or /uploads/...). frame_step: with adaptive_frames off,
+    sample every n-th frame (widened so that no run gets more than max_frames frames); with it on, frames follow
+    how far the picture moves (route_gs._demand) and frame_step only makes them sparser; a clip that needs more
+    frames than a run holds is reconstructed in parts (route_gs._clip_parts). shared_frames: how many sampled
+    frames of a clip (or part) are repeated at the start of the next one, to align them. metres_per_unit: the
+    first clip's reconstruction unit in metres -- an assumption, nothing measures it. The result lists
+    pose_breaks.
     """
     clip_urls: list[str]
     frame_step: int = 9

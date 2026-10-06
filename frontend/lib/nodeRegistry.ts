@@ -579,6 +579,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     color: '#14b8a6',
     inputs: [
       { id: 'in-image', portType: 'image', label: '渲染参考图', acceptedTypes: ['image', 'character'] },
+      // the clips the route splat is built from, in route order (edge order): build_route_gaussian wires them
+      { id: 'in-route-source', portType: 'video', label: '路线源视频（按连线顺序建成路线高斯）', acceptedTypes: ['video'] },
       // H3 pans that start on a frame of the route splat this node holds: added to it, bent onto the route's street
       { id: 'in-video', portType: 'video', label: '转身视频（接到路线高斯上）', acceptedTypes: ['video'] },
       // clips that continue the route: one starting on its last frame goes after it, one ending on its first before it

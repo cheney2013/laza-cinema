@@ -447,11 +447,14 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "defaults": {"plyUrl": None, "plyFilename": None, "plyOriginalName": None,
                      "generatedUrl": None, "status": "idle", "engine": "sharp",
                      "worldTrajectory": "ring", "worldPrompt": ""},
+        # in-route-source: the clips the route splat is built from, in route order (= edge order) --
+        # build_route_gaussian wires them; run_canvas_node builds the route again from them, with the node's
+        # routeSettings, when they are no longer the clips it was built from (routeClips / routeClipUrls).
         # in-video: generated turns (H3 pans that start on a frame of the route) to add to the route splat
         # this node holds -- run_canvas_node / append_route_turn bend them onto the route's street.
         # in-route: clips that continue the route at its start or end (one starting on its last frame, or ending on
         # its first) -- run_canvas_node / extend_route add them and put the in-video turns back on.
-        "inputs": ["in-image", "in-video", "in-route"],
+        "inputs": ["in-image", "in-route-source", "in-video", "in-route"],
         "outputs": ["out-image", "out-gaussian"],  # out-image: the screenshot of the current view; out-gaussian: the point cloud
     },
     "preview": {
@@ -2162,9 +2165,14 @@ def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = 
 
     For a long walk (a street, a corridor) made of H3 clips continued with motion context: each clip is
     reconstructed with WorldMirror 2.0, neighbouring clips are aligned from frames they share, and the splats
-    are merged into one frame (backend/route_gs.py). It takes a few minutes per clip and most of the GPU, so
-    ComfyUI is unloaded first. The result lands on a gaussian node (created here, or `node_id` if it exists):
-    poll with refresh_canvas_node until its plyUrl appears.
+    are merged into one frame (backend/route_gs.py). Frames are sampled by how far the picture moves (at most
+    0.35 s and 8% of the frame width apart, so a fast swing gets them densely); a clip that needs more than a run
+    holds (e.g. 28 s of the original game) is split into parts at its calmest moments, each a run of its own
+    chained like clips. It takes a few minutes per run and most of the GPU, so ComfyUI is unloaded first. The
+    result lands on a gaussian node (created here, or `node_id` if it exists), with the clips wired into its
+    in-route-source in route order and these settings kept on it (routeSettings): poll with refresh_canvas_node
+    until its plyUrl appears; that reply then lists pose_breaks: camera steps far faster than the route moves,
+    where the reconstruction lost track (check those stretches before trusting the splat there).
 
     clip_node_ids: video nodes with a finished clip, first to last. shared_frames: sampled frames each clip
     repeats from the one before (3 at least). metres_per_unit: how many metres the first clip's reconstruction
@@ -2181,29 +2189,55 @@ def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = 
     """
     resolved = _resolve_project(project, scene)
     canvas = _canvas(resolved["id"])
-    urls = []
-    for cid in clip_node_ids:
-        url = _node_url(_find_node(canvas["nodes"], cid))
+    clips = [_find_node(canvas["nodes"], cid) for cid in clip_node_ids]
+    settings = {"frame_step": frame_step, "shared_frames": shared_frames, "metres_per_unit": metres_per_unit,
+                "mask_people": mask_people, "adaptive_frames": adaptive_frames, "mask_fallback": mask_fallback,
+                "frame_width": frame_width}
+    return _start_route_build(resolved, canvas, clips, settings, node_id=node_id, label=label)
+
+
+# what build_route_gaussian takes when a node has no routeSettings of its own
+ROUTE_BUILD_DEFAULTS = {"frame_step": 9, "shared_frames": 5, "metres_per_unit": 30.5, "mask_people": False,
+                        "adaptive_frames": True, "mask_fallback": False, "frame_width": 704}
+
+
+def _start_route_build(resolved: dict[str, Any], canvas: dict[str, Any], clips: list[dict[str, Any]],
+                       settings: dict[str, Any], node_id: str = "", label: str = "") -> dict[str, Any]:
+    """Queue POST /generate-route-gaussian for clip nodes in route order, onto gaussian node `node_id` (made when
+    missing). The clips end up wired into its in-route-source in that order -- the canvas shows what the route
+    was built from -- and the node keeps the settings, so run_canvas_node can build it again the same way."""
+    ids, urls = [], []
+    for clip in clips:
+        url = _node_url(clip)
         if not url:
-            raise ValueError(f"{cid} has no finished clip yet.")
+            raise ValueError(f"{clip.get('id')} has no finished clip yet.")
+        ids.append(clip["id"])
         urls.append(url)
-    submitted = _request("POST", "/generate-route-gaussian", json={
-        "clip_urls": urls, "frame_step": frame_step, "shared_frames": shared_frames,
-        "metres_per_unit": metres_per_unit, "mask_people": mask_people,
-        "adaptive_frames": adaptive_frames, "mask_fallback": mask_fallback, "frame_width": frame_width}, project_id=resolved["id"])
+    settings = {**ROUTE_BUILD_DEFAULTS, **{k: v for k, v in settings.items() if k in ROUTE_BUILD_DEFAULTS}}
+    submitted = _request("POST", "/generate-route-gaussian", json={"clip_urls": urls, **settings},
+                         project_id=resolved["id"])
     nid = node_id or f"route-gs-{submitted['job_id'][:6]}"
     data = {"engine": "flashworld", "worldTrajectory": "ring", "status": "loading",
             "worldJobId": submitted["job_id"], "error": None, "plyUrl": None,
-            "routeClips": list(clip_node_ids),
+            "routeClips": ids, "routeClipUrls": urls, "routeSettings": settings, "routePoseBreaks": None,
             # a rebuilt route has none of the clips or turns the node's last route had added
-            "routeBasePly": None, "routeCorePly": None, "routeExtendUrls": None, "routeTurnUrls": None,
-            "label": label or f"路线高斯 · {len(urls)} 段（{' → '.join(clip_node_ids)}）· 生成中"}
-    if any(n.get("id") == nid for n in canvas["nodes"]):
-        revision = _save_node_data(resolved["id"], nid, data, canvas)
-    else:
-        added = apply_canvas_operations(project, [{"op": "add_node", "type": "gaussian", "id": nid,
-                                                   "width": 360, "data": data}], scene=scene)
-        revision = added.get("revision")
+            "routeBasePly": None, "routeCorePly": None, "routeExtendUrls": None, "routeTurnUrls": None}
+    with _hold_lock(resolved["id"], 60, f"route build {nid}"):
+        live = _canvas(resolved["id"])
+        existing = next((n for n in live["nodes"] if n.get("id") == nid), None)
+        if label or not existing:
+            data["label"] = label or f"路线高斯 · {len(urls)} 段（{' → '.join(ids)}）· 生成中"
+        ops: list[dict[str, Any]] = []
+        if existing:
+            ops.append({"op": "update_node", "id": nid, "data": data})
+            wired = [e for e in live["edges"] if e.get("target") == nid and e.get("targetHandle") == "in-route-source"]
+            if [e.get("source") for e in wired] != ids:       # edge order is route order: wire them again
+                ops += [{"op": "remove_edge", "id": e["id"]} for e in wired]
+                ops += [{"op": "add_edge", "source": c, "target": nid, "target_handle": "in-route-source"} for c in ids]
+        else:
+            ops.append({"op": "add_node", "type": "gaussian", "id": nid, "width": 360, "data": data})
+            ops += [{"op": "add_edge", "source": c, "target": nid, "target_handle": "in-route-source"} for c in ids]
+        revision = _apply_locked(resolved, ops, None).get("revision")
     return {"project_id": resolved["id"], "node_id": nid, "job_id": submitted["job_id"],
             "status": submitted.get("status", "queued"), "revision": revision, "clips": len(urls)}
 
@@ -3106,16 +3140,24 @@ def _run_gaussian_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     if data.get("worldJobId"):
         return {"project_id": resolved["id"], "node_id": node_id,
                 "job_id": data["worldJobId"], "status": "already_generating"}
+    sources = _incoming_nodes(canvas, node_id, "in-route-source")
     extensions = _incoming_nodes(canvas, node_id, "in-route")
+    turns = _incoming_nodes(canvas, node_id, "in-video")
+    built_from = ([n.get("id") for n in sources] == list(data.get("routeClips") or [])
+                  and [_node_url(n) for n in sources] == list(data.get("routeClipUrls") or []))
+    if sources and (not built_from or not data.get("plyUrl") or not (extensions or turns)):
+        # the route itself first: its clips changed (or nothing else is wired to run); clips added at its ends
+        # and turns go on in later runs, onto the new route
+        return _start_route_build(resolved, canvas, sources, dict(data.get("routeSettings") or {}), node_id=node_id)
     if extensions:              # puts the in-video turns back on as well
         return _start_route_extend(resolved, canvas, node, extensions)
-    turns = _incoming_nodes(canvas, node_id, "in-video")
     if turns:
         return _start_route_turn(resolved, canvas, node, turns)
-    sources = _incoming_nodes(canvas, node_id, "in-image")
-    if not sources or not _node_url(sources[0]):
-        raise ValueError(f"gaussian node {node_id} needs a finished picture on in-image.")
-    image_url = _node_url(sources[0])
+    pictures = _incoming_nodes(canvas, node_id, "in-image")
+    if not pictures or not _node_url(pictures[0]):
+        raise ValueError(f"gaussian node {node_id} needs a finished picture on in-image "
+                         "(or clips on in-route-source to build a route splat from).")
+    image_url = _node_url(pictures[0])
     if (data.get("engine") or "sharp") == "flashworld":
         trajectory = data.get("worldTrajectory") or "ring"
         body = {"image_url": image_url, "prompt": str(data.get("worldPrompt") or ""), "trajectory": trajectory}
@@ -4876,9 +4918,11 @@ def refresh_canvas_node(project: str, node_id: str, scene: str = "") -> dict[str
                     "routeCorePly": result.get("core_url") or data.get("routeCorePly"),
                     **({"routeExtendWhere": {e["url"]: e["where"] for e in result["extensions"] if e.get("url")}}
                        if isinstance(result.get("extensions"), list) else {}),
+                    **({"routePoseBreaks": result["pose_breaks"]} if isinstance(result.get("pose_breaks"), list) else {}),
                     "status": "loading", "worldJobId": None, "worldJobKind": None, "error": None}, canvas)
             return {"project_id": resolved["id"], "node_id": node_id, "status": "done",
-                    "ply_url": ply, "revision": revision}
+                    "ply_url": ply, "revision": revision,
+                    **{k: result[k] for k in ("runs", "pose_breaks", "route_length_m") if k in result}}
         if status in {"error", "cancelled"}:
             with _hold_lock(resolved["id"], 30, f"refresh {node_id}"):
                 revision = _save_node_data(resolved["id"], node_id, {

@@ -4,7 +4,8 @@ Route splat: several video clips of one continuous camera move -> one gaussian s
 Why it exists: a long walk (a street, a corridor) is too long for one reconstruction, and splats made from separate
 single pictures do not agree with each other.  A chain of H3 clips continued with motion context does agree.  So:
 
-  1. Sample frames from each clip (a few dozen at most per run: WorldMirror's memory grows with the frame count).
+  1. Sample frames from each clip by how far the picture moves (a few dozen at most per run: WorldMirror's memory
+     grows with the frame count); a clip that needs more is reconstructed in parts, chained like clips.
   2. Run WorldMirror 2.0 (HY-World-2.0, reconstruction only) on every clip.  Each run puts the clip's first camera at
      the origin and picks its own scale.  Clip k > 0 also gets the last `shared` sampled frames of clip k-1 (the same
      image files), so those views have a camera in both runs.
@@ -56,21 +57,54 @@ def _frame_count(video: Path) -> int:
     return int(out) if out.isdigit() else 0
 
 
-def _motion_profile(video: Path, total: int, size: int = 96) -> np.ndarray:
-    """Mean absolute grey difference between consecutive frames (length total, first entry 0), from a
-    tiny ffmpeg decode. Camera motion and moving subjects both show up, which is what the sampler wants."""
+PART_GAP_S = 0.35   # samples at most this far apart in time (d4's 12 s runs, 0.33-0.38 s apart, held) ...
+GAP_FLOW = 0.08     # ... and in image motion: this fraction of the frame width (a swing 0.16-0.22 apart lost track
+                    # in route-gs-1136 at 720.5 s, 0.06 apart it held)
+ONE_RUN_SLACK = 1.4  # a clip stays one run while it needs at most this many times a run's frames
+
+
+def _flow_profile(video: Path, total: int, width: int = 160) -> np.ndarray:
+    """Per frame (length total, first entry 0), how far the picture moved since the frame before, as a fraction of
+    the frame width: the median of DIS optical flow on small contrast-equalised grey frames.  That is what decides
+    whether two samples still show the same things.  The grey difference the sampler followed before barely rose in
+    a dark, fast swing (route-gs-1136 at 720.5 s: 1.4-2.6 against 2.2-3.0 in the calmer stretch before it) where the
+    flow stood at six times its median."""
+    import cv2
+    try:
+        _, W, H = _probe(video)
+    except Exception:
+        W, H = 16, 9
+    h = max(2, int(round(width * H / W / 2)) * 2)
     proc = subprocess.run(
         [os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-i", str(video), "-vf",
-         f"scale={size}:{size // 2 * 2}:flags=area,format=gray", "-f", "rawvideo", "-"],
+         f"scale={width}:{h}:flags=area,format=gray", "-f", "rawvideo", "-"],
         capture_output=True, timeout=600)
     fr = np.frombuffer(proc.stdout, np.uint8)
-    n = fr.size // (size * (size // 2 * 2))
+    n = min(total, fr.size // (width * h))
+    out = np.zeros(total)
     if n < 2:
-        return np.zeros(total)
-    fr = fr[: n * size * (size // 2 * 2)].reshape(n, -1).astype(np.int16)
-    m = np.zeros(total)
-    m[1:n] = np.abs(np.diff(fr, axis=0)).mean(axis=1)
-    return m
+        return out
+    fr = fr[: n * width * h].reshape(n, h, width)
+    clahe = cv2.createCLAHE(2.0, (4, 4))
+    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_FAST)
+    prev = clahe.apply(fr[0])
+    for i in range(1, n):
+        cur = clahe.apply(fr[i])
+        f = dis.calc(prev, cur, None)
+        out[i] = float(np.median(np.hypot(f[..., 0], f[..., 1]))) / width
+        prev = cur
+    return out
+
+
+def _demand(total: int, fps: float, step: int, flow: Optional[np.ndarray] = None) -> np.ndarray:
+    """The samples each frame asks for: one per PART_GAP_S of time (or per `step` frames, when that is sparser) or
+    one per GAP_FLOW of image motion, whichever is more.  Summed over a stretch it is the frames that stretch needs,
+    and samples at equal steps of it are never further apart than either allows."""
+    gap_frames = max(float(step), PART_GAP_S * fps) if fps else float(max(1, step))
+    d = np.full(total, 1.0 / gap_frames)
+    if flow is not None and len(flow) >= total:
+        d = np.maximum(d, np.asarray(flow[:total], dtype=np.float64) / GAP_FLOW)
+    return d
 
 
 def pick_frame_indices(total: int, count: int, motion: Optional[np.ndarray] = None, mix: float = 0.5) -> list[int]:
@@ -90,20 +124,31 @@ def pick_frame_indices(total: int, count: int, motion: Optional[np.ndarray] = No
 
 
 def sample_frames(video: Path, out_dir: Path, step: int, max_frames: int, width: int = 704,
-                  adaptive: bool = True, ends: bool = False) -> list[Path]:
-    """About total/step frames (at most `max_frames`), as PNG files of the given width. With `adaptive` the
-    frames follow the clip's motion instead of a fixed step; with `ends` they are evenly spaced from the very first
-    frame to the last (a turn made from a picture has to start on that picture). ffmpeg does the decoding: the
-    backend's venv has no video reader of its own."""
+                  adaptive: bool = True, ends: bool = False, part: Optional[tuple[int, int]] = None,
+                  demand: Optional[np.ndarray] = None) -> list[Path]:
+    """Frames of the clip as PNG files of the given width, at most `max_frames`. With `adaptive` they follow how far
+    the picture moves (_demand: as many as the clip needs to keep them PART_GAP_S apart in time and GAP_FLOW in
+    image motion, denser through a swing); otherwise about one every `step` frames; with `ends` evenly spaced from
+    the very first frame to the last (a turn made from a picture has to start on that picture). part: only frames
+    [start, stop) of the clip (indices.json still counts from the clip's first frame); demand: the clip's _demand,
+    if the caller has it already. ffmpeg does the decoding: the backend's venv has no video reader of its own."""
     out_dir.mkdir(parents=True, exist_ok=True)
     total = _frame_count(video)
     if not total:
         raise RuntimeError(f"cannot read {video.name}")
-    count = min(max_frames, math.ceil(total / step))
+    lo, hi = (max(0, part[0]), min(total, part[1])) if part else (0, total)
     if ends:
-        idx = sorted(set(int(round(i)) for i in np.linspace(0, total - 1, count)))
+        count = min(max_frames, math.ceil((hi - lo) / step))
+        idx = sorted(set(int(round(i)) for i in np.linspace(lo, hi - 1, count)))
+    elif adaptive:
+        if demand is None:
+            demand = _demand(total, _probe(video)[0], step, _flow_profile(video, total))
+        d = demand[lo:hi]
+        count = min(max_frames, max(2, math.ceil(float(d.sum()))))
+        idx = [lo + i for i in pick_frame_indices(hi - lo, count, d, mix=1.0)]
     else:
-        idx = pick_frame_indices(total, count, _motion_profile(video, total) if adaptive else None)
+        count = min(max_frames, math.ceil((hi - lo) / step))
+        idx = [lo + i for i in pick_frame_indices(hi - lo, count)]
     expr = "+".join(f"eq(n\\,{i})" for i in idx)
     proc = subprocess.run(
         [os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-i", str(video), "-vf",
@@ -200,11 +245,13 @@ def comfy_free() -> None:
         pass
 
 
-def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window: int = 60) -> dict:
+def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window: int = 60,
+                part: Optional[tuple[int, int]] = None) -> dict:
     """Decode `clip` at `dense_fps` and queue SAM 3.1 video tracking of "person" in ComfyUI (SAM3_VideoTrack).
     The tracker needs consecutive frames, so the whole clip is tracked, in windows of `window` frames: one long
     run loses people in the fire and smoke, and every window starts again by detecting everyone in its first
-    frame. All windows are queued at once so ComfyUI runs them back to back. Returns what sam3_collect needs."""
+    frame. All windows are queued at once so ComfyUI runs them back to back. part: only frames [start, stop) of the
+    clip (a clip reconstructed in parts). Returns what sam3_collect needs."""
     import urllib.request
     src_fps, W, H = _probe(clip)
     # SAM 3 squeezes every frame to 1008x1008.  Fed a 704x396 frame it stretched people 1.4x wide and 2.5x tall
@@ -215,7 +262,11 @@ def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window:
     pad_top = (SAM3_SIZE - h) // 2
     shutil.rmtree(dense_dir, ignore_errors=True)
     dense_dir.mkdir(parents=True)
-    subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-i", str(clip), "-vf",
+    t0, seek = 0.0, []
+    if part:
+        t0 = part[0] / src_fps
+        seek = ["-ss", f"{t0:.4f}", "-t", f"{(part[1] - part[0]) / src_fps:.4f}"]
+    subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", *seek, "-i", str(clip), "-vf",
                     f"fps={dense_fps},scale={w}:{h},pad={SAM3_SIZE}:{SAM3_SIZE}:0:{pad_top}:black",
                     str(dense_dir / "d_%04d.png")], check=True, timeout=900)
     n_dense = len(list(dense_dir.glob("d_*.png")))
@@ -236,7 +287,7 @@ def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window:
         req = urllib.request.Request(COMFY_URL + "/prompt", json.dumps({"prompt": wf}).encode(), {"Content-Type": "application/json"})
         pids.append(json.loads(urllib.request.urlopen(req, timeout=60).read())["prompt_id"])
     return {"pids": pids, "tag": tag, "n_dense": n_dense, "src_fps": src_fps, "dense_fps": dense_fps, "dense_dir": dense_dir,
-            "pad_top": pad_top, "inner_h": h}
+            "pad_top": pad_top, "inner_h": h, "t0": t0}
 
 
 def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 6, timeout: int = 3600,
@@ -270,7 +321,7 @@ def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 6
     idx = json.loads((frames_dir / "indices.json").read_text())
     mask_dir.mkdir(parents=True, exist_ok=True)
     for f, fi in zip(sorted(frames_dir.glob("b_*.png")), idx):
-        j = min(n_dense - 1, max(0, round(fi / job["src_fps"] * job["dense_fps"])))
+        j = min(n_dense - 1, max(0, round((fi / job["src_fps"] - job.get("t0", 0.0)) * job["dense_fps"])))
         m = None
         for k in (j - 1, j, j + 1):
             if 0 <= k < n_dense:
@@ -715,18 +766,86 @@ def append_view_splat(base_ply: Path, out_ply: Path, new_run: Path, anchor_run: 
 
 
 # --------------------------------------------------------------------------------------------- pipeline
-PIPELINE_VERSION = "3"    # bump when frame sampling or masking changes: old cache entries then stop matching
+PIPELINE_VERSION = "4"    # bump when frame sampling or masking changes: old cache entries then stop matching
+                          # (4: samples follow optical flow, long clips in parts)
+
+
+POSE_JUMP = 5.0     # a camera step this many times the route's median speed is reported as a break
 
 
 def _clip_key(clip: Path, prev_key: str, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, index,
-              frame_width=704, version: Optional[str] = None) -> str:
+              frame_width=704, version: Optional[str] = None, part: Optional[tuple[int, int]] = None) -> str:
     h = hashlib.sha1()
     with open(clip, "rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
             h.update(block)
     h.update(json.dumps([version or PIPELINE_VERSION, prev_key, frame_step, shared, max_frames, adaptive, mask_people,
                          mask_fallback, index > 0, frame_width]).encode())
+    if part:            # a clip in one run is keyed as it always was
+        h.update(json.dumps({"part": [int(part[0]), int(part[1])]}).encode())
     return h.hexdigest()[:20]
+
+
+def _clip_parts(total: int, fps: float, step: int, budget: int, own_budget: int,
+                flow: Optional[np.ndarray] = None) -> list[Optional[tuple[int, int]]]:
+    """How a clip is reconstructed: [None] is one run, as always; otherwise the frame ranges [start, stop) of
+    consecutive parts, each a WorldMirror run of its own chained to the part before through shared frames, like
+    the clips of a route.  A clip is split when it needs (_demand) more than ONE_RUN_SLACK times the `budget` frames
+    of one run: 28 s of the original game in one run, 0.78 s apart, lost track in a fast swing at 720.5 s and put
+    the last three seconds 20.7 m back down the route; in three parts, 0.3 s apart, it still did; with the swing
+    0.07 s apart it held (route-gs-1136, 2026-10-06).  The parts take equal shares of the need at `own_budget`
+    frames (a later part also carries the shared frames), and each cut moves to the calmest half second within a
+    sixth of a part of it: the shared frames should not be a swing."""
+    if not total or not fps or step <= 0 or budget <= 0:
+        return [None]
+    d = _demand(total, fps, step, flow)
+    need = float(d.sum())
+    if need <= budget * ONE_RUN_SLACK:
+        return [None]
+    n = max(2, math.ceil(need / max(1, own_budget)))
+    cum = np.cumsum(d)
+    size = total / n
+    smooth = None
+    if flow is not None and len(flow) >= total:
+        win = max(1, int(round(fps / 2)))
+        smooth = np.convolve(np.asarray(flow[:total], dtype=np.float64), np.ones(win) / win, mode="same")
+    cuts = []
+    for k in range(1, n):
+        c = int(np.searchsorted(cum, k * need / n))
+        if smooth is not None:
+            r = max(1, int(size / 6))
+            lo, hi = max(1, c - r), min(total - 1, c + r + 1)
+            near = np.abs(np.arange(lo, hi) - c) * 1e-12          # ties (a still stretch) stay at the even cut
+            c = lo + int(np.argmin(smooth[lo:hi] + near))
+        cuts.append(min(max(c, 1), total - 1))
+    edges = sorted({0, total, *cuts})
+    return [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
+
+
+def _pose_breaks(route: list, times: list) -> list[dict]:
+    """Steps between consecutive route cameras far faster than the route's median: WorldMirror lost track there and
+    put frames where the camera cannot have been (route-gs-1136 before parts: 20.7 m in 0.78 s, 11x the median).
+    times: per route camera (clip number, seconds into that clip) or None; no step is timed across two clips."""
+    P = np.asarray(route, dtype=np.float64)
+    if len(P) < 3 or len(times) != len(P):
+        return []
+    steps = np.linalg.norm(np.diff(P, axis=0), axis=1)
+    speeds = []
+    for i in range(1, len(P)):
+        a, b = times[i - 1], times[i]
+        ok = a is not None and b is not None and a[0] == b[0] and b[1] > a[1]
+        speeds.append(steps[i - 1] / (b[1] - a[1]) if ok else None)
+    valid = [v for v in speeds if v is not None]
+    if not valid:
+        return []
+    med = float(np.median(valid))
+    out = []
+    for i, v in enumerate(speeds):
+        if v is not None and med > 0 and v > POSE_JUMP * med and steps[i] > 1.0:
+            out.append({"clip": int(times[i][0]), "from_s": round(float(times[i][1]), 2),
+                        "to_s": round(float(times[i + 1][1]), 2), "jump_m": round(float(steps[i]), 2),
+                        "times_median_speed": round(float(v / med), 1)})
+    return out
 
 
 def _align_runs(runs: list[dict]) -> tuple[list[tuple], list[dict]]:
@@ -755,12 +874,13 @@ def _run_dir(out: Path) -> Path:
 
 
 def _manifest(clips: list[Path], cdirs: list[Path], runs: list[dict], T: list[tuple], metres_per_unit: float,
-              frame_width: int, settings: Optional[dict] = None) -> dict:
+              frame_width: int, settings: Optional[dict] = None, parts: Optional[list] = None) -> dict:
     """What a later step needs to place something on a finished route: per clip its cache folder, WorldMirror
     run, sampled frames (file names and frame numbers in the clip) and its transform into the route frame.
-    n_shared / n_tail: the run's frames before / after the clip's own that repeat a neighbouring clip's."""
+    n_shared / n_tail: the run's frames before / after the clip's own that repeat a neighbouring clip's.
+    A clip reconstructed in parts has one entry per part, each with its frame range ("part")."""
     entries = []
-    for clip, cdir, run, (sc, R, t) in zip(clips, cdirs, runs, T):
+    for k, (clip, cdir, run, (sc, R, t)) in enumerate(zip(clips, cdirs, runs, T)):
         done = cdir / "done.json"
         own = json.loads(done.read_text())["own"] if done.exists() else sorted(f.name for f in (cdir / "frames").glob("b_*.png"))
         idx = cdir / "frames" / "indices.json"
@@ -772,6 +892,8 @@ def _manifest(clips: list[Path], cdirs: list[Path], runs: list[dict], T: list[tu
                         "n_tail": int(run.get("n_tail", 0)),
                         "own": own, "indices": json.loads(idx.read_text()) if idx.exists() else None, "fps": fps,
                         "transform": {"s": float(sc), "R": np.asarray(R).tolist(), "t": np.asarray(t).tolist()}})
+        if parts and parts[k]:
+            entries[-1]["part"] = [int(parts[k][0]), int(parts[k][1])]
     out = {"metres_per_unit": metres_per_unit, "frame_width": frame_width, "clips": entries}
     if settings:
         out["settings"] = settings
@@ -859,13 +981,13 @@ def _merge_runs(runs: list[dict], T: list[tuple], out_ply: Path, metres_per_unit
 
 
 def _write_route_sidecars(out_ply: Path, route: list, report: list, gaussians: int, metres_per_unit: float,
-                          source: str) -> float:
+                          source: str, extra: Optional[dict] = None) -> float:
     """<ply>.json (units, scale, route length), <ply>_cams.json (route cameras, metres), <ply>_stitch.json (seams)."""
     length = float(np.linalg.norm(np.diff(np.array(route), axis=0), axis=1).sum()) if len(route) > 1 else 0.0
     out_ply.with_suffix(".json").write_text(json.dumps({
         "source": source, "frame": "picture_camera_opencv",
         "units": "metres", "scene_scale": SCENE_SCALE, "trajectory": "video", "gaussians": int(gaussians),
-        "metres_per_unit": metres_per_unit, "route_length_m": length}), encoding="utf-8")
+        "metres_per_unit": metres_per_unit, "route_length_m": length, **(extra or {})}), encoding="utf-8")
     out_ply.with_name(out_ply.stem + "_cams.json").write_text(json.dumps(route), encoding="utf-8")
     out_ply.with_name(out_ply.stem + "_stitch.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     return length
@@ -940,39 +1062,58 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
 
-    # Stage 1: key every clip, take what the cache has, sample frames for the rest (cheap, no GPU).
-    # Stage 2: person masks for every new clip, queued together so SAM 3.1 stays loaded and busy.
-    # Stage 3: WorldMirror on the new clips, one after another.
-    # A clip's result depends on the clip, the settings and the clip before it (its first frames are the
-    # previous clip's last samples), so that chain is the cache key: adding clips at the end of a route
-    # reuses every earlier clip, and a failed run resumes where it stopped.
+    # Stage 1: key every run, take what the cache has, sample frames for the rest (cheap, no GPU).  A run is a
+    # clip, or a part of a clip too long for one run (_clip_parts); parts chain to each other like clips.
+    # Stage 2: person masks for every new run, queued together so SAM 3.1 stays loaded and busy.
+    # Stage 3: WorldMirror on the new runs, one after another.
+    # A run's result depends on the clip, the settings and the run before it (its first frames are the
+    # previous run's last samples), so that chain is the cache key: adding clips at the end of a route
+    # reuses every earlier run, and a failed build resumes where it stopped.
     plan = []
     prev_files: list[Path] = []
     prev_key = ""
-    for i, clip in enumerate(clips):
+    fps_of: list[Optional[float]] = []
+    for ci, clip in enumerate(clips):
         check()
-        key = _clip_key(clip, prev_key, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, i, frame_width)
-        prev_key = key
-        cdir = (cache_dir / key) if cache_dir else (work / f"clip{i}")
-        e = {"clip": clip, "cdir": cdir, "frames": cdir / "frames", "masks": cdir / "masks", "out": cdir / "out",
-             "done": cdir / "done.json"}
-        if cache_dir and e["done"].exists():
-            say(f"clip {i + 1}/{len(clips)}: reusing the saved reconstruction")
-            meta = json.loads(e["done"].read_text())
-            e.update(cached=True, n_shared=meta["n_shared"], own=[e["frames"] / n for n in meta["own"]])
-        else:
-            shutil.rmtree(cdir, ignore_errors=True)
-            say(f"clip {i + 1}/{len(clips)}: sampling frames")
-            own = sample_frames(clip, e["frames"], frame_step, max_frames - (shared if i else 0), width=frame_width,
-                                adaptive=adaptive)
-            n_shared = 0
-            if i:
-                for k, src in enumerate(prev_files[-shared:]):
-                    shutil.copy2(src, e["frames"] / f"a_{k:03d}.png")
-                n_shared = min(shared, len(prev_files))
-            e.update(cached=False, n_shared=n_shared, own=own)
-        prev_files = e["own"]
-        plan.append(e)
+        parts, demand, fps = [None], None, None
+        try:
+            fps = _probe(clip)[0]
+            total = _frame_count(clip)
+            budget = max_frames - (shared if plan else 0)
+            flow = _flow_profile(clip, total) if adaptive else None
+            demand = _demand(total, fps, frame_step, flow) if adaptive else None
+            if shared >= 3:            # parts are chained through shared frames
+                parts = _clip_parts(total, fps, frame_step, budget, max_frames - shared, flow)
+        except Exception as exc:          # unreadable here: sample_frames reports it below
+            say(f"clip {ci + 1}/{len(clips)}: not measured ({exc})")
+        fps_of.append(fps)
+        for pi, part in enumerate(parts):
+            i = len(plan)
+            name = f"clip {ci + 1}/{len(clips)}" + (f" part {pi + 1}/{len(parts)}" if part else "")
+            key = _clip_key(clip, prev_key, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, i,
+                            frame_width, part=part)
+            prev_key = key
+            cdir = (cache_dir / key) if cache_dir else (work / f"clip{i}")
+            e = {"clip": clip, "clip_no": ci, "part": part, "name": name, "cdir": cdir, "frames": cdir / "frames",
+                 "masks": cdir / "masks", "out": cdir / "out", "done": cdir / "done.json"}
+            if cache_dir and e["done"].exists():
+                say(f"{name}: reusing the saved reconstruction")
+                meta = json.loads(e["done"].read_text())
+                e.update(cached=True, n_shared=meta["n_shared"], own=[e["frames"] / n for n in meta["own"]])
+            else:
+                shutil.rmtree(cdir, ignore_errors=True)
+                say(f"{name}: sampling frames")
+                own = sample_frames(clip, e["frames"], frame_step, max_frames - (shared if i else 0), width=frame_width,
+                                    adaptive=adaptive, **({"part": part} if part else {}),
+                                    **({"demand": demand} if demand is not None else {}))
+                n_shared = 0
+                if i:
+                    for k, src in enumerate(prev_files[-shared:]):
+                        shutil.copy2(src, e["frames"] / f"a_{k:03d}.png")
+                    n_shared = min(shared, len(prev_files))
+                e.update(cached=False, n_shared=n_shared, own=own)
+            prev_files = e["own"]
+            plan.append(e)
 
     new = [i for i, e in enumerate(plan) if not e["cached"]]
     if mask_people and new:
@@ -980,15 +1121,16 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
         try:
             for i in new:
                 check()
-                say(f"clip {i + 1}/{len(clips)}: queuing SAM 3.1 tracking")
-                jobs[i] = sam3_submit(plan[i]["clip"], plan[i]["cdir"] / "dense")
+                say(f"{plan[i]['name']}: queuing SAM 3.1 tracking")
+                jobs[i] = sam3_submit(plan[i]["clip"], plan[i]["cdir"] / "dense",
+                                      **({"part": plan[i]["part"]} if plan[i]["part"] else {}))
             for i in new:
-                say(f"clip {i + 1}/{len(clips)}: person masks")
+                say(f"{plan[i]['name']}: person masks")
                 sam3_collect(jobs[i], plan[i]["frames"], plan[i]["masks"], should_stop=should_stop)
                 check()
                 add_box_masks(plan[i]["frames"], plan[i]["masks"], plan[i]["cdir"] / "box_masks")
                 k = plan[i]["n_shared"]
-                for n in range(k):      # repeated frames keep the mask the previous clip made for them
+                for n in range(k):      # repeated frames keep the mask the previous run made for them
                     prev = plan[i - 1]
                     shutil.copy2(prev["masks"] / prev["own"][-k:][n].name, plan[i]["masks"] / f"a_{n:03d}.png")
         except RouteCancelled:
@@ -1008,7 +1150,7 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
             shutil.rmtree(plan[i]["cdir"] / "dense", ignore_errors=True)
         comfy_free()          # WorldMirror needs the card next
 
-    runs = []                      # per clip: dict(dir, cams (n,4,4), own (index of first own camera))
+    runs = []                      # per run: dict(dir, cams (n,4,4), own (index of first own camera))
     for i, e in enumerate(plan):
         check()
         if e["cached"]:
@@ -1016,7 +1158,7 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
             for f in sorted(out.rglob("camera_params.json")):
                 out = f.parent
         else:
-            say(f"clip {i + 1}/{len(clips)}: WorldMirror on {len(e['own']) + e['n_shared']} frames")
+            say(f"{e['name']}: WorldMirror on {len(e['own']) + e['n_shared']} frames")
             out = run_worldmirror(e["frames"], e["out"], mask_dir=e["masks"] if mask_people else None,
                                   should_stop=should_stop)
             if cache_dir:
@@ -1025,22 +1167,35 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
         cams = np.array([c["matrix"] for c in j["extrinsics"]])
         runs.append({"dir": out, "cams": cams, "n_shared": e["n_shared"]})
 
-    say("aligning clips")
-    T, report = _align_runs(runs)            # every clip into clip 0's frame
+    say("aligning runs")
+    T, report = _align_runs(runs)            # every run into run 0's frame
     say("writing the splat")
     n, route, rows = _merge_runs(runs, T, out_ply, metres_per_unit, max_gaussians)
-    length = _write_route_sidecars(out_ply, route, report, n, metres_per_unit, f"WorldMirror route splat, {len(clips)} clips")
+    times = []                               # each route camera's time in its clip, for _pose_breaks
+    for e in plan:
+        idx_file = e["frames"] / "indices.json"
+        idx = json.loads(idx_file.read_text()) if idx_file.exists() else []
+        fps = fps_of[e["clip_no"]]
+        own = len(e["own"])
+        times += [(e["clip_no"], idx[j] / fps) if fps and j < len(idx) else None for j in range(own)]
+    breaks = _pose_breaks(route, times)
+    for b in breaks:
+        say(f"camera jumps {b['jump_m']} m between {b['from_s']} s and {b['to_s']} s of clip {b['clip'] + 1} "
+            f"({b['times_median_speed']}x the route's median speed): the reconstruction lost track there")
+    source = f"WorldMirror route splat, {len(clips)} clips" + (f" in {len(plan)} runs" if len(plan) != len(clips) else "")
+    length = _write_route_sidecars(out_ply, route, report, n, metres_per_unit, source,
+                                   extra={"runs": len(plan), "pose_breaks": breaks})
     if cache_dir:          # the runs outlive the job only in the cache; a manifest pointing into `work` would dangle
         settings = {"frame_step": frame_step, "shared": shared, "max_frames": max_frames, "adaptive": adaptive,
                     "mask_people": mask_people, "mask_fallback": mask_fallback, "pipeline_version": PIPELINE_VERSION}
         man = _manifest([e["clip"] for e in plan], [e["cdir"] for e in plan], runs, T, metres_per_unit, frame_width,
-                        settings=settings)
+                        settings=settings, parts=[e["part"] for e in plan])
         for entry, r in zip(man["clips"], rows or [None] * len(runs)):
             entry["rows"] = r
         out_ply.with_name(out_ply.stem + "_route.json").write_text(json.dumps(man), encoding="utf-8")
     if not keep_work:
         shutil.rmtree(work, ignore_errors=True)
-    return {"gaussians": n, "route_length_m": length, "stitch": report}
+    return {"gaussians": n, "route_length_m": length, "stitch": report, "runs": len(plan), "pose_breaks": breaks}
 
 
 # --------------------------------------------------------------------------------------- a turn onto a route
@@ -1146,7 +1301,7 @@ def append_route_turn(route_ply: Path, turns: list[Path], out_ply: Path, cache_d
     as the clip it names is still on the route.  cached_only: every turn must be in the reconstruction cache."""
     say = progress or (lambda _m: None)
     cur, parts, reports = route_ply, [], []
-    files = [c["clip"] for c in manifest["clips"]]
+    files = [_entry_ref(c) for c in manifest["clips"]]
     for k, clip in enumerate(turns):
         if should_stop and should_stop():
             raise RouteCancelled()
@@ -1159,7 +1314,7 @@ def append_route_turn(route_ply: Path, turns: list[Path], out_ply: Path, cache_d
         else:
             anchor = find_anchor(sorted(frames.glob("b_*.png"))[0], manifest)
         entry = manifest["clips"][anchor["clip"]]
-        anchor["clip_file"] = entry["clip"]
+        anchor["clip_file"] = _entry_ref(entry)
         say(f"{clip.name}: starts on clip {anchor['clip'] + 1} frame {anchor['own'] + 1}"
             + (f" ({anchor['time_s']} s)" if anchor["time_s"] is not None else "") + f", {anchor['inliers']} matches")
         to_route = _route_transform(entry)        # clip 0 too: after a clip added at the start it is not the frame
@@ -1185,6 +1340,12 @@ def append_route_turn(route_ply: Path, turns: list[Path], out_ply: Path, cache_d
     out_ply.with_name(out_ply.stem + "_route.json").write_text(json.dumps({**manifest, "base_ply": route_ply.name}),
                                                              encoding="utf-8")
     return {"gaussians": n, "turns": reports}
+
+
+def _entry_ref(entry: dict) -> str:
+    """A manifest entry's name: its clip file, with the frame range when the clip was reconstructed in parts."""
+    part = entry.get("part")
+    return entry["clip"] + (f"#{part[0]}-{part[1]}" if part else "")
 
 
 def _route_transform(entry: dict) -> Optional[tuple]:

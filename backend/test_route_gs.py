@@ -540,5 +540,164 @@ class EndMatch(unittest.TestCase):
         self.assertFalse(route_gs._end_match(shot(0, 5), manifest, False, 2, "q")["ok"])
 
 
+
+class ClipParts(unittest.TestCase):
+    """A clip too long for one run at a useful frame gap is reconstructed in parts; clips that always fitted keep
+    their single run (and their cache key)."""
+
+    def test_clips_that_fitted_stay_one_run(self):
+        self.assertEqual(route_gs._clip_parts(707, 59.94, 9, 36, 31), [None])    # d4: 11.8 s of the original game
+        self.assertEqual(route_gs._clip_parts(707, 59.94, 9, 31, 31), [None])    # ... after the first clip
+        self.assertEqual(route_gs._clip_parts(360, 24.0, 9, 31, 31), [None])     # a 15 s H3 clip
+        self.assertEqual(route_gs._clip_parts(300, 24.0, 9, 36, 31), [None])     # the step, not the budget, sets the gap
+
+    def test_a_long_clip_is_split_into_parts_that_tile_it(self):
+        parts = route_gs._clip_parts(1679, 59.94, 9, 36, 31)      # route-gs-1136: 28 s, 0.78 s apart in one run
+        self.assertEqual(len(parts), 3)
+        self.assertEqual(parts[0][0], 0)
+        self.assertEqual(parts[-1][1], 1679)
+        for (a, b), (c, d) in zip(parts, parts[1:]):
+            self.assertEqual(b, c)
+        for a, b in parts:      # sampled at most PART_GAP_S apart with the frames a later part has of its own
+            self.assertLessEqual((b - a) / 31 / 59.94, route_gs.PART_GAP_S + 1e-9)
+
+    def test_a_swing_asks_for_more_frames_and_no_cut_lands_in_it(self):
+        flow = np.full(1679, 0.0015)       # a walk: 0.15 % of the width a frame
+        flow[515:526] = 0.0                # a still moment near the first cut
+        flow[1100:1180] = 0.02             # a swing, 13x the walk (route-gs-1136 at 720.5 s: 0.0127)
+        parts = route_gs._clip_parts(1679, 59.94, 9, 36, 31, flow)
+        self.assertEqual(len(parts), 4)    # 80 frames for the time, 16 more for the swing: 96 at 31 a part
+        self.assertLessEqual(abs(parts[0][1] - 520), 15)     # in the still moment (smoothed over half a second)
+        for a, b in parts[1:]:
+            self.assertFalse(1100 - 10 <= a <= 1180 + 5, a)
+
+    def test_samples_keep_both_gaps_through_a_swing(self):
+        fps, flow = 59.94, np.full(1200, 0.0015)
+        flow[600:660] = 0.0127
+        d = route_gs._demand(1200, fps, 9, flow)
+        idx = route_gs.pick_frame_indices(1200, int(math.ceil(d.sum())), d, mix=1.0)
+        cum = np.cumsum(flow)
+        self.assertLessEqual(max(np.diff(idx)), route_gs.PART_GAP_S * fps + 1)
+        # within a frame's worth of motion of GAP_FLOW (samples fall on whole frames)
+        self.assertLessEqual(max(cum[j] - cum[i] for i, j in zip(idx, idx[1:])), route_gs.GAP_FLOW + flow.max())
+        inside = [i for i in idx if 600 <= i < 660]
+        self.assertGreaterEqual(len(inside), 9)          # 0.76 widths of swing at 0.08 a gap
+
+
+class FlowProfile(unittest.TestCase):
+    def test_a_pan_reads_as_its_shift(self):
+        """A picture held still, panned 4 px a frame for 40 frames, held again: the profile reads the pan as
+        4/320 of the width a frame and the still stretches as nothing."""
+        import shutil
+        import subprocess as sp
+        if not shutil.which("ffmpeg"):
+            self.skipTest("needs ffmpeg")
+        import cv2
+        tmp = Path(tempfile.mkdtemp())
+        rng = np.random.default_rng(6)
+        big = cv2.GaussianBlur(rng.integers(0, 255, (180, 900), dtype=np.uint8), (5, 5), 0)
+        xs = [0] * 30 + [4 * k for k in range(1, 41)] + [160] * 30
+        raw = b"".join(np.ascontiguousarray(big[:, x:x + 320]).tobytes() for x in xs)
+        clip = tmp / "pan.mp4"
+        sp.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "320x180", "-r", "30",
+                "-i", "-", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", str(clip)], input=raw, check=True)
+        f = route_gs._flow_profile(clip, len(xs))
+        self.assertAlmostEqual(float(np.median(f[35:65])), 4 / 320, delta=0.25 * 4 / 320)
+        self.assertLess(float(np.median(f[2:28])), 0.1 * 4 / 320)
+        self.assertLess(float(np.median(f[75:98])), 0.1 * 4 / 320)
+
+
+class PoseBreaks(unittest.TestCase):
+    def test_a_jump_is_reported_and_nothing_across_clips(self):
+        route = [[0.0, 0.0, 1.5 * i] for i in range(10)]
+        times = [(0, 0.5 * i) for i in range(10)]
+        route[7:] = [[0.0, 0.0, z - 20.0] for _, _, z in route[7:]]        # frames 7.. put 20 m back
+        out = route_gs._pose_breaks(route, times)
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["clip"], out[0]["from_s"], out[0]["to_s"]), (0, 3.0, 3.5))
+        self.assertAlmostEqual(out[0]["jump_m"], 18.5, places=6)
+        # the same jump where a new clip starts is not timed, so not reported
+        times2 = [(0, 0.5 * i) for i in range(7)] + [(1, 0.5 * i) for i in range(3)]
+        self.assertEqual(route_gs._pose_breaks(route, times2), [])
+        self.assertEqual(route_gs._pose_breaks([[0, 0, 0.1 * i] for i in range(10)], [(0, 0.1 * i) for i in range(10)]), [])
+
+
+class BuildInParts(unittest.TestCase):
+    """One long clip built in parts: each part is its own run, chained through the frames it repeats from the part
+    before; every own camera lands where the world has it, and the manifest names each part's frame range."""
+
+    def test_one_long_clip_in_three_parts(self):
+        import json
+        tmp = Path(tempfile.mkdtemp())
+        clip = tmp / "long.mp4"
+        clip.write_bytes(b"a long clip")
+        total, fps = 1679, 59.94
+        rng = np.random.default_rng(5)
+        world = []
+        for i in range(total):                    # a walk along z with a little wander and yaw
+            c = np.eye(4)
+            c[:3, :3] = _rot_y(10 * math.sin(i / 90))
+            c[:3, 3] = [0.3 * math.sin(i / 200), 0.02 * math.sin(i / 50), 0.004 * i]
+            world.append(c)
+        sampled = []
+
+        def fake_sample(video, out_dir, step, max_frames, width=704, adaptive=True, ends=False, part=None, demand=None):
+            lo, hi = part if part else (0, total)
+            count = min(max_frames, math.ceil((hi - lo) / step))
+            idx = [int(round(v)) for v in np.linspace(lo, hi - 1, count)]
+            out_dir.mkdir(parents=True, exist_ok=True)
+            files = []
+            for j, fi in enumerate(idx):
+                f = out_dir / f"b_{j + 1:03d}.png"
+                f.write_text(str(fi))                  # the fake reconstruction reads the frame number back
+                files.append(f)
+            (out_dir / "indices.json").write_text(json.dumps(idx))
+            sampled.append((part, len(idx)))
+            return files
+
+        def fake_worldmirror(frames_dir, out_dir, mask_dir=None, should_stop=None, timeout=0):
+            names = sorted(Path(frames_dir).glob("*.png"))      # a_* (repeated) sort before b_* (own)
+            idx = [int(f.read_text()) for f in names]
+            truth = ((float(rng.uniform(0.5, 2.0)), _rot_y(float(rng.uniform(-60, 60))), rng.uniform(-1, 1, 3))
+                     if names[0].name.startswith("a_") else (1.0, np.eye(3), np.zeros(3)))   # the route frame is run 0's
+            pts = np.array([[x, 0.0, 0.004 * i] for i in range(min(idx), max(idx) + 1, 20) for x in (-1.0, 1.0)])
+            return _write_run(Path(out_dir) / "run", [world[i] for i in idx], pts, truth)
+
+        still = np.zeros(total)           # no image motion: the parts follow time alone
+        with mock.patch.multiple(route_gs, sample_frames=fake_sample, run_worldmirror=fake_worldmirror,
+                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _frame_count=mock.Mock(return_value=total),
+                                 _flow_profile=mock.Mock(return_value=still)):
+            out = tmp / "route.ply"
+            res = route_gs.build_route_gaussian([clip], out, tmp / "work", cache_dir=tmp / "cache", metres_per_unit=1.0)
+        self.assertEqual(res["runs"], 3)
+        self.assertEqual(res["pose_breaks"], [])
+        self.assertEqual([n for _, n in sampled], [36, 31, 31])
+        man = json.loads(out.with_name("route_route.json").read_text())
+        parts = [c["part"] for c in man["clips"]]
+        self.assertEqual([p[0] for p in parts], [0, parts[0][1], parts[1][1]])
+        self.assertEqual(parts[-1][1], total)
+        self.assertEqual([c["n_shared"] for c in man["clips"]], [0, 5, 5])
+        for c in man["clips"]:          # frame numbers count from the clip's first frame, inside the part
+            self.assertTrue(all(c["part"][0] <= i < c["part"][1] for i in c["indices"]))
+        # every own camera of every part lands on its world camera (metres_per_unit 1: metres = world units)
+        cams = json.loads(out.with_name("route_cams.json").read_text())
+        own = [i for c in man["clips"] for i in c["indices"]]
+        np.testing.assert_allclose(np.array(cams), np.array([world[i][:3, 3] for i in own]), atol=1e-6)
+        side = json.loads(out.with_suffix(".json").read_text())
+        self.assertEqual((side["runs"], side["pose_breaks"]), (3, []))
+        self.assertIn("1 clips in 3 runs", side["source"])
+        # built again: every part comes from the cache, nothing is sampled or reconstructed
+        sampled.clear()
+        with mock.patch.multiple(route_gs, sample_frames=fake_sample,
+                                 run_worldmirror=mock.Mock(side_effect=AssertionError("reconstructed again")),
+                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _frame_count=mock.Mock(return_value=total),
+                                 _flow_profile=mock.Mock(return_value=still)):
+            again = route_gs.build_route_gaussian([clip], tmp / "again.ply", tmp / "work2", cache_dir=tmp / "cache",
+                                                  metres_per_unit=1.0)
+        self.assertEqual((sampled, again["runs"]), ([], 3))
+        self.assertEqual((tmp / "again.ply").read_bytes(), out.read_bytes())
+
 if __name__ == "__main__":
     unittest.main()

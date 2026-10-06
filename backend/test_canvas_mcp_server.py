@@ -325,6 +325,90 @@ class FinishedJobTests(unittest.TestCase):
         self.assertFalse(out["cancelled"])
 
 
+class RouteBuildWiringTests(unittest.TestCase):
+    """A route splat shows on the canvas what it was built from: its clips wired into in-route-source in route
+    order, its settings kept on the node, and a run of the node builds it again only when those clips changed."""
+
+    def _patch(self, nodes, edges):
+        import canvas_mcp_server as m
+        canvas = {"nodes": nodes, "edges": edges, "revision": 1}
+        posted = []
+        originals = {k: getattr(m, k) for k in ("_resolve_project", "_canvas", "_hold_lock", "_request", "_apply_locked")}
+        m._resolve_project = lambda project, scene="": {"id": "p1"}
+        m._canvas = lambda pid: canvas
+
+        class Lock:
+            def __init__(self, *a): pass
+            def __enter__(self): return self
+            def __exit__(self, *e): return False
+        m._hold_lock = Lock
+
+        def request(method, path, *a, **k):
+            posted.append((path, k.get("json")))
+            return {"job_id": "abcdef123456", "status": "queued"}
+        m._request = request
+
+        def apply(resolved, ops, expected):
+            for op in ops:
+                _apply_operation(canvas, op)
+            canvas["revision"] += 1
+            return {"revision": canvas["revision"]}
+        m._apply_locked = apply
+        self.addCleanup(lambda: [setattr(m, k, v) for k, v in originals.items()])
+        return m, canvas, posted
+
+    @staticmethod
+    def _clip(cid, url):
+        return {"id": cid, "type": "video", "position": {"x": 0, "y": 0}, "data": {"generatedUrl": url}}
+
+    def _sources(self, canvas, nid):
+        return [e["source"] for e in canvas["edges"] if e["target"] == nid and e.get("targetHandle") == "in-route-source"]
+
+    def test_a_new_route_node_is_wired_to_its_clips_in_order(self):
+        m, canvas, posted = self._patch([self._clip("v1", "/uploads/a.mp4"), self._clip("v2", "/uploads/b.mp4")], [])
+        out = m.build_route_gaussian("p1", ["v1", "v2"], node_id="g1", mask_people=True, frame_width=952)
+        self.assertEqual(out["node_id"], "g1")
+        self.assertEqual(self._sources(canvas, "g1"), ["v1", "v2"])
+        body = posted[0][1]
+        self.assertEqual((posted[0][0], body["clip_urls"], body["mask_people"], body["frame_width"]),
+                         ("/generate-route-gaussian", ["/uploads/a.mp4", "/uploads/b.mp4"], True, 952))
+        data = next(n for n in canvas["nodes"] if n["id"] == "g1")["data"]
+        self.assertEqual((data["routeClips"], data["routeClipUrls"]), (["v1", "v2"], ["/uploads/a.mp4", "/uploads/b.mp4"]))
+        self.assertTrue(data["routeSettings"]["mask_people"])
+
+    def test_a_rebuild_rewires_in_route_order_and_leaves_other_inputs(self):
+        nodes = [self._clip("v1", "/uploads/a.mp4"), self._clip("v2", "/uploads/b.mp4"), self._clip("v3", "/uploads/c.mp4"),
+                 self._clip("turn", "/uploads/t.mp4"),
+                 {"id": "g1", "type": "gaussian", "position": {"x": 0, "y": 0}, "data": {"label": "kept label"}}]
+        edges = [{"id": "e1", "source": "v2", "target": "g1", "targetHandle": "in-route-source"},
+                 {"id": "e2", "source": "v3", "target": "g1", "targetHandle": "in-route-source"},
+                 {"id": "e3", "source": "turn", "target": "g1", "targetHandle": "in-video"}]
+        m, canvas, _ = self._patch(nodes, edges)
+        m.build_route_gaussian("p1", ["v1", "v2"], node_id="g1")
+        self.assertEqual(self._sources(canvas, "g1"), ["v1", "v2"])
+        self.assertTrue(any(e["source"] == "turn" and e["targetHandle"] == "in-video" for e in canvas["edges"]))
+        self.assertEqual(next(n for n in canvas["nodes"] if n["id"] == "g1")["data"]["label"], "kept label")
+
+    def test_running_the_node_builds_again_only_when_its_clips_changed(self):
+        import canvas_mcp_server as m
+        settings = dict(m.ROUTE_BUILD_DEFAULTS, mask_people=True)
+        g1 = {"id": "g1", "type": "gaussian", "position": {"x": 0, "y": 0},
+              "data": {"plyUrl": "/uploads/route_x.ply", "routeClips": ["v1"], "routeClipUrls": ["/uploads/a.mp4"],
+                       "routeSettings": settings}}
+        nodes = [self._clip("v1", "/uploads/a.mp4"), self._clip("ext", "/uploads/e.mp4"), g1]
+        edges = [{"id": "e1", "source": "v1", "target": "g1", "targetHandle": "in-route-source"},
+                 {"id": "e2", "source": "ext", "target": "g1", "targetHandle": "in-route"}]
+        m, canvas, posted = self._patch(nodes, edges)
+        with unittest.mock.patch.object(m, "_start_route_extend", return_value={"route": "extend"}) as extend:
+            self.assertEqual(m._run_gaussian_locked({"id": "p1"}, canvas, g1), {"route": "extend"})
+            extend.assert_called_once()
+        self.assertEqual(posted, [])
+        nodes[0]["data"]["generatedUrl"] = "/uploads/a_v2.mp4"      # the clip re-rendered in place
+        m._run_gaussian_locked({"id": "p1"}, canvas, g1)
+        self.assertEqual(posted[0][0], "/generate-route-gaussian")
+        self.assertEqual((posted[0][1]["clip_urls"], posted[0][1]["mask_people"]), (["/uploads/a_v2.mp4"], True))
+
+
 class CharswapRunTests(unittest.TestCase):
     """run_canvas_node on a charswap node returned a KeyError('steps') *after* the job was
     submitted and the node saved: the reply read payload["steps"], which a Viggle swap

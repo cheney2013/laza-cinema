@@ -78,6 +78,8 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
         worldVideoUrl: (worldResult as any).video_url,
         ...((worldResult as any).base_url ? { routeBasePly: (worldResult as any).base_url as string } : {}),
         ...((worldResult as any).core_url ? { routeCorePly: (worldResult as any).core_url as string } : {}),
+        // a route build reports where its cameras jump (the reconstruction lost track): shown on the node
+        ...(Array.isArray((worldResult as any).pose_breaks) ? { routePoseBreaks: (worldResult as any).pose_breaks } : {}),
         // where each added clip went, so the next run needs no matching for it
         ...(Array.isArray((worldResult as any).extensions) ? {
           routeExtendWhere: Object.fromEntries(((worldResult as any).extensions as any[])
@@ -677,6 +679,19 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
               </div>
             )}
 
+            {Array.isArray(data.routePoseBreaks) && data.routePoseBreaks.length > 0 && data.status !== 'error' && (
+              <div style={{
+                position: 'absolute', top: 48, left: 12, right: 12, zIndex: 40,
+                padding: '6px 10px', fontSize: 11, textAlign: 'center', color: '#fbbf24',
+                background: 'rgba(24, 18, 6, 0.92)', backdropFilter: 'blur(10px)',
+                borderRadius: 8, border: '1px solid rgba(251,191,36,0.3)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)', pointerEvents: 'none'
+              }}>
+                {data.routePoseBreaks.map((b) => t('第 {v1} 段视频 {v2}–{v3} s 处重建跟丢：相机跳了 {v4} m，这一段的位置不可信',
+                  { v1: b.clip + 1, v2: b.from_s, v3: b.to_s, v4: b.jump_m })).join('；')}
+              </div>
+            )}
+
             {data.status === 'error' && data.error && (
               <div style={{
                 position: 'absolute', top: 12, left: 12, right: 12, zIndex: 40,
@@ -691,6 +706,7 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
 
           </div>
 
+          <IconHandle type="target" id="in-route-source" portType="video" nodeId={id} style={{ top: '28%' }} title={t('路线源视频（按连线顺序建成路线高斯）')} />
           <IconHandle type="target" id="in-image" portType="image" nodeId={id} style={{ top: '50%' }} />
           <IconHandle type="target" id="in-video" portType="video" nodeId={id} style={{ top: '72%' }} title={t('转身视频（接到路线高斯上）')} />
           <IconHandle type="target" id="in-route" portType="video" nodeId={id} style={{ top: '88%' }} title={t('路线视频（接在路线开头或末尾）')} />

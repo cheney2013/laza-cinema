@@ -359,6 +359,12 @@ export interface GaussianNodeData extends SizedNodeData {
   routeTurns?: string[];
   /** Their clip files: a turn re-rendered in place keeps its node id, so this is what says the splat is stale. */
   routeTurnUrls?: string[];
+  /** The clips on in-route-source the route was built from (ids, files) and the build's settings. */
+  routeClips?: string[];
+  routeClipUrls?: string[];
+  routeSettings?: Record<string, number | boolean>;
+  /** Where the build's cameras jump far faster than the route moves: the reconstruction lost track there. */
+  routePoseBreaks?: { clip: number; from_s: number; to_s: number; jump_m: number; times_median_speed: number }[];
 }
 
 export type GaussianNode = Node<GaussianNodeData, 'gaussian'>;
