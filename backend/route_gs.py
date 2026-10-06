@@ -42,10 +42,22 @@ COMFY_OUTPUT = os.environ.get("COMFYUI_OUTPUT_DIR", "D:/ComfyUI-sage3/ComfyUI/ou
 SAM3_SIZE = 1008          # SAM 3's own input side; frames go in letterboxed to this square
 SAM3_CKPT = os.environ.get("SAM3_CKPT", "sam3.1_multiplex_fp16.safetensors")   # in ComfyUI's models/checkpoints
 HYWORLD_DIR = Path(os.environ.get("HYWORLD_DIR", "D:/Projects/HY-World-2.0"))
+# ProPainter (github.com/sczhou/ProPainter, S-Lab License 1.0: non-commercial use) in its own venv
+PROPAINTER_DIR = Path(os.environ.get("PROPAINTER_DIR", "D:/Projects/ProPainter"))
+INPAINT_FPS = 30.0        # frames per second of the clip ProPainter sees: it propagates along optical flow
 HF_HOME = os.environ.get("FLASHWORLD_HF_HOME", "D:/hf_cache")
 SCENE_SCALE = 0.1
 MAX_SPLAT = 0.09          # largest gaussian kept, in stored units (0.9 m)
 CUT_AHEAD = 0.10          # seam plane this many reconstruction units ahead of the earlier clip's last camera
+# Past a seam plane each run keeps the other's gaussians where it has a gap of its own: the later run's first frames
+# do not see the ground at the seam (below the picture, behind the walker), the earlier run did, and a hard cut left
+# an empty band 1-2 m wide across the path at every seam (route-gs-1136, 2026-10-06).
+SEAM_FILL_DEPTH_M = 5.0   # how far past the plane a run may fill the other's gaps ...
+SEAM_FILL_RADIUS_M = 6.0  # ... and no further than this from the seam camera: the band is the ground 1.5-5 m ahead of
+                          # it; without this limit 85 % of what filled lay further than 6 m (medians 7-12 m: sparse
+                          # background both runs hold, filled twice over) and the route grew from 3.7 to 4.6 M
+SEAM_FILL_M = 0.3         # a gap: fewer than SEAM_FILL_NEIGHBOURS of the other run's gaussians within this many metres
+SEAM_FILL_NEIGHBOURS = 8
 
 
 # --------------------------------------------------------------------------------------------- frames
@@ -291,10 +303,11 @@ def sam3_submit(clip: Path, dense_dir: Path, *, dense_fps: float = 12.0, window:
 
 
 def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 6, timeout: int = 3600,
-                 should_stop: Optional[Callable[[], bool]] = None) -> None:
+                 should_stop: Optional[Callable[[], bool]] = None, indices: Optional[list[int]] = None) -> None:
     """Wait for the queued tracking and write a mask for every sampled frame (b_*) in `frames_dir`: the dense
     frame nearest in time, merged with its two neighbours (the people keep moving between dense frames), then
-    grown by `dilate` pixels. Frames that are not own samples of the clip (a_*) get no mask here."""
+    grown by `dilate` pixels. Frames that are not own samples of the clip (a_*) get no mask here. indices: the
+    frames' numbers in the clip, when they are not in frames_dir/indices.json."""
     import urllib.request
     from PIL import Image, ImageChops, ImageFilter
     n_dense, tag = job["n_dense"], job["tag"]
@@ -318,7 +331,7 @@ def sam3_collect(job: dict, frames_dir: Path, mask_dir: Path, *, dilate: int = 6
     out = Path(COMFY_OUTPUT) / tag
     if len(dense_masks) != n_dense:
         raise RuntimeError(f"SAM3 returned {len(dense_masks)} masks for {n_dense} frames")
-    idx = json.loads((frames_dir / "indices.json").read_text())
+    idx = indices if indices is not None else json.loads((frames_dir / "indices.json").read_text())
     mask_dir.mkdir(parents=True, exist_ok=True)
     for f, fi in zip(sorted(frames_dir.glob("b_*.png")), idx):
         j = min(n_dense - 1, max(0, round((fi / job["src_fps"] - job.get("t0", 0.0)) * job["dense_fps"])))
@@ -351,6 +364,124 @@ def add_box_masks(frames_dir: Path, mask_dir: Path, work: Path, dilate: int = 4)
             b = b.convert("L").resize(a.size, Image.NEAREST)
             ImageChops.lighter(a, b).save(a_path)
     shutil.rmtree(work, ignore_errors=True)
+
+
+def dense_frames(video: Path, out_dir: Path, lo: int, hi: int, every: int, also: list[int], width: int) -> list[int]:
+    """Consecutive frames [lo, hi) of the clip, one every `every`, and the frames in `also`, as b_NNNNN.png of the
+    given width in frame order (nothing else in the folder: ProPainter reads every file in it). Returns their frame
+    numbers."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    extra = sorted(i for i in set(also) if lo <= i < hi and (i - lo) % every)
+    idx = sorted(set(range(lo, hi, every)) | set(extra))
+    expr = f"between(n\\,{lo}\\,{hi - 1})*(not(mod(n-{lo}\\,{every}))" + "".join(f"+eq(n\\,{i})" for i in extra) + ")"
+    subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-i", str(video), "-vf",
+                    f"select='{expr}',scale={width}:-2", "-fps_mode", "vfr", "-frames:v", str(len(idx)),
+                    str(out_dir / "b_%05d.png")], check=True, capture_output=True, timeout=900)
+    n = len(list(out_dir.glob("b_*.png")))
+    if n != len(idx):
+        raise RuntimeError(f"wanted {len(idx)} frames of {video.name} for inpainting, got {n}")
+    return idx
+
+
+def _propainter_python() -> Path:
+    for python in (PROPAINTER_DIR / ".venv" / "Scripts" / "python.exe", PROPAINTER_DIR / ".venv" / "bin" / "python"):
+        if python.exists():
+            return python
+    raise RuntimeError(f"ProPainter is not installed under {PROPAINTER_DIR} (with its own .venv); people can still be "
+                       "masked out without inpainting (inpaint_people=false)")
+
+
+def inpaint_frames(frames_dir: Path, mask_dir: Path, out_dir: Path, timeout: int = 3600,
+                   should_stop: Optional[Callable[[], bool]] = None) -> list[Path]:
+    """ProPainter on consecutive frames and their person masks: what the people cover is filled with what the frames
+    before and after show behind them (optical-flow propagation; a transformer for what no frame saw). In a follow
+    shot that is the ground along the route, which no frame shows unmasked up close: the masked build left a hole
+    1-1.5 m wide down the whole path, the inpainted one a continuous dirt path (route-gs-1136 part 2, 2026-10-06).
+    Returns the inpainted frames in the order of frames_dir's files."""
+    python = _propainter_python()
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    log = out_dir / "propainter.log"
+    with open(log, "w", encoding="utf-8") as fo:
+        proc = subprocess.Popen(
+            [str(python), "inference_propainter.py", "--video", str(frames_dir), "--mask", str(mask_dir),
+             "--output", str(out_dir), "--fp16", "--subvideo_length", "50", "--neighbor_length", "10",
+             "--ref_stride", "10", "--mask_dilation", "4", "--save_frames"],
+            stdout=fo, stderr=subprocess.STDOUT, cwd=str(PROPAINTER_DIR), text=True)
+        t0 = time.time()
+        try:
+            while proc.poll() is None:
+                if should_stop and should_stop():
+                    raise RouteCancelled()
+                if time.time() - t0 > timeout:
+                    raise RuntimeError(f"ProPainter ran longer than {timeout} s")
+                time.sleep(0.5)
+        except BaseException:
+            _kill_tree(proc)
+            raise
+    files = sorted((out_dir / frames_dir.name / "frames").glob("*.png"))
+    want = len(list(frames_dir.glob("*.png")))
+    if proc.returncode or len(files) != want:
+        raise RuntimeError(f"ProPainter gave {len(files)} of {want} frames: " + log.read_text(encoding="utf-8", errors="replace")[-1500:])
+    return files
+
+
+def composite_inpainted(original: Path, inpainted: Path, mask: Path, out: Path, grow: int = 4) -> None:
+    """The original frame with only the masked pixels (grown by `grow`, edge feathered) taken from the inpainted
+    one: ProPainter works at a size divisible by 8 and is resized back, which would soften every other pixel."""
+    from PIL import Image, ImageFilter
+    with Image.open(original) as a, Image.open(inpainted) as b, Image.open(mask) as m:
+        a = a.convert("RGB")
+        b = b.convert("RGB").resize(a.size, Image.BICUBIC)
+        m = m.convert("L").resize(a.size, Image.NEAREST)
+        if grow:
+            m = m.filter(ImageFilter.MaxFilter(2 * grow + 1)).filter(ImageFilter.GaussianBlur(1.5))
+        Image.composite(b, a, m).save(out)
+
+
+def _paint_masks(clip: Path, cdir: Path, own: list[Path], own_idx: list[int], lo: int, hi: int, width: int,
+                 masks: Path, job: Optional[dict] = None, should_stop: Optional[Callable[[], bool]] = None) -> list[int]:
+    """For inpainting a run: consecutive frames [lo, hi) of the clip (cdir/pp_frames, INPAINT_FPS, every own frame
+    among them), their person masks (cdir/pp_masks: the SAM 3.1 tracking `job` plus YOLO + SAM 2.1 boxes, or the
+    boxes alone without a job -- the fallback), and the own frames' masks taken from those (masks/). Returns the
+    consecutive frames' numbers."""
+    pp, pm, idx_file = cdir / "pp_frames", cdir / "pp_masks", cdir / "pp_indices.json"
+    if idx_file.exists() and any(pp.glob("b_*.png")):
+        pp_idx = json.loads(idx_file.read_text())
+    else:
+        shutil.rmtree(pp, ignore_errors=True)
+        every = max(1, round(_probe(clip)[0] / INPAINT_FPS))
+        pp_idx = dense_frames(clip, pp, lo, hi, every, own_idx, width)
+        idx_file.write_text(json.dumps(pp_idx))
+    shutil.rmtree(pm, ignore_errors=True)
+    if job is not None:
+        sam3_collect(job, pp, pm, should_stop=should_stop, indices=pp_idx)
+        if should_stop and should_stop():
+            raise RouteCancelled()
+        add_box_masks(pp, pm, cdir / "box_masks")
+    else:
+        make_person_masks(pp, pm)
+    masks.mkdir(parents=True, exist_ok=True)
+    at = {fi: n for n, fi in enumerate(pp_idx)}
+    for f, fi in zip(own, own_idx):
+        shutil.copy2(pm / f"b_{at[fi] + 1:05d}.png", masks / f.name)
+    return pp_idx
+
+
+def _paint_own(cdir: Path, own: list[Path], own_idx: list[int], pp_idx: list[int], masks: Path,
+               should_stop: Optional[Callable[[], bool]] = None) -> None:
+    """ProPainter on cdir/pp_frames, composited into the run's own frames in place (composite_inpainted; the frames
+    as sampled, people and all, go to cdir/frames_masked); the consecutive frames are removed afterwards."""
+    painted = inpaint_frames(cdir / "pp_frames", cdir / "pp_masks", cdir / "pp_out", should_stop=should_stop)
+    at = {fi: n for n, fi in enumerate(pp_idx)}
+    keep = cdir / "frames_masked"
+    keep.mkdir(exist_ok=True)
+    for f, fi in zip(own, own_idx):
+        shutil.copy2(f, keep / f.name)
+        composite_inpainted(keep / f.name, painted[at[fi]], masks / f.name, f)
+    for d in ("pp_frames", "pp_out", "pp_masks"):
+        shutil.rmtree(cdir / d, ignore_errors=True)
+    (cdir / "pp_indices.json").unlink(missing_ok=True)
 
 
 def sam3_person_masks(clip: Path, frames_dir: Path, mask_dir: Path, dense_dir: Path, **kw) -> None:
@@ -774,7 +905,8 @@ POSE_JUMP = 5.0     # a camera step this many times the route's median speed is 
 
 
 def _clip_key(clip: Path, prev_key: str, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, index,
-              frame_width=704, version: Optional[str] = None, part: Optional[tuple[int, int]] = None) -> str:
+              frame_width=704, version: Optional[str] = None, part: Optional[tuple[int, int]] = None,
+              inpaint: bool = False) -> str:
     h = hashlib.sha1()
     with open(clip, "rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
@@ -783,6 +915,8 @@ def _clip_key(clip: Path, prev_key: str, frame_step, shared, max_frames, adaptiv
                          mask_fallback, index > 0, frame_width]).encode())
     if part:            # a clip in one run is keyed as it always was
         h.update(json.dumps({"part": [int(part[0]), int(part[1])]}).encode())
+    if inpaint:         # and so is one whose people are masked rather than inpainted
+        h.update(b'{"inpaint": "propainter"}')
     return h.hexdigest()[:20]
 
 
@@ -915,8 +1049,23 @@ def _cam_in_route(run: dict, T: tuple, idx: int) -> np.ndarray:
     return c
 
 
+def _gaps(P: np.ndarray, cand: np.ndarray, other: np.ndarray, r: float) -> np.ndarray:
+    """Rows of P among `cand` with fewer than SEAM_FILL_NEIGHBOURS points of `other` within r."""
+    out = np.zeros(len(P), dtype=bool)
+    idx = np.nonzero(cand)[0]
+    if not len(idx):
+        return out
+    if not len(other):
+        out[idx] = True
+        return out
+    from scipy.spatial import cKDTree
+    cnt = cKDTree(other).query_ball_point(P[idx], r, return_length=True, workers=-1)
+    out[idx[np.asarray(cnt) < SEAM_FILL_NEIGHBOURS]] = True
+    return out
+
+
 def _merge_runs(runs: list[dict], T: list[tuple], out_ply: Path, metres_per_unit: float,
-                max_gaussians: int = 0) -> tuple[int, list, Optional[list]]:
+                max_gaussians: int = 0, seam_fill: bool = False) -> tuple[int, list, Optional[list]]:
     """Write the route splat of runs in route order (dir, cams, n_shared, n_tail) and their transforms into the route
     frame: each run's splat is moved into that frame and cut at the seam planes, each through the last camera of the
     run before it, along its heading, CUT_AHEAD ahead (the earlier run keeps what lies behind, the later what lies
@@ -932,11 +1081,12 @@ def _merge_runs(runs: list[dict], T: list[tuple], out_ply: Path, metres_per_unit
         parts.append(move_splat(d, names, s, R, t))
 
     ix = [names.index(c) for c in "xyz"]
-    planes = []
+    planes, seam_cams = [], []
     for i in range(len(runs) - 1):
         c = _cam_in_route(runs[i], T[i], -1)
         planes.append((c[:3, 3] + CUT_AHEAD * c[:3, 2], c[:3, 2]))
-    kept = []
+        seam_cams.append(c[:3, 3])
+    keep = []
     for i, d in enumerate(parts):
         m = np.ones(len(d), dtype=bool)
         if i > 0:
@@ -945,7 +1095,20 @@ def _merge_runs(runs: list[dict], T: list[tuple], out_ply: Path, metres_per_unit
         if i < len(planes):
             pc, pf = planes[i]
             m &= (d[:, ix] - pc) @ pf <= 0
-        kept.append(d[m])
+        keep.append(m)
+    if seam_fill and metres_per_unit > 0:      # each side of a seam fills the other's gaps near it (SEAM_FILL_*)
+        r, depth = SEAM_FILL_M / metres_per_unit, SEAM_FILL_DEPTH_M / metres_per_unit
+        reach = SEAM_FILL_RADIUS_M / metres_per_unit
+        for i, (pc, pf) in enumerate(planes):
+            a, b = parts[i][:, ix].astype(np.float64), parts[i + 1][:, ix].astype(np.float64)
+            da, db = (a - pc) @ pf, (b - pc) @ pf          # > 0: past the seam, the later run's side
+            ra = np.linalg.norm(a - seam_cams[i], axis=1) <= reach
+            rb = np.linalg.norm(b - seam_cams[i], axis=1) <= reach
+            near_b = keep[i + 1] & (db > -r) & (db <= depth + r) & (np.linalg.norm(b - seam_cams[i], axis=1) <= reach + r)
+            keep[i] |= _gaps(a, ~keep[i] & (da > 0) & (da <= depth) & ra, b[near_b], r)
+            near_a = keep[i] & (da < r) & (da >= -depth - r) & (np.linalg.norm(a - seam_cams[i], axis=1) <= reach + r)
+            keep[i + 1] |= _gaps(b, ~keep[i + 1] & (db <= 0) & (db >= -depth) & rb, a[near_a], r)
+    kept = [d[m] for d, m in zip(parts, keep)]
     sizes = [len(d) for d in kept]
     data = np.concatenate(kept)
 
@@ -1008,7 +1171,8 @@ def recompose_route(manifest: dict, out_ply: Path) -> tuple[int, list]:
     """The route splat again from the WorldMirror runs its manifest names (no reconstruction): what
     build_route_gaussian wrote, byte for byte, for the same runs."""
     runs, T = _manifest_runs(manifest)
-    n, route, _ = _merge_runs(runs, T, out_ply, float(manifest["metres_per_unit"]))
+    n, route, _ = _merge_runs(runs, T, out_ply, float(manifest["metres_per_unit"]),
+                              seam_fill=bool(manifest.get("seam_fill")))
     return n, route
 
 
@@ -1038,13 +1202,25 @@ def manifest_from_cache(clips: list[Path], cache_dir: Path, *, frame_step: int, 
     return m
 
 
+def _own_indices(e: dict) -> list[int]:
+    return json.loads((e["frames"] / "indices.json").read_text())
+
+
+def _run_range(e: dict) -> tuple[int, int]:
+    return tuple(e["part"]) if e["part"] else (0, e["total"] or _frame_count(e["clip"]))
+
+
 def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_step: int = 9, shared: int = 5,
                          max_frames: int = 36, metres_per_unit: float = 30.5, max_gaussians: int = 0,
                          progress: Optional[Callable[[str], None]] = None, keep_work: bool = False,
                          mask_people: bool = False, adaptive: bool = True, mask_fallback: bool = False,
                          cache_dir: Optional[Path] = None, frame_width: int = 704,
-                         should_stop: Optional[Callable[[], bool]] = None) -> dict:
+                         should_stop: Optional[Callable[[], bool]] = None, inpaint_people: bool = False) -> dict:
     """clips in route order -> out_ply (+ .json sidecar, _cams.json, _stitch.json).  Blocking; run it in a thread.
+
+    inpaint_people (with mask_people): the people are not only masked out but painted over with ProPainter from the
+    frames around them (inpaint_frames above), so WorldMirror reconstructs the ground they hid -- and never sees
+    them, so they do not hold the camera still for it either.
 
     cache_dir: keeps each clip's frames, masks and WorldMirror result there (see the key below), so a longer
     route made of the same first clips only reconstructs the new ones.  Cached clips are never deleted here.
@@ -1069,13 +1245,16 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
     # A run's result depends on the clip, the settings and the run before it (its first frames are the
     # previous run's last samples), so that chain is the cache key: adding clips at the end of a route
     # reuses every earlier run, and a failed build resumes where it stopped.
+    inpaint = bool(inpaint_people and mask_people)
+    if inpaint:
+        _propainter_python()           # missing: say so before an hour of work, not after
     plan = []
     prev_files: list[Path] = []
     prev_key = ""
     fps_of: list[Optional[float]] = []
     for ci, clip in enumerate(clips):
         check()
-        parts, demand, fps = [None], None, None
+        parts, demand, fps, total = [None], None, None, 0
         try:
             fps = _probe(clip)[0]
             total = _frame_count(clip)
@@ -1091,11 +1270,11 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
             i = len(plan)
             name = f"clip {ci + 1}/{len(clips)}" + (f" part {pi + 1}/{len(parts)}" if part else "")
             key = _clip_key(clip, prev_key, frame_step, shared, max_frames, adaptive, mask_people, mask_fallback, i,
-                            frame_width, part=part)
+                            frame_width, part=part, inpaint=inpaint)
             prev_key = key
             cdir = (cache_dir / key) if cache_dir else (work / f"clip{i}")
             e = {"clip": clip, "clip_no": ci, "part": part, "name": name, "cdir": cdir, "frames": cdir / "frames",
-                 "masks": cdir / "masks", "out": cdir / "out", "done": cdir / "done.json"}
+                 "masks": cdir / "masks", "out": cdir / "out", "done": cdir / "done.json", "fps": fps, "total": total}
             if cache_dir and e["done"].exists():
                 say(f"{name}: reusing the saved reconstruction")
                 meta = json.loads(e["done"].read_text())
@@ -1125,14 +1304,20 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
                 jobs[i] = sam3_submit(plan[i]["clip"], plan[i]["cdir"] / "dense",
                                       **({"part": plan[i]["part"]} if plan[i]["part"] else {}))
             for i in new:
-                say(f"{plan[i]['name']}: person masks")
-                sam3_collect(jobs[i], plan[i]["frames"], plan[i]["masks"], should_stop=should_stop)
-                check()
-                add_box_masks(plan[i]["frames"], plan[i]["masks"], plan[i]["cdir"] / "box_masks")
-                k = plan[i]["n_shared"]
+                e = plan[i]
+                if inpaint:            # every frame ProPainter will see needs its mask
+                    say(f"{e['name']}: person masks for inpainting")
+                    e["pp_idx"] = _paint_masks(e["clip"], e["cdir"], e["own"], _own_indices(e), *_run_range(e),
+                                               frame_width, e["masks"], job=jobs[i], should_stop=should_stop)
+                else:
+                    say(f"{e['name']}: person masks")
+                    sam3_collect(jobs[i], e["frames"], e["masks"], should_stop=should_stop)
+                    check()
+                    add_box_masks(e["frames"], e["masks"], e["cdir"] / "box_masks")
+                k = e["n_shared"]
                 for n in range(k):      # repeated frames keep the mask the previous run made for them
                     prev = plan[i - 1]
-                    shutil.copy2(prev["masks"] / prev["own"][-k:][n].name, plan[i]["masks"] / f"a_{n:03d}.png")
+                    shutil.copy2(prev["masks"] / prev["own"][-k:][n].name, e["masks"] / f"a_{n:03d}.png")
         except RouteCancelled:
             _drop_sam3(jobs)
             raise
@@ -1144,11 +1329,31 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
                                    "weaker SAM 2.1 large masks instead.") from exc
             say(f"SAM 3.1 masks unavailable ({exc}); using SAM 2.1 large")
             for i in new:
-                shutil.rmtree(plan[i]["masks"], ignore_errors=True)
-                make_person_masks(plan[i]["frames"], plan[i]["masks"])
+                e = plan[i]
+                shutil.rmtree(e["masks"], ignore_errors=True)
+                if inpaint:
+                    e["pp_idx"] = _paint_masks(e["clip"], e["cdir"], e["own"], _own_indices(e), *_run_range(e),
+                                               frame_width, e["masks"])
+                else:
+                    make_person_masks(e["frames"], e["masks"])
+                k = e["n_shared"]
+                for n in range(k):
+                    prev = plan[i - 1]
+                    shutil.copy2(prev["masks"] / prev["own"][-k:][n].name, e["masks"] / f"a_{n:03d}.png")
         for i in new:
             shutil.rmtree(plan[i]["cdir"] / "dense", ignore_errors=True)
-        comfy_free()          # WorldMirror needs the card next
+        comfy_free()          # ProPainter and WorldMirror need the card next
+
+    if inpaint and new:
+        for i in new:
+            check()
+            e = plan[i]
+            say(f"{e['name']}: inpainting the people (ProPainter, {len(e['pp_idx'])} frames)")
+            _paint_own(e["cdir"], e["own"], _own_indices(e), e["pp_idx"], e["masks"], should_stop=should_stop)
+            if e["n_shared"]:      # the repeated frames are the run before's own: inpainted now (or in its cache)
+                prev = plan[i - 1]
+                for n, src in enumerate(prev["own"][-e["n_shared"]:]):
+                    shutil.copy2(src, e["frames"] / f"a_{n:03d}.png")
 
     runs = []                      # per run: dict(dir, cams (n,4,4), own (index of first own camera))
     for i, e in enumerate(plan):
@@ -1159,7 +1364,8 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
                 out = f.parent
         else:
             say(f"{e['name']}: WorldMirror on {len(e['own']) + e['n_shared']} frames")
-            out = run_worldmirror(e["frames"], e["out"], mask_dir=e["masks"] if mask_people else None,
+            # inpainted frames show no one: nothing to drop from the result (the masks stay beside them)
+            out = run_worldmirror(e["frames"], e["out"], mask_dir=e["masks"] if mask_people and not inpaint else None,
                                   should_stop=should_stop)
             if cache_dir:
                 e["done"].write_text(json.dumps({"n_shared": e["n_shared"], "own": [f.name for f in e["own"]]}))
@@ -1170,7 +1376,7 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
     say("aligning runs")
     T, report = _align_runs(runs)            # every run into run 0's frame
     say("writing the splat")
-    n, route, rows = _merge_runs(runs, T, out_ply, metres_per_unit, max_gaussians)
+    n, route, rows = _merge_runs(runs, T, out_ply, metres_per_unit, max_gaussians, seam_fill=True)
     times = []                               # each route camera's time in its clip, for _pose_breaks
     for e in plan:
         idx_file = e["frames"] / "indices.json"
@@ -1182,16 +1388,19 @@ def build_route_gaussian(clips: list[Path], out_ply: Path, work: Path, *, frame_
     for b in breaks:
         say(f"camera jumps {b['jump_m']} m between {b['from_s']} s and {b['to_s']} s of clip {b['clip'] + 1} "
             f"({b['times_median_speed']}x the route's median speed): the reconstruction lost track there")
-    source = f"WorldMirror route splat, {len(clips)} clips" + (f" in {len(plan)} runs" if len(plan) != len(clips) else "")
+    source = (f"WorldMirror route splat, {len(clips)} clips" + (f" in {len(plan)} runs" if len(plan) != len(clips) else "")
+              + (", people inpainted (ProPainter)" if inpaint else ""))
     length = _write_route_sidecars(out_ply, route, report, n, metres_per_unit, source,
                                    extra={"runs": len(plan), "pose_breaks": breaks})
     if cache_dir:          # the runs outlive the job only in the cache; a manifest pointing into `work` would dangle
         settings = {"frame_step": frame_step, "shared": shared, "max_frames": max_frames, "adaptive": adaptive,
-                    "mask_people": mask_people, "mask_fallback": mask_fallback, "pipeline_version": PIPELINE_VERSION}
+                    "mask_people": mask_people, "mask_fallback": mask_fallback, "pipeline_version": PIPELINE_VERSION,
+                    **({"inpaint": "propainter"} if inpaint else {})}
         man = _manifest([e["clip"] for e in plan], [e["cdir"] for e in plan], runs, T, metres_per_unit, frame_width,
                         settings=settings, parts=[e["part"] for e in plan])
         for entry, r in zip(man["clips"], rows or [None] * len(runs)):
             entry["rows"] = r
+        man["seam_fill"] = True               # recomposing it fills the seams again; older routes stay as written
         out_ply.with_name(out_ply.stem + "_route.json").write_text(json.dumps(man), encoding="utf-8")
     if not keep_work:
         shutil.rmtree(work, ignore_errors=True)
@@ -1418,6 +1627,8 @@ def _extension_run(clip: Path, manifest: dict, where: str, k: int, settings: dic
     step = int(settings.get("frame_step") or 9)
     adaptive = bool(settings.get("adaptive", True))
     mask_people = all((adj_cache / "masks" / n).exists() for n in shared)     # the route was built with masks
+    # and painted over: the route's frames it repeats are, so its own must be too (painted frames, no mask)
+    inpaint = mask_people and settings.get("inpaint") == "propainter"
     mask_fallback = bool(settings.get("mask_fallback", False))
     h = hashlib.sha1()
     with open(clip, "rb") as fh:
@@ -1425,6 +1636,8 @@ def _extension_run(clip: Path, manifest: dict, where: str, k: int, settings: dic
             h.update(block)
     h.update(json.dumps([PIPELINE_VERSION, "extend", where, adj["run"], shared, own_count, width, step, adaptive,
                          mask_people, mask_fallback]).encode())
+    if inpaint:
+        h.update(b'{"inpaint": "propainter"}')
     cdir = cache_dir / f"ext_{h.hexdigest()[:20]}"
     if (cdir / "done.json").exists():
         say(f"{clip.name}: reusing the saved reconstruction")
@@ -1438,12 +1651,19 @@ def _extension_run(clip: Path, manifest: dict, where: str, k: int, settings: dic
         shutil.copy2(adj_cache / "frames" / name, frames / f"{prefix}_{i:03d}.png")
     comfy_free()              # only now: a clip already in the cache needs neither ComfyUI's card nor WorldMirror's
     if mask_people:
-        say(f"{clip.name}: person masks")
-        job = None
+        say(f"{clip.name}: person masks" + (" for inpainting" if inpaint else ""))
+        if inpaint:
+            _propainter_python()
+            own_idx = json.loads((frames / "indices.json").read_text())
+            span = (0, _frame_count(clip))
+        job, pp_idx = None, None
         try:
             job = sam3_submit(clip, cdir / "dense")
-            sam3_collect(job, frames, masks, should_stop=should_stop)
-            add_box_masks(frames, masks, cdir / "box_masks")
+            if inpaint:
+                pp_idx = _paint_masks(clip, cdir, own, own_idx, *span, width, masks, job=job, should_stop=should_stop)
+            else:
+                sam3_collect(job, frames, masks, should_stop=should_stop)
+                add_box_masks(frames, masks, cdir / "box_masks")
         except RouteCancelled:
             if job:
                 _drop_sam3({0: job})
@@ -1456,15 +1676,23 @@ def _extension_run(clip: Path, manifest: dict, where: str, k: int, settings: dic
                                    "in models/checkpoints.") from exc
             say(f"SAM 3.1 masks unavailable ({exc}); using SAM 2.1 large")
             shutil.rmtree(masks, ignore_errors=True)
-            make_person_masks(frames, masks)
+            if inpaint:
+                pp_idx = _paint_masks(clip, cdir, own, own_idx, *span, width, masks)
+            else:
+                make_person_masks(frames, masks)
         for i, name in enumerate(shared):     # the route's frames keep the masks the route was built with
             shutil.copy2(adj_cache / "masks" / name, masks / f"{prefix}_{i:03d}.png")
         shutil.rmtree(cdir / "dense", ignore_errors=True)
-        comfy_free()          # WorldMirror needs the card next
+        comfy_free()          # ProPainter and WorldMirror need the card next
+        if inpaint:
+            say(f"{clip.name}: inpainting the people (ProPainter, {len(pp_idx)} frames)")
+            _paint_own(cdir, own, own_idx, pp_idx, masks, should_stop=should_stop)
     say(f"{clip.name}: WorldMirror on {len(own) + k} frames")
-    run = run_worldmirror(frames, cdir / "out", mask_dir=masks if mask_people else None, should_stop=should_stop)
+    run = run_worldmirror(frames, cdir / "out", mask_dir=masks if mask_people and not inpaint else None,
+                          should_stop=should_stop)
     done = {"where": where, "n_shared": k if where == "end" else 0, "n_tail": 0 if where == "end" else k,
-            "own": [f.name for f in own], "mask_people": mask_people, "shared": shared, "clip": str(clip)}
+            "own": [f.name for f in own], "mask_people": mask_people, "inpaint": inpaint, "shared": shared,
+            "clip": str(clip)}
     (cdir / "done.json").write_text(json.dumps(done))
     return run, cdir, done
 
@@ -1565,7 +1793,7 @@ def _with_adjustment(entry: dict, adj: Optional[dict], mpu: float) -> None:
 def _write_extended(m: dict, runs: list, T: list, out_ply: Path, core_name: str, stitch: list) -> dict:
     """Merge, sidecars, manifest (with each run's rows) of a route with clips added at its ends."""
     mpu = float(m["metres_per_unit"])
-    n, route, rows = _merge_runs(runs, T, out_ply, mpu)
+    n, route, rows = _merge_runs(runs, T, out_ply, mpu, seam_fill=bool(m.get("seam_fill")))
     for entry, r in zip(m["clips"], rows or [None] * len(runs)):
         entry["rows"] = r
     added = [c for c in m["clips"] if "auto_transform" in c]

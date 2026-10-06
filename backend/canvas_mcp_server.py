@@ -2160,7 +2160,7 @@ def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = 
                          label: str = "", frame_step: int = 9, shared_frames: int = 5,
                          metres_per_unit: float = 30.5, mask_people: bool = False,
                          adaptive_frames: bool = True, mask_fallback: bool = False,
-                         frame_width: int = 704) -> dict[str, Any]:
+                         frame_width: int = 704, inpaint_people: bool = True) -> dict[str, Any]:
     """Make one gaussian splat of a whole camera move from several finished video clips, in route order.
 
     For a long walk (a street, a corridor) made of H3 clips continued with motion context: each clip is
@@ -2185,20 +2185,22 @@ def build_route_gaussian(project: str, clip_node_ids: list[str], node_id: str = 
     empty where no other frame saw it. adaptive_frames: pick frames by motion (busy stretches get more)
     instead of at a fixed step. mask_fallback: if the SAM 3.1 masks fail the job errors; true accepts the weaker
     SAM 2.1 large masks instead. frame_width: width of the frames WorldMirror sees (default 704, its maximum is
-    952; wider is sharper but needs more memory per frame).
+    952; wider is sharper but needs more memory per frame). inpaint_people (with mask_people, default on): the
+    people are painted over with ProPainter from the frames around them before reconstruction, so the ground they
+    hid is rebuilt instead of leaving a hole down the route (follow shots); false only masks them out.
     """
     resolved = _resolve_project(project, scene)
     canvas = _canvas(resolved["id"])
     clips = [_find_node(canvas["nodes"], cid) for cid in clip_node_ids]
     settings = {"frame_step": frame_step, "shared_frames": shared_frames, "metres_per_unit": metres_per_unit,
                 "mask_people": mask_people, "adaptive_frames": adaptive_frames, "mask_fallback": mask_fallback,
-                "frame_width": frame_width}
+                "frame_width": frame_width, "inpaint_people": inpaint_people}
     return _start_route_build(resolved, canvas, clips, settings, node_id=node_id, label=label)
 
 
 # what build_route_gaussian takes when a node has no routeSettings of its own
 ROUTE_BUILD_DEFAULTS = {"frame_step": 9, "shared_frames": 5, "metres_per_unit": 30.5, "mask_people": False,
-                        "adaptive_frames": True, "mask_fallback": False, "frame_width": 704}
+                        "adaptive_frames": True, "mask_fallback": False, "frame_width": 704, "inpaint_people": True}
 
 
 def _start_route_build(resolved: dict[str, Any], canvas: dict[str, Any], clips: list[dict[str, Any]],

@@ -8861,6 +8861,9 @@ class RouteGaussianRequest(BaseModel):
     adaptive_frames: bool = True   # follow the clip's motion when picking frames
     frame_width: int = 704   # width of the frames WorldMirror sees (its own maximum is 952)
     mask_fallback: bool = False   # SAM 3.1 masks failing is an error unless this allows SAM 2.1 large instead
+    # with mask_people: paint the people over (ProPainter, from the frames around them) instead of only leaving them
+    # out, so the ground they hid is rebuilt and the reconstruction never sees them
+    inpaint_people: bool = True
 
 
 async def _run_route_gaussian_job(job: dict, req: RouteGaussianRequest) -> dict:
@@ -8878,7 +8881,8 @@ async def _run_route_gaussian_job(job: dict, req: RouteGaussianRequest) -> dict:
             frame_step=req.frame_step, shared=req.shared_frames, max_frames=req.max_frames,
             metres_per_unit=req.metres_per_unit, max_gaussians=req.max_gaussians,
             mask_people=req.mask_people, adaptive=req.adaptive_frames, mask_fallback=req.mask_fallback,
-            cache_dir=UPLOAD_DIR / "_route_cache", frame_width=req.frame_width, should_stop=cancelled)
+            cache_dir=UPLOAD_DIR / "_route_cache", frame_width=req.frame_width, should_stop=cancelled,
+            inpaint_people=req.inpaint_people)
     except route_gs.RouteCancelled:
         return {}          # the job is already marked cancelled; _execute_job keeps that
     finally:

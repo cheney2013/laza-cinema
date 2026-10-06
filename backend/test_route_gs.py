@@ -295,7 +295,7 @@ class ExtendRoute(unittest.TestCase):
         _, self.core_cams = route_gs.recompose_route(manifest, core)
         return manifest, core
 
-    def _extend(self, manifest, core, new_idx, where, adjustments=None):
+    def _extend(self, manifest, core, new_idx, where, adjustments=None, wm_calls=None):
         clip = self.tmp / "new.mp4"
         clip.write_bytes(b"new clip")
         adj = manifest["clips"][-1] if where == "end" else manifest["clips"][0]
@@ -315,6 +315,8 @@ class ExtendRoute(unittest.TestCase):
             return files
 
         def fake_worldmirror(frames_dir, out_dir, mask_dir=None, should_stop=None, timeout=0):
+            if wm_calls is not None:
+                wm_calls.append(mask_dir)
             names = sorted(p.name for p in Path(frames_dir).glob("*.png"))
             pre = {"a": "end", "c": "start"}
             idx = []
@@ -478,6 +480,51 @@ class ExtendRoute(unittest.TestCase):
         _, _, a = route_gs.read_ply(out)
         _, _, b = route_gs.read_ply(again)
         np.testing.assert_allclose(b[:, xyz], a[:, xyz], atol=1e-6)
+
+    def test_an_added_clip_is_painted_like_the_route(self):
+        """On a route whose people were painted over, a clip added at its end is painted too (its own frames; the
+        route's frames it repeats are painted already) and reconstructed with no mask, keyed apart from a masked one."""
+        a_idx, b_idx = list(range(10, 22)), list(range(22, 30))
+        self.world_of = {str(self.tmp / "A.mp4"): a_idx, str(self.tmp / "B.mp4"): b_idx}
+        manifest, core = self._route(a_idx, b_idx)
+        for c in manifest["clips"]:                      # built with masks
+            (Path(c["cache"]) / "masks").mkdir(exist_ok=True)
+            for n in c["own"]:
+                (Path(c["cache"]) / "masks" / n).write_bytes(b"m")
+        calls, wm_calls, dirs = {}, [], []
+
+        def fake_paint_masks(clip, cdir, own, own_idx, lo, hi, width, masks, job=None, should_stop=None):
+            masks.mkdir(parents=True, exist_ok=True)
+            for f in own:
+                (masks / f.name).write_bytes(b"m")
+            calls["masks"] = (lo, hi)
+            dirs.append(cdir.name)
+            return list(range(lo, hi))
+
+        def fake_paint_own(cdir, own, own_idx, pp_idx, masks, should_stop=None):
+            calls["own"] = [f.name for f in own]
+
+        def fake_collect(job, frames_dir, mask_dir, should_stop=None, indices=None, **kw):
+            mask_dir.mkdir(parents=True, exist_ok=True)
+
+        common = dict(sam3_submit=mock.Mock(return_value={}), sam3_collect=fake_collect, add_box_masks=mock.Mock(),
+                      _paint_masks=fake_paint_masks, _paint_own=fake_paint_own, comfy_free=mock.Mock(),
+                      _propainter_python=mock.Mock(return_value=Path("py")), _frame_count=mock.Mock(return_value=48))
+        manifest["settings"] = {"shared": self.K, "inpaint": "propainter"}
+        with mock.patch.multiple(route_gs, **common):
+            self._extend(manifest, core, list(range(30, 36)), "end", wm_calls=wm_calls)
+        self.assertEqual(calls["masks"], (0, 48))                       # the whole added clip, consecutively
+        self.assertEqual(calls["own"], [f"b_{j + 1:03d}.png" for j in range(6)])
+        self.assertEqual(wm_calls, [None])                              # painted: nothing to drop
+        # the same clip on a masked route: masks, no painting, another cache entry
+        manifest["settings"] = {"shared": self.K}
+        calls.clear()
+        with mock.patch.multiple(route_gs, **common):
+            self._extend(manifest, core, list(range(30, 36)), "end", wm_calls=wm_calls)
+        self.assertNotIn("own", calls)
+        self.assertIsNotNone(wm_calls[-1])
+        exts = sorted(d.name for d in (self.tmp / "cache").glob("ext_*"))
+        self.assertEqual(len(exts), 2)
 
     def test_recompose_is_what_the_merge_wrote(self):
         a_idx, b_idx = list(range(10, 22)), list(range(22, 30))
@@ -763,6 +810,176 @@ class BuildInParts(unittest.TestCase):
                                                   metres_per_unit=1.0)
         self.assertEqual((sampled, again["runs"]), ([], 3))
         self.assertEqual((tmp / "again.ply").read_bytes(), out.read_bytes())
+
+
+class Inpainting(unittest.TestCase):
+    """With inpaint_people the people are painted over before reconstruction: only the masked pixels change, the
+    reconstruction gets the painted frames and no mask, the repeated frames are the painted ones, and the cache
+    tells a painted run from a masked one."""
+
+    def test_only_the_masked_pixels_change(self):
+        from PIL import Image
+        tmp = Path(tempfile.mkdtemp())
+        rng = np.random.default_rng(7)
+        a = rng.integers(0, 255, (60, 80, 3), dtype=np.uint8)
+        b = rng.integers(0, 255, (60, 80, 3), dtype=np.uint8)
+        m = np.zeros((60, 80), np.uint8)
+        m[20:40, 30:50] = 255
+        Image.fromarray(a).save(tmp / "a.png")
+        Image.fromarray(b).save(tmp / "b.png")
+        Image.fromarray(m).save(tmp / "m.png")
+        route_gs.composite_inpainted(tmp / "a.png", tmp / "b.png", tmp / "m.png", tmp / "c.png", grow=4)
+        c = np.asarray(Image.open(tmp / "c.png").convert("RGB"))
+        far = np.ones((60, 80), bool)
+        far[12:48, 22:58] = False                      # beyond the grown, feathered edge
+        np.testing.assert_array_equal(c[far], a[far])
+        np.testing.assert_array_equal(c[24:36, 34:46], b[24:36, 34:46])
+
+    def test_the_cache_key_tells_painted_from_masked(self):
+        clip = Path(tempfile.mkdtemp()) / "c.mp4"
+        clip.write_bytes(b"clip")
+        args = (clip, "", 9, 5, 36, True, True, False, 0, 704)
+        self.assertEqual(route_gs._clip_key(*args), route_gs._clip_key(*args, inpaint=False))
+        self.assertNotEqual(route_gs._clip_key(*args), route_gs._clip_key(*args, inpaint=True))
+
+    def test_a_long_clip_painted_part_by_part(self):
+        import json
+        from PIL import Image
+        tmp = Path(tempfile.mkdtemp())
+        clip = tmp / "long.mp4"
+        clip.write_bytes(b"a long clip")
+        total, fps = 1679, 59.94
+        world = []
+        for i in range(total):
+            c = np.eye(4)
+            c[:3, :3] = _rot_y(10 * math.sin(i / 90))
+            c[:3, 3] = [0.3 * math.sin(i / 200), 0.02 * math.sin(i / 50), 0.004 * i]
+            world.append(c)
+
+        def frame(i: int, painted: bool = False) -> Image.Image:
+            # the frame number in the corner (never masked), a person in the middle (or what was painted there)
+            im = np.full((8, 16, 3), 40, np.uint8)
+            im[0, 0] = [i % 256, i // 256, 0]
+            im[2:6, 5:11] = [200, 200, 200] if painted else [255, 0, 0]
+            return Image.fromarray(im)
+
+        def fake_sample(video, out_dir, step, max_frames, width=704, adaptive=True, ends=False, part=None, demand=None):
+            lo, hi = part if part else (0, total)
+            idx = [int(round(v)) for v in np.linspace(lo, hi - 1, min(max_frames, math.ceil((hi - lo) / step)))]
+            out_dir.mkdir(parents=True, exist_ok=True)
+            files = []
+            for j, fi in enumerate(idx):
+                f = out_dir / f"b_{j + 1:03d}.png"
+                frame(fi).save(f)
+                files.append(f)
+            (out_dir / "indices.json").write_text(json.dumps(idx))
+            return files
+
+        def fake_dense(video, out_dir, lo, hi, every, also, width):
+            idx = sorted(set(range(lo, hi, every)) | {i for i in also if lo <= i < hi})
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for n, fi in enumerate(idx):
+                frame(fi).save(out_dir / f"b_{n + 1:05d}.png")
+            return idx
+
+        def fake_collect(job, frames_dir, mask_dir, should_stop=None, indices=None, **kw):
+            mask_dir.mkdir(parents=True, exist_ok=True)
+            m = np.zeros((8, 16), np.uint8)
+            m[2:6, 5:11] = 255
+            for f in sorted(frames_dir.glob("b_*.png")):
+                Image.fromarray(m).save(mask_dir / f.name)
+
+        painted_runs = []
+
+        def fake_inpaint(frames_dir, mask_dir, out_dir, should_stop=None, timeout=0):
+            out_dir.mkdir(parents=True, exist_ok=True)
+            files = []
+            for k, f in enumerate(sorted(frames_dir.glob("*.png"))):
+                i = int(np.asarray(Image.open(f))[0, 0, 0]) + 256 * int(np.asarray(Image.open(f))[0, 0, 1])
+                g = out_dir / f"{k:04d}.png"
+                frame(i, painted=True).save(g)
+                files.append(g)
+            painted_runs.append(len(files))
+            return files
+
+        wm_calls = []
+
+        def fake_worldmirror(frames_dir, out_dir, mask_dir=None, should_stop=None, timeout=0):
+            names = sorted(Path(frames_dir).glob("*.png"))
+            px = [np.asarray(Image.open(f).convert("RGB")) for f in names]
+            wm_calls.append({"mask_dir": mask_dir, "names": [f.name for f in names],
+                             "centres": [tuple(int(v) for v in im[3, 7]) for im in px]})
+            idx = [int(im[0, 0, 0]) + 256 * int(im[0, 0, 1]) for im in px]
+            truth = (1.0, np.eye(3), np.zeros(3)) if not names[0].name.startswith("a_") else (1.3, _rot_y(20), np.array([0.1, 0, 0.2]))
+            pts = np.array([[x, 0.0, 0.004 * i] for i in range(min(idx), max(idx) + 1, 20) for x in (-1.0, 1.0)])
+            return _write_run(Path(out_dir) / "run", [world[i] for i in idx], pts, truth)
+
+        with mock.patch.multiple(route_gs, sample_frames=fake_sample, run_worldmirror=fake_worldmirror,
+                                 dense_frames=fake_dense, sam3_submit=mock.Mock(return_value={}),
+                                 sam3_collect=fake_collect, add_box_masks=mock.Mock(), comfy_free=mock.Mock(),
+                                 inpaint_frames=fake_inpaint, _propainter_python=mock.Mock(return_value=Path("py")),
+                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _frame_count=mock.Mock(return_value=total),
+                                 _flow_profile=mock.Mock(return_value=np.zeros(total))):
+            out = tmp / "route.ply"
+            res = route_gs.build_route_gaussian([clip], out, tmp / "work", cache_dir=tmp / "cache", metres_per_unit=1.0,
+                                                mask_people=True, inpaint_people=True)
+        self.assertEqual(res["runs"], 3)
+        self.assertEqual(len(painted_runs), 3)
+        for call in wm_calls:
+            self.assertIsNone(call["mask_dir"])                       # painted frames: nothing left to drop
+            self.assertEqual(set(call["centres"]), {(200, 200, 200)})   # every frame, repeated ones too, painted
+        self.assertTrue(any(n.startswith("a_") for n in wm_calls[1]["names"]))
+        man = json.loads(out.with_name("route_route.json").read_text())
+        self.assertEqual(man["settings"]["inpaint"], "propainter")
+        # the frames as sampled are kept beside the painted ones, and the poses still land on the world
+        self.assertTrue((Path(man["clips"][0]["cache"]) / "frames_masked" / "b_001.png").exists())
+        cams = json.loads(out.with_name("route_cams.json").read_text())
+        own = [i for c in man["clips"] for i in c["indices"]]
+        np.testing.assert_allclose(np.array(cams), np.array([world[i][:3, 3] for i in own]), atol=1e-6)
+
+
+class SeamFill(unittest.TestCase):
+    """At a seam the later run often has nothing for the first metre or two (its first frames do not see the ground
+    there); the earlier run does but is cut at the plane. With seam_fill it keeps what fills that gap, and only that."""
+
+    def test_the_gap_past_a_seam_is_filled_and_nothing_doubles(self):
+        tmp = Path(tempfile.mkdtemp())
+        ident = (1.0, np.eye(3), np.zeros(3))
+        def cams(z0, z1, n):                             # looking down +z, walking along it
+            out = []
+            for z in np.linspace(z0, z1, n):
+                c = np.eye(4)
+                c[2, 3] = z
+                out.append(c)
+            return out
+        ground = lambda z0, z1: np.array([[x, 0.2, z] for z in np.arange(z0, z1, 0.01) for x in np.arange(-0.2, 0.2001, 0.01)])
+        a = _write_run(tmp / "a", cams(0.0, 1.0, 11), ground(0.0, 1.6), ident)        # seam plane at z = 1.1
+        b = _write_run(tmp / "b", cams(0.8, 2.0, 13), ground(1.4, 2.5), ident)        # nothing before z = 1.4
+        runs = [{"dir": a, "cams": route_gs._run_cams(a), "n_shared": 0},
+                {"dir": b, "cams": route_gs._run_cams(b), "n_shared": 3}]
+        T = [ident, ident]
+        mpu = 10.0                                        # 0.3 m = 0.03 units: three grid steps
+        f = mpu * route_gs.SCENE_SCALE
+
+        def zs(path):
+            _, names, d = route_gs.read_ply(path)
+            return d[:, names.index("z")] / f, d
+
+        _, rows0 = route_gs._merge_runs(runs, T, tmp / "cut.ply", mpu)[1:]
+        z0, _ = zs(tmp / "cut.ply")
+        self.assertEqual(int(((z0 > 1.11) & (z0 < 1.39)).sum()), 0)                  # the band, as it was
+        _, rows1 = route_gs._merge_runs(runs, T, tmp / "filled.ply", mpu, seam_fill=True)[1:]
+        z1, _ = zs(tmp / "filled.ply")
+        a_rows = slice(rows1[0][0], rows1[0][1])
+        za = z1[a_rows]
+        self.assertGreater(int(((za > 1.11) & (za < 1.36)).sum()), 0.9 * 25 * 41)     # the band comes from run a ...
+        self.assertEqual(int((za > 1.40).sum()), 0)                                   # ... and stops where b begins
+        zb = z1[rows1[1][0]:rows1[1][1]]
+        self.assertEqual(int((zb <= 1.1).sum()), 0)                                    # b adds nothing behind: a has it
+        # off by default: what a recompose of an older route writes
+        route_gs._merge_runs(runs, T, tmp / "again.ply", mpu)
+        self.assertEqual((tmp / "again.ply").read_bytes(), (tmp / "cut.ply").read_bytes())
 
 if __name__ == "__main__":
     unittest.main()
