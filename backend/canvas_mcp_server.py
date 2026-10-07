@@ -210,8 +210,17 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # is a line on the canvas instead of a hand-typed latent filename. The
         # clips remain separate assets and can be watched in a chainPreview node.
         "inputs": ["in-prompt", "in-image", "in-last-frame", "in-ref-image", "in-ref-audio",
-                   "in-ref-video", "in-motion-context"],
+                   "in-ref-video", "in-refmod", "in-motion-context"],
         "outputs": ["out-video"],
+    },
+    "refMod": {
+        "label": "RefMod (人物与声音参考)",
+        # A saved RefMod (Fantastic H3 pack) as a canvas resource: wire it to a video node's in-refmod, in
+        # the order they should be sent. visual / audio name files under models/refmods without the extension
+        # (list_refmods shows them with their source pictures and recordings); w is the weight.
+        "defaults": {"visual": None, "audio": None, "w": 1.0},
+        "inputs": [],
+        "outputs": ["out-refmod"],
     },
     # The H3 edit operations, one node type each (frontend VideoEditNode.tsx).
     # A canvas saved before the split may still hold a "videoEdit" with editMode
@@ -886,6 +895,19 @@ def _apply_operation(canvas: dict[str, Any], operation: dict[str, Any]) -> dict[
         return {"op": kind, "id": edge_id}
 
     raise ValueError(f"Unsupported canvas operation: {kind!r}")
+
+
+def _wired_refmods(canvas: dict[str, Any], node_id: str, data: dict[str, Any]) -> list[dict[str, Any]]:
+    """The RefMods a video node sends: data.refMods first (the old way), then each RefMod node wired to
+    in-refmod, in wire order. A RefMod node with neither a look nor a voice is skipped."""
+    out = [dict(r) for r in (data.get("refMods") or [])]
+    for source in _incoming_nodes(canvas, node_id, "in-refmod"):
+        sd = source.get("data") or {}
+        entry = {k: sd[k] for k in ("visual", "audio") if sd.get(k)}
+        if entry:
+            entry["w"] = float(sd.get("w") if sd.get("w") is not None else 1.0)
+            out.append(entry)
+    return out
 
 
 def _incoming_nodes(canvas: dict[str, Any], node_id: str, handle: str) -> list[dict[str, Any]]:
@@ -2709,7 +2731,7 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         # data.refMods: [{"visual": rel, "audio": rel, "w": 1.0}] -- saved RefMods (Fantastic H3
         # pack) standing in for wired references. Sent only when set, so no other node's
         # submission fingerprint changes.
-        **({"refmods": [dict(r) for r in data["refMods"]]} if data.get("refMods") else {}),
+        **({"refmods": _wired_refmods(canvas, node_id, data)} if (data.get("refMods") or _incoming_nodes(canvas, node_id, "in-refmod")) else {}),
     }
     # Attention patch: "sol" (default, fastest here) or "kjsage" (the
     # memory-efficient SageAttention patch, lower peak VRAM, slower). Set

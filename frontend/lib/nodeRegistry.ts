@@ -9,7 +9,8 @@ export type PortType =
   | 'character'
   | 'pose'
   | 'gaussian'
-  | 'audio';
+  | 'audio'
+  | 'refmod';
 
 export interface PortDefinition {
   id?: string;
@@ -53,6 +54,7 @@ export const INPUT_COMPATIBILITY_RULES: Record<PortType, PortType[]> = {
   audio: ['audio', 'video'],
   pose: ['pose', 'image'],
   gaussian: ['gaussian', 'image'],
+  refmod: ['refmod'],
 };
 
 const DEFAULT_NEGATIVE_PROMPT =
@@ -159,6 +161,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       { id: 'in-ref-image', portType: 'character', label: '角色/道具参考 (<图N> · 可多张)', acceptedTypes: ['character', 'image'] },
       { id: 'in-ref-audio', portType: 'audio', label: '声音参考 (<Audio N>)', acceptedTypes: ['audio', 'video'] },
       { id: 'in-ref-video', portType: 'video', label: '运镜参考 (<Video N>)', acceptedTypes: ['video'] },
+      { id: 'in-refmod', portType: 'refmod', label: 'RefMod (人物外观 + 声音 · 可多个)', acceptedTypes: ['refmod'] },
       // The handle was on the node but not in this list, so validateConnectionSchema fell back to the
       // first input (the prompt) and refused every wire to it: a chain could only be wired from the
       // canvas server, never by dragging (2026-10-02).
@@ -183,6 +186,15 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         blockSparse: true,
       };
     },
+  },
+  {
+    type: 'refMod',
+    label: 'RefMod (人物与声音参考)',
+    cat: '素材 & 风格',
+    color: '#f59e0b',
+    inputs: [],
+    outputs: [{ id: 'out-refmod', portType: 'refmod', label: 'RefMod' }],
+    createData: () => ({ visual: undefined, audio: undefined, w: 1 }),
   },
   {
     type: 'videoReshot',

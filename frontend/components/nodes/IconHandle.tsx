@@ -5,7 +5,7 @@ import { Handle, Position, HandleProps } from '@xyflow/react';
 import { useT } from '@/lib/i18n';
 import { InNodeShell } from './NodeShell';
 
-export type PortType = 'prompt' | 'image' | 'character' | 'video' | 'pose' | 'gaussian' | 'audio';
+export type PortType = 'prompt' | 'image' | 'character' | 'video' | 'pose' | 'gaussian' | 'audio' | 'refmod';
 
 interface IconHandleProps extends Omit<HandleProps, 'type' | 'position'> {
   portType: PortType;
@@ -52,6 +52,11 @@ const PORT_CONFIG: Record<PortType, { label: string; short: string; symbol: stri
     short: '声音',
     symbol: '🎵',
   },
+  refmod: {
+    label: 'RefMod (人物与声音参考)',
+    short: 'RefMod',
+    symbol: '◎',
+  },
 };
 
 const PORT_COLORS: Record<PortType, { border: string; glow: string; text: string }> = {
@@ -62,6 +67,7 @@ const PORT_COLORS: Record<PortType, { border: string; glow: string; text: string
   pose: { border: 'rgba(99, 102, 241, 0.5)', glow: 'rgba(99, 102, 241, 0.35)', text: '#818cf8' },
   gaussian: { border: 'rgba(20, 184, 166, 0.5)', glow: 'rgba(20, 184, 166, 0.35)', text: '#2dd4bf' },
   audio: { border: 'rgba(251, 113, 133, 0.5)', glow: 'rgba(251, 113, 133, 0.35)', text: '#fda4af' },
+  refmod: { border: 'rgba(245, 158, 11, 0.5)', glow: 'rgba(245, 158, 11, 0.35)', text: '#fbbf24' },
 };
 
 export default function IconHandle({ portType, type, position, nodeId, style, title, icon, id, ...rest }: IconHandleProps) {

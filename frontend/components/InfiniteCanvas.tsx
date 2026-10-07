@@ -36,6 +36,7 @@ import VideoInterpolateNode from './nodes/VideoInterpolateNode';
 import VideoTrimNode from './nodes/VideoTrimNode';
 import AudioGenNode from './nodes/AudioGenNode';
 import VideoCompareNode from './nodes/VideoCompareNode';
+import RefModNode from './nodes/RefModNode';
 import UploadNode from './nodes/UploadNode';
 import InpaintNode from './nodes/InpaintNode';
 import QwenImageNode from './nodes/QwenImageNode';
@@ -165,6 +166,7 @@ const nodeTypes = {
   depthVideo: DepthVideoNode,
   audioGen: AudioGenNode,
   videoCompare: VideoCompareNode,
+  refMod: RefModNode,
   image: UploadNode,
 
   inpaint: InpaintNode,

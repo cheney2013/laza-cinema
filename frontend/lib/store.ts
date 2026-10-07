@@ -224,6 +224,7 @@ export const useStore = create<AppStore>((set, get) => ({
           connection.targetHandle === 'in-ref-image' ||
           connection.targetHandle === 'in-ref-audio' ||
           connection.targetHandle === 'in-ref-video' ||
+          connection.targetHandle === 'in-refmod' ||
           connection.targetHandle === 'in-prompt'
         ) {
           isMultiInput = true;

@@ -17,6 +17,7 @@ from canvas_mcp_server import (  # noqa: E402
     _frame_around,
     _group_members,
     _transitive_members,
+    _wired_refmods,
 )
 
 
@@ -76,6 +77,30 @@ class CanvasOperationTests(unittest.TestCase):
                 "source_handle": "out-prompt",
                 "target_handle": "in-does-not-exist",
             })
+
+
+class WiredRefModTests(unittest.TestCase):
+    def canvas(self):
+        return {
+            "nodes": [
+                {"id": "v", "type": "video", "data": {"refMods": [{"visual": "old/look", "w": 1.0}]}},
+                {"id": "a", "type": "refMod", "data": {"visual": "tlou/s5_joel3", "audio": "tlou/s5_joel_voice_urgent", "w": 0.8}},
+                {"id": "b", "type": "refMod", "data": {"visual": "tlou/s5_sarah_visual"}},
+                {"id": "empty", "type": "refMod", "data": {}},
+            ],
+            "edges": [
+                {"source": "a", "target": "v", "targetHandle": "in-refmod"},
+                {"source": "empty", "target": "v", "targetHandle": "in-refmod"},
+                {"source": "b", "target": "v", "targetHandle": "in-refmod"},
+            ],
+        }
+
+    def test_wire_order_after_the_old_field_and_empty_ones_skipped(self):
+        canvas = self.canvas()
+        out = _wired_refmods(canvas, "v", canvas["nodes"][0]["data"])
+        self.assertEqual([r.get("visual") for r in out], ["old/look", "tlou/s5_joel3", "tlou/s5_sarah_visual"])
+        self.assertEqual(out[1], {"visual": "tlou/s5_joel3", "audio": "tlou/s5_joel_voice_urgent", "w": 0.8})
+        self.assertEqual(out[2]["w"], 1.0)
 
 
 class GroupLayoutTests(unittest.TestCase):

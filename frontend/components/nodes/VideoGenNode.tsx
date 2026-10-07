@@ -31,7 +31,6 @@ import { createPortal } from 'react-dom';
 
 import { ExpandedPromptModal, insertIntoActiveRichPrompt, RenderedPromptFlow, type RichPromptEditorHandle } from './RichPromptEditor';
 import NodeErrorBanner from './NodeErrorBanner';
-import RefModPanel, { type RefModRow } from './RefModPanel';
 import { SeedControl, resolveSeedForGeneration } from './SeedControl';
 import SubmittedResourcesPanel from './SubmittedResourcesPanel';
 import { showAlert } from '@/components/ui/Dialog';
@@ -649,6 +648,10 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
   const chain = resolveChain(chainParent as any, data.motionContextLatent, data.motionContextAtFrame);
   const chainLatent = chain.motion_context_latent || '';
   const chainVideo = chain.motion_context_video || '';
+  // RefMod nodes wired to in-refmod, in wire order: what the backend sends in place of wired references.
+  const refMods = connected
+    .filter((n) => n.targetHandle === 'in-refmod' && (n.refVisual || n.refAudio))
+    .map((n) => ({ visual: n.refVisual, audio: n.refAudio, w: n.refWeight ?? 1 }));
   const refVideoUrls = refVideoInputs.map((n) => (n.url || n.generatedUrl) as string).filter(Boolean);
   const refVideoResolution = refVideoInputs.find((n) => Number(n.width) > 0 && Number(n.height) > 0);
   const promptBinding = usePromptBinding(id);
@@ -724,6 +727,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         ref_image_urls: finalRefImageUrls,
         ref_audio_urls: refAudioUrls,
         ref_video_urls: refVideoUrls,
+        ...(refMods.length ? { refmods: refMods } : {}),
         width: currentWidth,
         height: currentHeight,
         steps: currentSteps,
@@ -1244,11 +1248,6 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               seed={data.seed as number | undefined}
               busy={data.status === 'generating'}
               onChange={(locks) => updateNodeData(id, { audioLocks: locks })}
-            />
-            <RefModPanel
-              rows={Array.isArray(data.refMods) ? (data.refMods as RefModRow[]) : []}
-              busy={data.status === 'generating'}
-              onChange={(rows) => updateNodeData(id, { refMods: rows.length ? rows : undefined })}
             />
             {/* Motion preset */}
             <div>
@@ -2067,6 +2066,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
       <IconHandle type="target" id="in-ref-image" portType="character" nodeId={id} style={{ top: '50%' }} title={t('角色/道具参考图 (<图N> · 支持连入多张)')} />
       <IconHandle type="target" id="in-ref-audio" portType="audio" nodeId={id} style={{ top: '68%' }} title={t('声音参考 (<Audio N>)')} />
       <IconHandle type="target" id="in-ref-video" portType="video" nodeId={id} style={{ top: '85%' }} title={t('运镜参考 (<Video N>)')} />
+      <IconHandle type="target" id="in-refmod" portType="refmod" nodeId={id} style={{ top: '59%' }} title={t('RefMod (人物外观 + 声音 · 可多个)')} />
       {/* The clip this one continues from. Wiring it here is what makes a long
           take out of several generations: the backend takes that clip's latent
           as motion context. Each generated section remains its own asset. */}

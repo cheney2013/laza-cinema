@@ -324,6 +324,18 @@ export interface TitleBlockNodeData extends SizedNodeData {
 
 export type TitleBlockNode = Node<TitleBlockNodeData, 'titleBlock'>;
 
+/** A saved RefMod (Fantastic H3 pack) as a canvas resource: a look, a voice, and how strongly to send it.
+ *  Wire it to a video node's in-refmod; the wire order is the order they are sent in. */
+export interface RefModNodeData extends SizedNodeData {
+  /** The look, as a video node's refMods names it (e.g. "tlou/s5_joel3"). */
+  visual?: string;
+  /** The voice (e.g. "tlou/s5_sarah_voice_worried"). */
+  audio?: string;
+  w?: number;
+}
+
+export type RefModNode = Node<RefModNodeData, 'refMod'>;
+
 export interface GaussianNodeData extends SizedNodeData {
   plyUrl: string | null;          // /uploads/gaussian_xxx.ply
   plyFilename: string | null;     // gaussian_xxx.ply (as stored on server)

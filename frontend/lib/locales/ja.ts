@@ -3018,4 +3018,9 @@ export const ja: Record<string, string> = {
   '这个 RefMod 是用什么资料做的': 'この RefMod の元資料',
   '没有记录创建资料': '作成時の資料は記録されていません',
   '情绪': '感情',
+  'RefMod (人物与声音参考)': 'RefMod（人物・声のリファレンス）',
+  'RefMod (人物外观 + 声音 · 可多个)': 'RefMod（人物の外見＋声・複数可）',
+  'RefMod（接到视频节点的 RefMod 口）': 'RefMod（動画ノードの RefMod ポートへ）',
+  '外观': '外見',
+  '做成它的资料': '作成に使った資料',
 };

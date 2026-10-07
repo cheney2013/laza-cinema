@@ -44,6 +44,10 @@ export interface ConnectedInput {
   lastFrame?: string;
   plyUrl?: string | null;
   plyOriginalName?: string | null;
+  /** A RefMod node's look, voice and weight (what a video node sends for a wire on in-refmod). */
+  refVisual?: string;
+  refAudio?: string;
+  refWeight?: number;
 }
 
 /**
@@ -84,6 +88,11 @@ export function projectConnectedNode(
     contextFrames: Number(d?.contextFrames) || undefined,
     plyUrl: d?.plyUrl,
     plyOriginalName: d?.plyOriginalName,
+    ...(node.type === 'refMod' ? {
+      refVisual: typeof d?.visual === 'string' ? d.visual : undefined,
+      refAudio: typeof d?.audio === 'string' ? d.audio : undefined,
+      refWeight: typeof d?.w === 'number' ? d.w : 1,
+    } : {}),
     referenceImages: (d?.submittedResources?.reference_images || [])
       .map((r: any) => r?.comfy_filename)
       .filter(Boolean),
