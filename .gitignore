@@ -1,6 +1,7 @@
 backend/uploads/
 .venv/
 .venv-mcp/
+.venv-audio/
 .codex_tmp/
 node_modules
 productions
