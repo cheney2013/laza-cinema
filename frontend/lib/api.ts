@@ -560,10 +560,24 @@ export function loadMachineProfile(): Promise<MachineProfile | null> {
   return machineProfilePromise;
 }
 
+/** One saved RefMod (Fantastic H3 pack) as the backend lists it; `preview_url` is the picture an image one was baked from. */
+export interface RefModEntry {
+  name: string;
+  kind: 'image' | 'audio' | '';
+  tags: string[];
+  latent_frames?: number | null;
+  size_bytes: number;
+  preview_url: string | null;
+  description: string;
+}
+
 export const api = {
   getVersion: () => request<{ name: string; version: string; commit: string }>('/version'),
 
   health: () => request<{ status: string; comfyui: boolean }>('/health'),
+
+  /** The saved RefMods the H3 node can send (data.refMods names them). */
+  listRefMods: () => request<{ refmods: RefModEntry[] }>('/refmods'),
 
   getMachineProfile: () => request<MachineProfile>('/machine-profile'),
 

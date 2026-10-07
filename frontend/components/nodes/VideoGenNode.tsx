@@ -31,6 +31,7 @@ import { createPortal } from 'react-dom';
 
 import { ExpandedPromptModal, insertIntoActiveRichPrompt, RenderedPromptFlow, type RichPromptEditorHandle } from './RichPromptEditor';
 import NodeErrorBanner from './NodeErrorBanner';
+import RefModPanel, { type RefModRow } from './RefModPanel';
 import { SeedControl, resolveSeedForGeneration } from './SeedControl';
 import SubmittedResourcesPanel from './SubmittedResourcesPanel';
 import { showAlert } from '@/components/ui/Dialog';
@@ -1243,6 +1244,11 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               seed={data.seed as number | undefined}
               busy={data.status === 'generating'}
               onChange={(locks) => updateNodeData(id, { audioLocks: locks })}
+            />
+            <RefModPanel
+              rows={Array.isArray(data.refMods) ? (data.refMods as RefModRow[]) : []}
+              busy={data.status === 'generating'}
+              onChange={(rows) => updateNodeData(id, { refMods: rows.length ? rows : undefined })}
             />
             {/* Motion preset */}
             <div>
