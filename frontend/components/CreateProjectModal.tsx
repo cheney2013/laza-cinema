@@ -19,7 +19,7 @@ const ASPECT_RATIOS = [
     id: '16:9',
     label: '16:9 影院宽银幕',
     sublabel: '横屏电影 / 影视短片工业标准',
-    w: 1376,
+    w: 1344,
     h: 768,
     previewRatio: 'aspect-[16/9]',
     desc: 'MiniMax H3 默认最佳工业画幅，极佳的横向推轨运镜与大景别史诗表现力。',

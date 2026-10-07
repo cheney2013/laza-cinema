@@ -163,7 +163,7 @@ function ChainPreviewNode({ id, data, selected }: NodeProps) {
       video,
       clips.map((clip) => ({ url: clip.url, duration: durations[clip.url] })),
       {
-        width: active?.width || 1376,
+        width: active?.width || 1344,
         height: active?.height || 768,
         fps: 24,
         startTime: resume?.time,

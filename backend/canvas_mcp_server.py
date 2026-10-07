@@ -200,7 +200,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # turbo LoRA on the beta scheduler; measured 34.7 vs 42.4 degrees
         # peak-to-peak of car-body pitch on a chase shot. shiftVideo trades
         # motion against detail on any of them: 5.0 measured calmer than 12.0.
-        "defaults": {"prompt": "", "generatedUrl": None, "status": "idle", "width": 1376,
+        "defaults": {"prompt": "", "generatedUrl": None, "status": "idle", "width": 1344,
                      "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000,
                      "seedMode": "fixed", "motionPreset": "singularity", "shiftVideo": 12.0,
                      # New shots get block-sparse attention (~21% faster, details
@@ -218,7 +218,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
     # set to one of the others; running it follows that editMode.
     "videoEdit": {
         "label": "改原片 · 动作不变",
-        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1376, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
+        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1344, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
         # in-guide-frame: images pinned through MiniMaxH3AddGuide in an edit window,
         # data.guideFrameIndexes[i] = the SOURCE clip's frame for the i-th image.
         "inputs": ["in-video", "in-character", "in-audio", "in-prompt", "in-guide-frame"],
@@ -227,7 +227,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
     "videoReshot": {
         # Regenerates only reshotStartSeconds..+reshotDurationSeconds of the source.
         "label": "重拍一段 · 前后不动",
-        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1376, "height": 768, "steps": 20, "length": 124, "seed": 81000, "seedMode": "fixed", "reshotStartSeconds": 0, "reshotDurationSeconds": 3},
+        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1344, "height": 768, "steps": 20, "length": 124, "seed": 81000, "seedMode": "fixed", "reshotStartSeconds": 0, "reshotDurationSeconds": 3},
         "inputs": ["in-video", "in-character", "in-prompt"],
         "outputs": ["out-video"],
     },
@@ -235,19 +235,19 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # Freezes bridgeContextFrames (39/90/141/192) on both sides of the window and
         # regenerates the middle. No reference images or audio on this path.
         "label": "重拍中间 · 两端冻住",
-        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1376, "height": 768, "steps": 20, "length": 124, "seed": 81000, "seedMode": "fixed", "reshotStartSeconds": 0, "reshotDurationSeconds": 3, "bridgeContextFrames": 39},
+        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1344, "height": 768, "steps": 20, "length": 124, "seed": 81000, "seedMode": "fixed", "reshotStartSeconds": 0, "reshotDurationSeconds": 3, "bridgeContextFrames": 39},
         "inputs": ["in-video", "in-prompt"],
         "outputs": ["out-video"],
     },
     "videoContinue": {
         "label": "往后续拍",
-        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1376, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
+        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1344, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
         "inputs": ["in-video", "in-character", "in-audio", "in-prompt"],
         "outputs": ["out-video"],
     },
     "videoFrames": {
         "label": "首尾帧过渡",
-        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1376, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
+        "defaults": {"prompt": "", "userIntent": "", "generatedUrl": None, "status": "idle", "width": 1344, "height": 768, "steps": DEFAULT_H3_STEPS, "length": 124, "seed": 81000, "seedMode": "fixed", "audioStrategy": "copy_source"},
         "inputs": ["in-first-frame", "in-last-frame", "in-character", "in-audio", "in-prompt"],
         "outputs": ["out-video"],
     },
@@ -268,7 +268,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # No prompt port by design: the H3 swap writes its own instruction (or takes facePrompt). The
         # clip's own frame count is read on the server; a clip over 226 frames is rendered in chained
         # windows. Viggle was removed on 2026-10-07: stale swapEngine/swapMode "reference" data is ignored.
-        "defaults": {"generatedUrl": None, "status": "idle", "width": 1376, "height": 768,
+        "defaults": {"generatedUrl": None, "status": "idle", "width": 1344, "height": 768,
                      "seed": 95051, "seedMode": "fixed"},
         "inputs": ["in-video", "in-character"],
         "outputs": ["out-video"],
@@ -337,7 +337,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # write badly; headlines and short lines are fine on turbo.
         "label": "生成图片",
         "defaults": {"prompt": "", "negativePrompt": "", "generatedUrl": None,
-                     "status": "idle", "width": 1376, "height": 768, "steps": 25,
+                     "status": "idle", "width": 1344, "height": 768, "steps": 25,
                      "cfg": 1.0, "seed": 81000, "seedMode": "fixed", "speed": "turbo"},
         "inputs": ["in-ref"],
         "outputs": ["out-image"],
@@ -2895,7 +2895,7 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         "prompt": prompt,
         "reference_urls": refs,
         "negative_prompt": str(data.get("negativePrompt") or ""),
-        "width": int(data.get("width") or 1376),
+        "width": int(data.get("width") or 1344),
         "height": int(data.get("height") or 768),
         "steps": int(data.get("steps") or 25),
         "cfg": float(data.get("cfg") if data.get("cfg") is not None else 1.0),
@@ -3721,7 +3721,7 @@ def _run_upscale_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: 
     # without H3 at all: data.upscaleMethod = "esrgan" (RealESRGAN, deterministic, adds no detail).
     if str(data.get("upscaleMethod") or "").strip().lower() == "esrgan":
         method = "esrgan"
-    src_w = int(src_data.get("width") or 1376)
+    src_w = int(src_data.get("width") or 1344)
     src_h = int(src_data.get("height") or 768)
     # LMS is a same-size enhancement even when stale dimensions remain on an
     # older node that previously ran at 2x.
@@ -4093,7 +4093,7 @@ def _chain_hd_loop(resolved: dict[str, Any], scene: str, shot_ids: list[str], sc
                 while any(x.get("id") == hd_id for x in canvas["nodes"]):
                     hd_id, n = f"hd-{shot_id}-{n}", n + 1
                 sd = shot.get("data") or {}
-                w, h = int(sd.get("width") or 1376), int(sd.get("height") or 768)
+                w, h = int(sd.get("width") or 1344), int(sd.get("height") or 768)
                 with _hold_lock(pid, 60, f"add {hd_id}"):
                     apply_canvas_operations(pid, [
                         {"op": "add_node", "type": "videoUpscale", "id": hd_id, "width": 280,

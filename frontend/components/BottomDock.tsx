@@ -81,7 +81,7 @@ function BottomDock() {
           <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
         </svg>
       ),
-      data: { prompt: '', generatedUrl: null, status: 'idle', width: 1376, height: 768, steps: DEFAULT_H3_STEPS, seed: -1, length: 124 },
+      data: { prompt: '', generatedUrl: null, status: 'idle', width: 1344, height: 768, steps: DEFAULT_H3_STEPS, seed: -1, length: 124 },
     },
     {
       type: 'prompt',
@@ -148,7 +148,7 @@ function BottomDock() {
           <path d="M6 3v12M18 9v12M6 3l4 4M6 3L2 7M18 21l4-4M18 21l-4-4" />
         </svg>
       ),
-      data: { generatedUrl: null, status: 'idle', width: 1376, height: 768, steps: 6, denoiseStrength: 0.25, seed: -1, targetFps: 0, length: 0 },
+      data: { generatedUrl: null, status: 'idle', width: 1344, height: 768, steps: 6, denoiseStrength: 0.25, seed: -1, targetFps: 0, length: 0 },
     },
     {
       type: 'pose',

@@ -3559,7 +3559,7 @@ class AVBridgeRequest(BaseModel):
     start_frame: int
     frame_count: int
     context_frames: int = 39
-    width: int = 1376
+    width: int = 1344
     height: int = 768
     steps: int = 20
     seed: int = -1
@@ -3970,7 +3970,7 @@ class QwenImageRequest(BaseModel):
     prompt: str
     reference_urls: list[str] = []
     negative_prompt: str = ""
-    width: int = 1376
+    width: int = 1344
     height: int = 768
     steps: int = 25
     cfg: float = 1.0
@@ -8856,7 +8856,7 @@ class GaussianViewRequest(BaseModel):
     yaw: float = 0.0
     pitch: float = 0.0
     vfov: float = 45.0
-    width: int = 1376
+    width: int = 1344
     height: int = 768
 
 

@@ -97,7 +97,7 @@ export function provides(
 function extractDimensions(sourceNode?: Node) {
   let width = 1024;
   let height = 1024;
-  let videoWidth = 1376;
+  let videoWidth = 1344;
   let videoHeight = 768;
   let inherited = false;
 
@@ -626,7 +626,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     createData: () => ({
       prompt: '',
       negativePrompt: '',
-      width: 1376,
+      width: 1344,
       height: 768,
       steps: 25,
       cfg: 1.0,

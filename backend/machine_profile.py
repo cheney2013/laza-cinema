@@ -33,7 +33,7 @@ MACHINE_PROFILES: dict[str, dict] = {
     "workstation": {
         "label": "RTX 5090 32GB",
         "motion_preset": "singularity",
-        "width": 1376,
+        "width": 1344,
         "height": 768,
         "tiled_vae_decode": False,
         "upscale_method": "h3_latent",

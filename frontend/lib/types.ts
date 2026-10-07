@@ -62,7 +62,7 @@ export interface VideoNodeData extends SizedNodeData {
   status: 'idle' | 'generating' | 'done' | 'error';
   error?: string;
   jobId?: string;               // backend job id — persisted so polling can resume after reload
-  width: number;                // default 1376
+  width: number;                // default 1344
   height: number;               // default 768
   steps: number;                // 4 (turbo preview) / 8 (final) / 20 (base)
   seed: number;

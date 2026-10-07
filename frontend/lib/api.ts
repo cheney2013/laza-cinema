@@ -261,7 +261,7 @@ export interface VideoRequest {
   ref_audio_urls?: string[];            // maps to <Audio 1>, <Audio 2>, ...
   ref_video_urls?: string[];            // maps to <Video 1>, <Video 2>, ...
   audio_strategy?: 'auto' | 'copy_source' | 'revoice' | 'reference' | 'new';
-  width?: number;                       // default 1376
+  width?: number;                       // default 1344
   height?: number;                      // default 768
   steps?: number;                       // 4 (turbo preview) / 8 (final) / 20 (base)
   seed?: number;
