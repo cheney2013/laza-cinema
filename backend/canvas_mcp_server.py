@@ -1298,6 +1298,14 @@ def list_bible(project: str) -> dict[str, Any]:
 
 
 @_tool
+def list_refmods() -> dict[str, Any]:
+    """List the saved RefMods (what a video node's data.refMods names): name, kind (image | audio), size and,
+    for an image RefMod, preview_url -- the picture it was baked from. Open it at BACKEND_URL + preview_url.
+    An audio RefMod holds only a voice latent, so it has no preview."""
+    return _request("GET", "/refmods")
+
+
+@_tool
 def add_bible_entry(project: str, name: str, kind: str = "", from_node: str = "", scene: str = "",
                     url: str = "", notes: str = "") -> dict[str, Any]:
     """Add a shared reference to the bible. kind: cast | environment | prop | voice | other.

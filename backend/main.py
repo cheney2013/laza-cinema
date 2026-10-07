@@ -10006,6 +10006,81 @@ async def _run_orbit_job(job: dict, req: OrbitRequest) -> dict:
     return {**result, "width": req.width, "height": req.height, "length": length}
 
 
+def _refmod_dirs() -> list[Path]:
+    """The folders RefMods live in: ComfyUI's models/refmods (the pack writes previews there) and the backend's copy."""
+    from comfyui_client import BACKEND_REFMODS_DIR, COMFYUI_REFMODS_DIR
+    dirs = [Path(COMFYUI_REFMODS_DIR)] if COMFYUI_REFMODS_DIR else []
+    dirs.append(BACKEND_REFMODS_DIR)
+    return [d for d in dirs if d.is_dir()]
+
+
+def _safetensors_header(path: Path) -> dict:
+    """The JSON header of a .safetensors file (tensor shapes and __metadata__), without loading any tensor."""
+    import struct
+    with open(path, "rb") as f:
+        n = struct.unpack("<Q", f.read(8))[0]
+        return json.loads(f.read(n))
+
+
+def _refmod_entries() -> list[dict]:
+    seen: dict[str, dict] = {}
+    for root in _refmod_dirs():
+        for f in sorted(root.rglob("*.safetensors")):
+            rel = f.relative_to(root).with_suffix("").as_posix()
+            if rel in seen:
+                continue
+            try:
+                header = _safetensors_header(f)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            try:
+                meta = json.loads((header.get("__metadata__") or {}).get("refmod_meta") or "{}")
+            except json.JSONDecodeError:
+                meta = {}
+            # The Create node writes <base>.png beside <base>_visual / <base>_audio / <base>.
+            stems = [rel]
+            for suffix in ("_visual", "_audio"):
+                if rel.endswith(suffix):
+                    stems.append(rel[: -len(suffix)])
+            preview = None
+            if meta.get("kind") == "image":
+                for d in _refmod_dirs():
+                    if any((d / (st + ".png")).is_file() for st in stems):
+                        preview = f"/refmods/preview?name={rel}"
+                        break
+            seen[rel] = {
+                "name": rel, "kind": meta.get("kind") or "", "tags": meta.get("tags") or [],
+                "latent_frames": meta.get("latent_t"), "size_bytes": f.stat().st_size,
+                "modified": f.stat().st_mtime, "preview_url": preview,
+                "description": meta.get("description") or "",
+            }
+    return sorted(seen.values(), key=lambda e: e["name"])
+
+
+@app.get("/refmods")
+async def list_refmods():
+    """The saved RefMods (Fantastic H3 pack): name as a node's data.refMods names it, kind (image | audio), size,
+    and a preview_url for image ones -- the first frame the Create node baked it from (an audio one has none)."""
+    return {"refmods": _refmod_entries()}
+
+
+@app.get("/refmods/preview")
+async def refmod_preview(name: str):
+    """The preview picture of one image RefMod (the picture it was baked from, as the pack saved it)."""
+    if ".." in name or name.startswith(("/", "\\")) or ":" in name:
+        raise HTTPException(400, "bad RefMod name")
+    stems = [name]
+    for suffix in ("_visual", "_audio"):
+        if name.endswith(suffix):
+            stems.append(name[: -len(suffix)])
+    for d in _refmod_dirs():
+        for st in stems:
+            png = d / (st + ".png")
+            if png.is_file():
+                return FileResponse(png, media_type="image/png")
+    raise HTTPException(404, f"RefMod {name!r} has no preview picture")
+
+
 @app.post("/orbit")
 async def orbit(req: OrbitRequest):
     """Orbit the camera 360-style around one picture, the scene frozen."""
