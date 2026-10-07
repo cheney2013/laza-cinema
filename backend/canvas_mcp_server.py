@@ -2686,6 +2686,10 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         **({"audio_locks": _audio_lock_entries(canvas, data),
             "audio_lock_feather": float(data.get("audioLockFeather") or 0.0)}
            if data.get("audioLocks") else {}),
+        # data.refMods: [{"visual": rel, "audio": rel, "w": 1.0}] -- saved RefMods (Fantastic H3
+        # pack) standing in for wired references. Sent only when set, so no other node's
+        # submission fingerprint changes.
+        **({"refmods": [dict(r) for r in data["refMods"]]} if data.get("refMods") else {}),
     }
     # Attention patch: "sol" (default, fastest here) or "kjsage" (the
     # memory-efficient SageAttention patch, lower peak VRAM, slower). Set

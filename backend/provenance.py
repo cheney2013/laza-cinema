@@ -30,7 +30,8 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 # The conditioning node carries the prompt and every reference mount.
-CONDITIONING_CLASSES = ("MiniMaxH3ReferenceToVideo", "MiniMaxH3ImageToVideo")
+CONDITIONING_CLASSES = ("MiniMaxH3ReferenceToVideo", "MiniMaxH3FantasticRefModTextEncode",
+                        "MiniMaxH3ImageToVideo")
 # Loader inputs that name a file. Checked in order; the first present wins.
 FILE_INPUTS = ("image", "audio", "video", "file", "filename", "ckpt_name")
 

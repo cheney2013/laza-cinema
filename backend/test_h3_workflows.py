@@ -113,6 +113,33 @@ def test_silent_reference_video_gets_no_audio_mount():
     assert wf["31"]["inputs"]["ref_video_audios.ref_video_audio_0"] == ["350", 1]
 
 
+def test_refmods_replace_the_reference_node():
+    wf = wb.build_h3_video_workflow(
+        prompt="<Picture 1> is the room, <Picture 2> is the man.",
+        image_reference_filenames=["room.png"],
+        refmods=[{"visual": "proj/man_visual", "audio": "proj/man_audio"}, {"visual": "proj/boy"}],
+        width=1376, height=768, length=124, steps=8,
+    )
+    enc = wf["31"]
+    assert enc["class_type"] == "MiniMaxH3FantasticRefModTextEncode"
+    assert enc["inputs"]["mods"] == ["320", 0] and enc["inputs"]["references"] == ["321", 0]
+    state = json.loads(wf["320"]["inputs"]["stack_state"])
+    assert [p["visual"]["file"] for p in state["picks"]] == ["proj/man_visual", "proj/boy"]
+    assert state["picks"][0]["audio"]["file"] == "proj/man_audio"
+    assert json.loads(wf["321"]["inputs"]["media_state"]) == [{"kind": "picture", "file": "room.png"}]
+    # the encoder's third output is the empty latent; nothing may still read output 1 (the reference map)
+    assert not [1 for n in wf.values() for v in n["inputs"].values() if v == ["31", 1]]
+    assert any(v == ["31", 2] for n in wf.values() for v in n["inputs"].values())
+
+
+def test_refmods_refuse_chunks_and_other_media():
+    import pytest
+    with pytest.raises(ValueError):
+        wb.build_h3_video_workflow(prompt="x", refmods=[{"visual": "a"}], chunk_frames=124, length=300)
+    with pytest.raises(ValueError):
+        wb.build_h3_video_workflow(prompt="x", refmods=[{"visual": "a"}], audio_reference_filenames=["v.wav"])
+
+
 def test_ref2va_video_editing_and_revoicing():
     wf = wb.build_h3_video_workflow(
         prompt="subject_definitions:\n<Subject 1> is the character in <Picture 1> with motion from <Video 1>...",

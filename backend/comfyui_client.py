@@ -7,9 +7,9 @@ this module handles transport: upload, queueing, progress, and result retrieval.
 import os
 
 try:
-    from envfile import comfyui_dir
+    from envfile import comfyui_dir, env_value
 except ImportError:  # imported as backend.comfyui_client
-    from backend.envfile import comfyui_dir
+    from backend.envfile import comfyui_dir, env_value
 
 import io
 import json
@@ -115,6 +115,40 @@ COMFYUI_OUTPUT_DIR = _resolve_comfyui_dir("COMFYUI_OUTPUT_DIR")
 # 3D file inputs resolve against ComfyUI's input dir, the same way LoadImage does,
 # so a generated .ply has to be moved there before a workflow can reference it.
 COMFYUI_INPUT_DIR = _resolve_comfyui_dir("COMFYUI_INPUT_DIR")
+# RefMod files (the Fantastic H3 pack) are a project's assets and live in backend/uploads/refmods/;
+# ComfyUI reads them from the first `refmods` folder it has registered, so they are copied there
+# before a render that names them. Set COMFYUI_REFMODS_DIR to that folder in .env.
+COMFYUI_REFMODS_DIR = env_value("COMFYUI_REFMODS_DIR")
+BACKEND_REFMODS_DIR = Path(__file__).resolve().parent / "uploads" / "refmods"
+
+
+def sync_refmods(refmods: list[dict]) -> list[str]:
+    """Copy the RefMod files a node names from the backend into ComfyUI's refmods folder (only
+    when missing or different). Returns the files copied. A file the backend does not hold but
+    ComfyUI already has is left alone; one neither has raises."""
+    if not COMFYUI_REFMODS_DIR:
+        raise ComfyUIError("COMFYUI_REFMODS_DIR is not set in .env: it must point to the refmods folder "
+                           "ComfyUI uses (models/refmods).")
+    copied = []
+    for entry in refmods:
+        for key in ("visual", "audio"):
+            rel = entry.get(key)
+            if not rel:
+                continue
+            src = BACKEND_REFMODS_DIR / (rel + ".safetensors")
+            dst = Path(COMFYUI_REFMODS_DIR) / (rel + ".safetensors")
+            if not src.is_file():
+                if dst.is_file():
+                    continue
+                raise ComfyUIError(f"RefMod '{rel}' is in neither {BACKEND_REFMODS_DIR} nor {COMFYUI_REFMODS_DIR}.")
+            if dst.is_file() and dst.stat().st_size == src.stat().st_size and dst.read_bytes() == src.read_bytes():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dst.with_name(dst.name + ".tmp")
+            tmp.write_bytes(src.read_bytes())
+            os.replace(tmp, dst)
+            copied.append(rel)
+    return copied
 
 
 def _resolve_seed(seed: int) -> int:
@@ -1851,6 +1885,7 @@ class ComfyUIClient:
         image_reference_filenames: list[str] = None,
         audio_reference_filenames: list[str] = None,
         video_reference_filenames: list[str] = None,
+        refmods: list[dict] | None = None,
         width: int = 1376,
         height: int = 768,
         length: int = 124,
@@ -1941,6 +1976,14 @@ class ComfyUIClient:
                 logger.info("Reference video %s: no audio stream, leaving ref_video_audio unmounted", vid)
                 silent_video_references.append(vid)
 
+        if refmods:
+            copied = sync_refmods(refmods)
+            if copied:
+                logger.info("RefMods copied into ComfyUI: %s", ", ".join(copied))
+            for node_class in ("MiniMaxH3FantasticRefModTextEncode", "MiniMaxH3RefModStack", "MiniMaxH3MediaLoader"):
+                await self.require_node_class(
+                    node_class,
+                    "Third-party pack: ComfyUI-Fantastic-MiniMaxH3-PromptBuilder (custom_nodes); restart ComfyUI.")
         if audio_lock_track:
             await self.require_node_class(
                 "AicinemaLockAudioRanges",
@@ -1964,6 +2007,7 @@ class ComfyUIClient:
             video_reference_filenames=video_reference_filenames or [],
             video_reference_sizes=video_reference_sizes,
             silent_video_references=silent_video_references,
+            refmods=refmods or [],
             ref_image_size=ref_image_size,
             width=width,
             height=height,

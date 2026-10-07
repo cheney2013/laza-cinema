@@ -1894,6 +1894,9 @@ class VideoRequest(BaseModel):
     # (see backend/audio_lock.py for what was measured and why some placements are refused).
     audio_locks: list = []
     audio_lock_feather: float = 0.0
+    # Saved RefMods sent through the Fantastic pack's RefMod Text Encode:
+    # [{"visual": rel, "audio": rel, "w": 1.0}], rel = file under models/refmods without the extension.
+    refmods: list = []
     # Redo only the sound of a finished render (backend/audio_redo.py): {"mode", "steps",
     # "denoise"} and the saved latent of the take it redoes (a name in ComfyUI's output).
     audio_redo: Optional[dict] = None
@@ -2517,6 +2520,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         image_reference_filenames=image_refs,
         audio_reference_filenames=audio_refs,
         video_reference_filenames=video_refs,
+        refmods=list(req.refmods or []),
         width=req.width,
         height=req.height,
         length=frame_len,

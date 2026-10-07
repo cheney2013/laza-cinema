@@ -1058,6 +1058,11 @@ def build_h3_video_workflow(
     video_reference_filenames: list[str] = None,
     video_reference_sizes: list[Optional[tuple[int, int]]] = None,
     silent_video_references: list[str] = None,
+    # Saved RefMods (ComfyUI/models/refmods, the Fantastic H3 pack) sent through its
+    # RefMod Text Encode in place of MiniMaxH3ReferenceToVideo: [{"visual": rel, "audio": rel, "w": 1.0}],
+    # rel = the file under models/refmods without ".safetensors". Pictures in
+    # image_reference_filenames still ride along as media, labelled before the RefMods.
+    refmods: list[dict] = None,
     ref_image_size: str = "match",
     width: int = 1376,
     height: int = 768,
@@ -1479,7 +1484,7 @@ def build_h3_video_workflow(
 
     # Determine conditioning approach
     # If only first_frame without any other ref images/audio/video/last_frame -> lightweight MiniMaxH3ImageToVideo
-    if first_frame_filename and not last_frame_filename and not guide_frames and not image_reference_filenames and not audio_reference_filenames and not video_reference_filenames:
+    if first_frame_filename and not last_frame_filename and not guide_frames and not image_reference_filenames and not audio_reference_filenames and not video_reference_filenames and not refmods:
         wf["99"] = {
             "class_type": "LoadImage",
             "inputs": {
@@ -1612,10 +1617,40 @@ def build_h3_video_workflow(
             wf[nid] = {"class_type": "LoadAudio", "inputs": {"audio": aud}}
             r2v_inputs[f"ref_audios.ref_audio_{i}"] = [nid, 0]
 
-        wf["31"] = {
-            "class_type": "MiniMaxH3ReferenceToVideo",
-            "inputs": r2v_inputs,
-        }
+        if refmods:
+            if chunk_frames:
+                raise ValueError("refmods cannot be combined with chunk_frames: the chunk path clones the native "
+                                 "reference node.")
+            if valid_video_refs or valid_audio_refs:
+                raise ValueError("refmods cannot be combined with video or audio references on the same node.")
+            picks = []
+            for rm in refmods:
+                pick = {"on": True}
+                for key in ("visual", "audio"):
+                    if rm.get(key):
+                        pick[key] = {"file": str(rm[key]), "w": float(rm.get("w", 1.0))}
+                if len(pick) > 1:
+                    picks.append(pick)
+            if not picks:
+                raise ValueError("refmods is set but names no RefMod file.")
+            wf["320"] = {"class_type": "MiniMaxH3RefModStack",
+                         "inputs": {"stack_state": json.dumps({"picks": picks})}}
+            encode = {
+                "clip": ["3", 0], "vae": ["4", 0], "audio_vae": ["5", 0],
+                "prompt": prompt, "width": width, "height": height, "length": length,
+                "ref_image_size": ref_image_size, "reference_fps": 24.0, "max_total_tokens": 0,
+                "mods": ["320", 0],
+            }
+            if all_images:
+                wf["321"] = {"class_type": "MiniMaxH3MediaLoader",
+                             "inputs": {"media_state": json.dumps([{"kind": "picture", "file": f} for f in all_images])}}
+                encode["references"] = ["321", 0]
+            wf["31"] = {"class_type": "MiniMaxH3FantasticRefModTextEncode", "inputs": encode}
+        else:
+            wf["31"] = {
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "inputs": r2v_inputs,
+            }
 
         # Anchor the first/last frames on the target's own timeline. Unlike a
         # reference — packed before the target and sharing none of its time
@@ -2038,6 +2073,14 @@ def build_h3_video_workflow(
         for dead in ("40", "41", "44", "45", "50", "51"):
             wf.pop(dead, None)
         wf["62"]["inputs"]["latent"] = prev_out
+
+    if refmods and wf["31"]["class_type"] == "MiniMaxH3FantasticRefModTextEncode":
+        # The RefMod Text Encode returns (conditioning, reference_map, latent): the empty
+        # latent moves from output 1 to output 2.
+        for node in wf.values():
+            for key, val in node["inputs"].items():
+                if val == ["31", 1]:
+                    node["inputs"][key] = ["31", 2]
 
     if not save_latent:
         wf.pop("62", None)
