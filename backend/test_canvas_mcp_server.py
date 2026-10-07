@@ -447,8 +447,8 @@ class RouteScaleTests(unittest.TestCase):
 
 class CharswapRunTests(unittest.TestCase):
     """run_canvas_node on a charswap node returned a KeyError('steps') *after* the job was
-    submitted and the node saved: the reply read payload["steps"], which a Viggle swap
-    has no use for. The caller saw an error for a job that was running."""
+    submitted and the node saved: the reply read payload["steps"], which the old
+    swap had no use for. The caller saw an error for a job that was running."""
 
     def test_run_reports_the_job_it_started(self):
         import canvas_mcp_server as m
@@ -456,7 +456,7 @@ class CharswapRunTests(unittest.TestCase):
             "nodes": [
                 {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
                 {"id": "who", "type": "image", "data": {"url": "/uploads/b.png"}},
-                {"id": "swap", "type": "charswap", "data": {"seed": 7, "megapixels": 0.5}},
+                {"id": "swap", "type": "charswap", "data": {"seed": 7}},
             ],
             "edges": [
                 {"source": "clip", "target": "swap", "targetHandle": "in-video"},
@@ -473,7 +473,7 @@ class CharswapRunTests(unittest.TestCase):
             out = m._run_charswap_locked({"id": "p1", "name": "P"}, canvas, canvas["nodes"][2])
         self.assertEqual(out["job_id"], "j9")
         self.assertEqual(out["seed"], 7)
-        self.assertEqual(out["megapixels"], 0.5)
+        self.assertEqual(out["engine"], "h3")
         self.assertEqual(sent[0][1], "/charswap")
         self.assertEqual(sent[0][2]["character_image_url"], "/uploads/b.png")
         self.assertEqual(sent[0][2]["mode"], "person")
@@ -510,7 +510,7 @@ class CharswapRunTests(unittest.TestCase):
 
     def test_each_swap_mode_reaches_the_backend(self):
         import canvas_mcp_server as m
-        for node_mode, sent_mode in (('head', 'head'), ('reference', 'reference'), ('person', 'person'), (None, 'person'), ('face', 'person'), ('x', 'person')):
+        for node_mode, sent_mode in (('head', 'head'), ('reference', 'person'), ('person', 'person'), (None, 'person'), ('face', 'person'), ('x', 'person')):
             canvas = {
                 "nodes": [
                     {"id": "clip", "type": "image", "data": {"url": "/uploads/a.mp4"}},
@@ -577,13 +577,12 @@ class CharswapRunTests(unittest.TestCase):
             {"swapTargets": [{"x": 1.4, "y": 0.5}, {"x": 0.5, "y": 0.5}]}, photos=("/uploads/p1.png",)))
         self.assertEqual(sent["targets"], [{"x": 0.5, "y": 0.5, "image_url": "/uploads/p1.png"}])
 
-    def test_head_and_reference_modes_take_one_picture_and_no_points(self):
-        for mode in ("head", "reference"):
-            with self.assertRaises(ValueError):
-                self._run_swap(self._two_people_canvas({"swapMode": mode}))
-            sent = self._run_swap(self._two_people_canvas(
-                {"swapMode": mode, "swapTargets": [{"x": 0.5, "y": 0.5}]}, photos=("/uploads/p1.png",)))
-            self.assertNotIn("targets", sent, mode)
+    def test_head_mode_takes_one_picture_and_no_points(self):
+        with self.assertRaises(ValueError):
+            self._run_swap(self._two_people_canvas({"swapMode": "head"}))
+        sent = self._run_swap(self._two_people_canvas(
+            {"swapMode": "head", "swapTargets": [{"x": 0.5, "y": 0.5}]}, photos=("/uploads/p1.png",)))
+        self.assertNotIn("targets", sent)
 
     def test_inspect_sends_both_inputs_and_returns_the_report(self):
         import canvas_mcp_server as m
@@ -692,16 +691,20 @@ class CharswapEngineTests(unittest.TestCase):
             sent, _ = self._sent({"swapEngine": "h3", "h3Accel": accel, "h3Size": size})
             self.assertEqual((sent["h3_accel"], sent["h3_size"]), (accel, size))
 
-    def test_viggle_is_the_default_and_sends_no_h3_fields(self):
-        for data in ({}, {"swapEngine": "viggle"}, {"swapEngine": "x"}):
+    def test_the_h3_swap_is_the_only_engine_and_stale_viggle_data_is_ignored(self):
+        for data in ({}, {"swapEngine": "viggle"}, {"swapEngine": "x"}, {"swapEngine": "viggle", "swapMode": "reference"},
+                     {"megapixels": 0.8, "length": 100}):
             sent, out = self._sent(data)
-            self.assertNotIn("engine", sent)
-            self.assertEqual(out["engine"], "viggle")
+            self.assertEqual((sent["engine"], sent["mode"], out["engine"]), ("h3", "person", "h3"), data)
+            self.assertNotIn("megapixels", sent)
+            self.assertNotIn("length", sent)
+
+    def test_head_mode_is_sent_to_the_h3_engine(self):
+        sent, out = self._sent({"swapMode": "head"})
+        self.assertEqual((sent["engine"], sent["mode"], out["mode"]), ("h3", "head", "head"))
 
     def test_what_the_h3_engine_cannot_do_is_refused(self):
-        refused = (({"swapEngine": "h3", "swapMode": "head"}, ("/uploads/p1.png",)),
-                   ({"swapEngine": "h3", "swapMode": "reference"}, ("/uploads/p1.png",)),
-                   ({"swapEngine": "h3"}, ("/uploads/p1.png", "/uploads/p2.png")),
+        refused = (({"swapEngine": "h3"}, ("/uploads/p1.png", "/uploads/p2.png")),
                    ({"swapEngine": "h3", "h3Accel": "fast"}, ("/uploads/p1.png",)),
                    ({"swapEngine": "h3", "h3Size": "huge"}, ("/uploads/p1.png",)))
         for data, photos in refused:

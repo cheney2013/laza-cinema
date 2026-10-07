@@ -1,7 +1,7 @@
 """Which queued job runs next, and when each is expected to start.
 
 The worker used to take jobs strictly first-in first-out, so a one-minute Qwen
-plate fix waited behind a seven-chunk H3 chain, and alternating H3 / Qwen / Viggle
+plate fix waited behind a seven-chunk H3 chain, and alternating H3 / Qwen
 jobs paid a model unload + reload on every switch. This module orders the queue
 instead. It is pure: it takes job dicts and returns an order, so it is tested
 without a backend (test_job_scheduler.py).
@@ -30,12 +30,11 @@ from typing import Iterable, Optional
 NO_MODEL = "none"
 
 # Seconds to unload the resident family and load this one. First-order numbers
-# from the 32 GB workstation (H3 transformer + text encoder ~35 GB from disk,
-# Viggle another ~20 GB); the durations the planner learns from history include
+# from the 32 GB workstation (H3 transformer + text encoder ~35 GB from disk);
+# the durations the planner learns from history include
 # a load as well, so these only have to rank switches, not time them exactly.
 SWITCH_COST = {
     "h3": 90.0,
-    "viggle": 120.0,
     "qwen": 45.0,
     "flux2": 45.0,
     "audio": 20.0,
@@ -47,16 +46,16 @@ DEFAULT_SWITCH = 30.0
 
 # Fallback seconds per job when history has nothing for the type yet.
 DEFAULT_SECONDS = {
-    "h3": 480.0, "viggle": 900.0, "qwen": 90.0, "flux2": 90.0,
+    "h3": 480.0, "qwen": 90.0, "flux2": 90.0,
     "audio": 90.0, "gaussian": 120.0, "rife": 60.0, NO_MODEL: 20.0,
     "flashworld": 330.0,
 }
 
 # Families whose weights are big enough to evict each other. Only these unload,
 # pay a switch or change what is resident: an ESRGAN / RIFE / audio pass runs
-# beside a loaded H3 without pushing it out. Qwen and Viggle next to H3 are the
+# beside a loaded H3 without pushing it out. Qwen next to H3 is the
 # measured cases (36 s/step; 7 min at step 0).
-HEAVY = {"h3", "viggle", "qwen", "flux2", "flashworld"}
+HEAVY = {"h3", "qwen", "flux2", "flashworld"}
 
 H3_TYPES = {"video", "video_edit", "video_edit_window", "video_cleanup", "video_continue_tail",
             "wardrobe_swap_h3", "character_sheet", "video_reshot", "av_bridge", "reangle", "audio_refine", "orbit"}
@@ -75,7 +74,7 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
     """
     r = request or {}
     stages = 1
-    if job_type == "charswap" and r.get("engine") == "h3":
+    if job_type == "charswap":
         # The H3-native swap is an H3 edit render: its family, and the size and steps it is asked for
         # (TaoMate is 3 steps, the standard LoRA 8; "small" is 864 on the long edge).
         small = r.get("h3_size") == "small"
@@ -92,8 +91,6 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
         family = "qwen"
     elif job_type == "inpaint":
         family = "flux2"
-    elif job_type == "charswap":
-        family = "viggle"
     elif job_type == "upscale":
         method = r.get("method") or "h3_latent"
         family = "h3:default" if method in ("h3_latent", "lms") else "esrgan"
@@ -375,7 +372,6 @@ def needs_free(resident: Optional[str], family: str) -> bool:
 # have to say "this fits beside what is loaded" or "this does not".
 FOOTPRINT_GIB = {
     "h3": (32.0, 36.0),
-    "viggle": (20.0, 30.0),
     "qwen": (16.0, 24.0),
     "flux2": (16.0, 24.0),
     "flashworld": (12.0, 16.0),
@@ -455,8 +451,6 @@ def family_of_graph(graph) -> Optional[str]:
         inputs = node.get("inputs") or {}
         name = str(inputs.get("unet_name") or inputs.get("clip_name") or "").lower()
         cls = str(node.get("class_type") or "")
-        if "viggle" in name:
-            return "viggle"
         if "qwen_image" in name or "qwen3vl" in name or "qwen_2.5_vl" in name:
             found = found or "qwen"
         elif "flux" in name:

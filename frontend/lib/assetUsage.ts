@@ -129,7 +129,7 @@ const NODE_TITLES: Record<string, string> = {
   depthVideo: '深度视频',
   audioGen: '配音',
   inpaint: '局部重绘',
-  charswap: '换人 · Viggle',
+  charswap: '换人 · H3',
   videoReangle: '换机位 · CrossView',
   videoOrbit: '360 环绕',
   audioRefine: '声音精修',

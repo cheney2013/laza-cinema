@@ -264,13 +264,12 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "outputs": ["out-image"],
     },
     "charswap": {
-        "label": "换人 · Viggle",
-        # No prompt port by design: this route's text encoder is a frozen embedding, so
-        # identity comes from the reference still and everything else from the driving
-        # clip. `length` 0 means the clip's own frame count, read on the server.
+        "label": "换人 · H3",
+        # No prompt port by design: the H3 swap writes its own instruction (or takes facePrompt). The
+        # clip's own frame count is read on the server; a clip over 226 frames is rendered in chained
+        # windows. Viggle was removed on 2026-10-07: stale swapEngine/swapMode "reference" data is ignored.
         "defaults": {"generatedUrl": None, "status": "idle", "width": 1376, "height": 768,
-                     "length": 0, "megapixels": 0.8, "seed": 95051,
-                     "seedMode": "fixed"},
+                     "seed": 95051, "seedMode": "fixed"},
         "inputs": ["in-video", "in-character"],
         "outputs": ["out-video"],
     },
@@ -3271,6 +3270,12 @@ def _charswap_input(canvas: dict[str, Any], node_id: str, handle: str, what: str
     return urls[0]
 
 
+def _charswap_mode(data: dict[str, Any]) -> str:
+    """swapMode of a charswap node: "head" or "person". Anything else, including the removed Viggle-only
+    "reference" of a saved canvas, is the person swap."""
+    return "head" if data.get("swapMode") == "head" else "person"
+
+
 def _charswap_targets(data: dict[str, Any], photos: list[str]) -> list[dict[str, Any]]:
     """The people a person-mode swap replaces: point i of the node (swapTargets, 0-1 on the frame at
     faceFrameSeconds) with photo i, in the order the photos are wired. Several photos with no points
@@ -3288,21 +3293,16 @@ def _charswap_targets(data: dict[str, Any], photos: list[str]) -> list[dict[str,
 
 @_tool
 def inspect_charswap_inputs(project: str, node_id: str, scene: str = "") -> dict[str, Any]:
-    """Look at a 换人 · Viggle node's two inputs before running it (about 10 s, no GPU render).
+    """Look at a 换人 · H3 node's two inputs before running it (about 10 s, no GPU render).
 
     Returns where the clip's best face frame is (best_frame_seconds: largest and most frontal
-    face, what face mode repaints when no time is set), how big the face in the photo is, and
-    `warnings` for what is likely to go wrong: a clip that opens on the back of a head, no face
-    at all, a face too small, a photo face that will be cropped, a clip longer than one pass.
-    `survey` has the per-frame face size and head turn. It cannot say whether the swap will
-    succeed; it only reports what can be measured. swapMode is person (换人: the whole person,
-    clothes included) or head (换头: the face, hair colour and bangs; the clip's hair length and
-    clothes stay). There is no face-only mode, see docs/CHARSWAP.md. Leave facePrompt and
-    faceFrameSeconds empty and the backend picks the frame and has a vision model write the
-    prompt (the one used is saved on the node as facePromptUsed). To control it yourself, read
-    the frame (get_media_frames) and the photo and write facePrompt: who is in the frame, what
-    they wear and where, what must stay, what the new hair is and that its length matches the
-    clip's. docs/CHARSWAP.md has the measured recipe.
+    face), how big the face in the photo is, and `warnings` for what is likely to go wrong: a
+    clip that opens on the back of a head, no face at all, a face too small, a clip longer than
+    one 226-frame window. `survey` has the per-frame face size and head turn. It cannot say
+    whether the swap will succeed; it only reports what can be measured. The swap is the H3 swap
+    of the whole person (swapMode head runs as the same person swap for now). Leave facePrompt
+    empty and a vision model names who is replaced; to control it, write facePrompt (the whole
+    H3 instruction, see docs/CHARSWAP.md).
     """
     resolved = _resolve_project(project, scene)
     canvas = _canvas(resolved["id"])
@@ -3314,17 +3314,17 @@ def inspect_charswap_inputs(project: str, node_id: str, scene: str = "") -> dict
         "character_image_url": _charswap_inputs(canvas, node_id, "in-character", "reference still")[0],
     }, project_id=resolved["id"])
     return {"project_id": resolved["id"], "node_id": node_id,
-            "mode": (node.get("data") or {}).get("swapMode") or "person", **report}
+            "mode": _charswap_mode(node.get("data") or {}), **report}
 
 
 def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                          node: dict[str, Any]) -> dict[str, Any]:
-    """Start a 换人 · Viggle node the way the studio does.
+    """Start a 换人 · H3 node the way the studio does.
 
-    Two inputs, no prompt: `in-video` is the driving clip (blocking, camera, set, everyone
-    else) and `in-character` the still that decides who. There is nothing to read off a
-    prompt node here -- the route's text encoder is a frozen embedding -- so unlike the
-    video runner this one never looks for one.
+    Two inputs: `in-video` is the driving clip (blocking, camera, set, everyone else) and
+    `in-character` the photo that decides who. There is no prompt node: the backend writes the
+    H3 instruction (or takes facePrompt). The Viggle engine is gone (2026-10-07); a node that
+    still says swapEngine "viggle" or swapMode "reference" runs as the H3 person swap.
     """
     node_id = node["id"]
     data = node.setdefault("data", {})
@@ -3333,42 +3333,32 @@ def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                 "job_id": data["jobId"], "status": "already_generating"}
 
     photos = _charswap_inputs(canvas, node_id, "in-character", "reference still")
-    mode = data.get("swapMode") if data.get("swapMode") in ("head", "reference") else "person"
-    targets = _charswap_targets(data, photos) if mode == "person" else []
-    if mode != "person" and len(photos) > 1:
-        raise ValueError(f"Charswap node {node_id}: {mode} mode takes exactly one picture on in-character, "
+    mode = _charswap_mode(data)
+    if mode == "head" and len(photos) > 1:
+        raise ValueError(f"Charswap node {node_id}: head mode takes exactly one picture on in-character, "
                          f"has {len(photos)}.")
+    targets = _charswap_targets(data, photos) if mode == "person" else []
     frame_seconds = float(data.get("faceFrameSeconds") if data.get("faceFrameSeconds") is not None else -1)
-    h3 = data.get("swapEngine") == "h3"
-    if h3:
-        # MiniMax-H3's own edit instead of Viggle (with the Character-Swap LoRA): the whole person; the standard 8-step
-        # speed LoRA at the clip's own size unless the node says otherwise (TaoMate adds people that are not in the clip
-        # when the swap LoRA is on; docs/CHARSWAP.md has the timings).
-        accel, size = data.get("h3Accel") or "turbo8", data.get("h3Size") or "source"
-        if mode != "person":
-            raise ValueError(f"Charswap node {node_id}: the H3 engine swaps the whole person: swapMode person.")
-        pose = data.get("swapPose") or "auto"
-        if pose not in ("auto", "follow", "upright"):
-            raise ValueError(f"Charswap node {node_id}: swapPose is auto, follow or upright, got {pose!r}.")
-        if accel not in ("taomate3", "turbo8") or size not in ("source", "small"):
-            raise ValueError(f"Charswap node {node_id}: h3Accel is taomate3 or turbo8 and h3Size source or small, "
-                             f"got {accel!r} and {size!r}.")
+    # The standard 8-step speed LoRA at the clip's own size unless the node says otherwise (TaoMate adds
+    # people that are not in the clip when the swap LoRA is on; docs/CHARSWAP.md has the timings).
+    accel, size = data.get("h3Accel") or "turbo8", data.get("h3Size") or "source"
+    pose = data.get("swapPose") or "auto"
+    if pose not in ("auto", "follow", "upright"):
+        raise ValueError(f"Charswap node {node_id}: swapPose is auto, follow or upright, got {pose!r}.")
+    if accel not in ("taomate3", "turbo8") or size not in ("source", "small"):
+        raise ValueError(f"Charswap node {node_id}: h3Accel is taomate3 or turbo8 and h3Size source or small, "
+                         f"got {accel!r} and {size!r}.")
 
     payload = {
         "video_url": _charswap_input(canvas, node_id, "in-video", "driving clip"),
         "character_image_url": photos[0],
-        # 0 lets the backend read the clip's own frame count; a cap above it mosaics.
-        "length": int(data.get("length") or 0),
         "seed": int(data.get("seed") if data.get("seed") is not None else 95051),
-        "megapixels": float(data.get("megapixels") or 0.8),
-        # person and head repaint one frame of the clip with the photo's person and use that as the
-        # reference (negative seconds = the clip's most frontal face); reference sends the picture
-        # to Viggle as it is. With targets the frame is the one the points were made on.
         "mode": mode,
         "face_prompt": str(data.get("facePrompt") or ""),
+        # With targets the frame is the one the points were made on.
         "face_frame_seconds": max(frame_seconds, 0.0) if targets else frame_seconds,
         **({"targets": targets} if targets else {}),
-        **({"engine": "h3", "h3_accel": accel, "h3_size": size, "pose": pose} if h3 else {}),
+        "engine": "h3", "h3_accel": accel, "h3_size": size, "pose": pose,
     }
     submitted = _request("POST", "/charswap", json=payload, project_id=resolved["id"])
     revision = _save_node_data(resolved["id"], node_id, {
@@ -3377,8 +3367,8 @@ def _run_charswap_locked(resolved: dict[str, Any], canvas: dict[str, Any],
     return {
         "project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
         "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
-        "revision": revision, "megapixels": payload["megapixels"], "seed": payload["seed"],
-        "mode": payload["mode"], "engine": payload.get("engine", "viggle"),
+        "revision": revision, "seed": payload["seed"],
+        "mode": payload["mode"], "engine": "h3",
     }
 
 

@@ -1584,33 +1584,6 @@ class ComfyUIClient:
         await self._notify_queued(on_queued, prompt_id)
         return await self.resume_video_job(prompt_id)
 
-    async def charswap_viggle(
-        self,
-        video_filename: str,
-        reference_filename: str,
-        length: int = 107,
-        seed: int = 95051,
-        sampler: str = "euler",
-        megapixels: float = 0.8,
-        keep_audio: bool = False,
-        on_queued=None,
-    ) -> bytes:
-        """Swap the performer in a clip for the person in one still (Viggle-Animate).
-
-        No prompt exists on this route -- identity comes from the still, everything else
-        from the driving clip. About 180 s for 348 frames at 0.5 MP (windowed); held props are
-        lost, so a prop-driven shot belongs on the Ref2VA route instead. See `build_viggle_charswap_workflow`.
-        """
-        workflow = wb.build_viggle_charswap_workflow(
-            video_filename=video_filename,
-            reference_filename=reference_filename,
-            length=length, seed=_resolve_seed(seed),
-            sampler=sampler, megapixels=megapixels, keep_audio=keep_audio,
-        )
-        return await self._run_video_workflow(
-            workflow, timeout=3600, on_queued=on_queued,
-            error_msg="No charswap video produced")
-
     async def reconstruct_from_panorama(
         self,
         panorama_filename: str,

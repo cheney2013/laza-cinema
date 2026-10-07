@@ -1,3 +1,5 @@
+> Viggle engine removed on 2026-10-07; the H3 swap is the only engine. The Viggle files below stay on disk and are unused.
+
 # H3 节点使用的权重文件
 
 整理于 2026-10-02，依据：`backend/main.py`（`H3_MOTION_PRESETS`、`_h3_motion_preset`）、`backend/workflow_builders.py`（各 `build_*` 函数的默认参数）、`backend/comfyui_client.py`、`backend/machine_profile.py`，并逐个核对了 `D:\ComfyUI-sage3\ComfyUI` 下文件是否存在、大小多少。下面的路径都相对 `ComfyUI\models`，除非另写。

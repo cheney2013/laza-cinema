@@ -1,3 +1,5 @@
+> Viggle engine removed on 2026-10-07; the H3 swap is the only engine. The Viggle files below stay on disk and are unused.
+
 # 部署到另一台机器
 
 本仓库只有**平台**：画布、剪辑台、后端、MCP。影片内容（提示词、分镜、项目画布、素材）不在里面，
@@ -211,7 +213,7 @@ python tools\check_install.py
 | 视频增强：ESRGAN、lms（原尺寸锐化） | 能用，ESRGAN 是默认 |
 | 视频增强：H3 潜空间 | **已禁用**，要加载 21 GB 的 fused 底模 |
 | 运动预设 `fused`、`hybrid`、`ref2va_full`、`hyperflow` | **已禁用**，21–34 GB，没有找到同一份权重的低显存版 |
-| 换人（Viggle） | **已禁用**，权重 21 GB，没有找到小的版本 |
+| 换人（H3 原生，原 Viggle 引擎已移除） | **节点仍被这台机器的档案禁用**（`disabled_node_types`）；H3 换人用 ref2va 底模，能否在 16 GB 档跑起来没有测过 |
 | 深度控制（ControlNet 2.0，走官方节点） | 能用：在官方 w4a8、Singularity w4a8 上用 864×480 出过片，画面正常、跟随深度图；**没在 16 GB 真机上测过内存**。需要 `model_patches/` 里的 2.0 文件，控制视频可用画布上的「深度视频」节点生成 |
 | 生成图片、图片超清 | 能用；Qwen 图像和 H3 交替使用时内存吃紧，没有实测 |
 | 音乐、音效、补帧、姿态 | 能用（权重小），没有实测 |

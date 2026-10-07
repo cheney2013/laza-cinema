@@ -1,6 +1,5 @@
-"""The swap node repaints one frame of the clip with the photo's person and uses it as the Viggle
-reference. 换人 takes the whole person, 换头 the face, hair colour and bangs. The frame choice, the
-crop, the prompt and the request sent to Qwen are what can go wrong without anything failing loudly."""
+"""The swap node: the H3 swap is the only engine (Viggle was removed on 2026-10-07). The frame choice, the
+crop, the prompts, the request refusals and the H3 request are what can go wrong without anything failing loudly."""
 import asyncio
 from pathlib import Path
 from unittest import mock
@@ -8,8 +7,7 @@ from unittest import mock
 import face_prompt
 import main
 from face_crop import bust_crop_box, frontal_score, pick_best, yaw_ratio
-from main import (CharswapRequest, _charswap_face_reference, charswap_face_frame_seconds,
-                  charswap_face_prompt, charswap_inspect_report)
+from main import CharswapRequest, charswap_face_frame_seconds, charswap_inspect_report, charswap_refusal
 
 
 # ── which moment of the clip is repainted ────────────────────────────────────
@@ -93,20 +91,11 @@ PHOTO_TEXT = "HAIR: black hair with full see-through bangs\nFACE: a small face a
 
 def test_request_defaults():
     req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/b.png")
-    assert req.mode == "person"
+    assert req.mode == "person" and req.engine == "h3"
     assert req.face_frame_seconds < 0
     assert req.face_prompt == ""
 
 
-def test_each_mode_has_its_own_generic_default_and_the_callers_prompt_wins():
-    assert charswap_face_prompt("", "head") == main.CHARSWAP_FACE_PROMPT
-    assert charswap_face_prompt("", "person") == main.CHARSWAP_PERSON_PROMPT
-    assert "Nothing of the original person may remain" in main.CHARSWAP_PERSON_PROMPT
-    for prompt in (main.CHARSWAP_FACE_PROMPT, main.CHARSWAP_PERSON_PROMPT):
-        assert "<image 1>" in prompt and "<image 2>" in prompt
-    mine = "  Edit <image 1>, a woman in a grey wool coat. Give her the hair of <image 2>.  "
-    assert charswap_face_prompt(mine, "head") == mine.strip()
-    assert charswap_face_prompt("   ", "head") == charswap_face_prompt("", "head")
 
 
 def test_labelled_lines_are_parsed_and_noise_is_ignored():
@@ -156,97 +145,22 @@ def test_person_prompt_needs_the_photos_clothes():
 
 # ── the reference step ───────────────────────────────────────────────────────
 
-def _reference(mode="head", face_prompt_text="mine <image 1> <image 2>", seconds=1.0, auto_result=None,
-               best=None, crop=False, duration=5.0, seed=95051):
-    """Run the reference step with the model calls stood in. Returns (url, seconds, prompt), what was
-    cut from the clip, what Qwen was asked, and the `wide` flag the crop was given."""
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode=mode,
-                          face_frame_seconds=seconds, face_prompt=face_prompt_text, seed=seed)
-    cut, asked, wide = [], [], []
-
-    async def fake_qwen(job_arg, qwen_req):
-        asked.append(qwen_req)
-        return {"url": "/uploads/q.png", "seed": qwen_req.seed}
-
-    async def fake_auto(frame_name, photo_path, mode_arg="head", job=None):
-        return auto_result
-
-    def fake_crop(src, dst, wide_arg=False):
-        wide.append(wide_arg)
-        return crop
-
-    with mock.patch.object(main, "_extract_video_still", side_effect=lambda s_, t_, sec: cut.append((Path(t_).name, sec))), \
-            mock.patch.object(main, "_run_qwen_image_job", side_effect=fake_qwen), \
-            mock.patch.object(main, "_auto_face_prompt", side_effect=fake_auto), \
-            mock.patch.object(main.face_crop, "best_face_frame", return_value=best), \
-            mock.patch.object(main.face_crop, "crop_to_bust", side_effect=fake_crop), \
-            mock.patch.object(main, "save_state"):
-        out = asyncio.run(_charswap_face_reference({"id": "j1"}, req, Path("a.mp4"), duration, Path("who.png")))
-    return out, cut, asked, wide
 
 
-def test_the_cut_frame_and_the_photo_go_to_qwen_in_picture_order():
-    out, cut, asked, _ = _reference(seconds=3.5)
-    assert out == ("/uploads/q.png", 3.5, "mine <image 1> <image 2>")
-    assert cut == [("charswap_face_src_j1.png", 3.5)]
-    # Picture order is the model's <image N> numbering: the frame is edited, the photo is the person.
-    assert asked[0].reference_urls == ["/uploads/charswap_face_src_j1.png", "/uploads/who.png"]
-    assert asked[0].seed == 95051
 
 
-def test_a_cropped_photo_is_what_qwen_gets_when_there_is_a_crop():
-    _, _, asked, _ = _reference(crop=True)
-    assert asked[0].reference_urls[1] == "/uploads/charswap_face_crop_j1.png"
 
 
-def test_a_negative_frame_time_takes_the_best_face_frame_else_the_middle():
-    for best, expect in ((4.2, 4.2), (None, 2.5)):
-        out, cut, _, _ = _reference(seconds=-1.0, best=best)
-        assert out[1] == expect and cut == [("charswap_face_src_j1.png", expect)]
 
 
-def test_the_crop_is_wide_for_the_whole_person_and_a_bust_for_the_head():
-    assert _reference(mode="person")[3] == [True]
-    assert _reference(mode="head")[3] == [False]
 
 
-def test_an_empty_prompt_is_written_automatically():
-    out, _, asked, _ = _reference(face_prompt_text="", auto_result="Edit <image 1>, written by the model <image 2>")
-    assert asked[0].prompt == out[2] == "Edit <image 1>, written by the model <image 2>"
 
 
-def test_the_callers_prompt_is_never_overwritten_by_the_automatic_one():
-    _, _, asked, _ = _reference(face_prompt_text="my own <image 1> <image 2>", auto_result="automatic")
-    assert asked[0].prompt == "my own <image 1> <image 2>"
 
 
-def test_when_the_vision_step_fails_the_modes_generic_prompt_is_used():
-    for mode in ("head", "person"):
-        _, _, asked, _ = _reference(mode=mode, face_prompt_text="", auto_result=None)
-        assert asked[0].prompt == charswap_face_prompt("", mode)
 
 
-def test_the_automatic_prompt_is_asked_for_in_the_requests_mode():
-    seen = []
-
-    async def fake_auto(frame_name, photo_path, mode="head", job=None):
-        seen.append(mode)
-        return None
-
-    for mode in ("person", "head"):
-        req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png",
-                              mode=mode, face_frame_seconds=1.0)
-
-        async def fake_qwen(job_arg, qwen_req):
-            return {"url": "/uploads/q.png", "seed": 1}
-
-        with mock.patch.object(main, "_extract_video_still"), \
-                mock.patch.object(main, "_run_qwen_image_job", side_effect=fake_qwen), \
-                mock.patch.object(main, "_auto_face_prompt", side_effect=fake_auto), \
-                mock.patch.object(main.face_crop, "crop_to_bust", return_value=False), \
-                mock.patch.object(main, "save_state"):
-            asyncio.run(_charswap_face_reference({"id": "j2"}, req, Path("a.mp4"), 5.0, Path("who.png")))
-        assert seen[-1] == mode
 
 
 # ── the inspection report ────────────────────────────────────────────────────
@@ -277,7 +191,7 @@ def test_inspect_is_quiet_when_everything_is_fine():
 
 def test_inspect_notes_a_clip_longer_than_one_pass():
     survey = _survey((0.0, 0.2, 0.15))
-    assert any("124" in w for w in charswap_inspect_report(survey, 10.0, 240, 0.4)["warnings"])
+    assert any("226" in w for w in charswap_inspect_report(survey, 10.0, 240, 0.4)["warnings"])
 
 
 # ── cancelling a swap ────────────────────────────────────────────────────────
@@ -285,58 +199,12 @@ def test_inspect_notes_a_clip_longer_than_one_pass():
 from comfyui_client import ComfyUIError  # noqa: E402
 
 
-def _cancel_during(stage):
-    """Run the reference step with the job marked cancelled by `stage` ("extract", "describe" or
-    "qwen"); return the Qwen calls made and the error raised."""
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png",
-                          mode="head", face_frame_seconds=1.0)
-    job = {"id": "jc", "status": "running"}
-    asked = []
-
-    def cancel():
-        job["status"] = "cancelled"
-
-    def extract(source, target, seconds):
-        if stage == "extract":
-            cancel()
-
-    async def fake_auto(frame_name, photo_path, mode="head", job=None):
-        if stage == "describe":
-            cancel()
-        return "auto <image 1> <image 2>"
-
-    async def fake_qwen(job_arg, qwen_req):
-        asked.append(qwen_req)
-        if stage == "qwen":
-            cancel()
-        return {"url": "/uploads/q.png", "seed": 1}
-
-    error = None
-    with mock.patch.object(main, "_extract_video_still", side_effect=extract), \
-            mock.patch.object(main, "_run_qwen_image_job", side_effect=fake_qwen), \
-            mock.patch.object(main, "_auto_face_prompt", side_effect=fake_auto), \
-            mock.patch.object(main.face_crop, "crop_to_bust", return_value=False), \
-            mock.patch.object(main, "save_state"):
-        try:
-            asyncio.run(_charswap_face_reference(job, req, Path("a.mp4"), 5.0, Path("who.png")))
-        except ComfyUIError as exc:
-            error = exc
-    return asked, error
 
 
-def test_a_cancel_before_the_description_stops_the_swap_before_qwen():
-    asked, error = _cancel_during("extract")
-    assert error is not None and "cancelled" in str(error) and asked == []
 
 
-def test_a_cancel_during_the_description_stops_the_swap_before_qwen():
-    asked, error = _cancel_during("describe")
-    assert error is not None and asked == []
 
 
-def test_a_cancel_during_qwen_stops_the_swap_before_viggle():
-    asked, error = _cancel_during("qwen")
-    assert len(asked) == 1 and error is not None
 
 
 def test_stop_if_cancelled_is_silent_for_a_live_job():
@@ -348,45 +216,8 @@ def test_stop_if_cancelled_is_silent_for_a_live_job():
     raise AssertionError("a cancelled job must stop")
 
 
-def test_a_cancelled_description_is_not_swallowed_as_a_failed_vision_step():
-    job = {"id": "jd", "status": "running"}
-
-    async def go():
-        async def upload(data, name):
-            return name
-
-        async def describe(name, ask, max_length=220, on_queued=None):
-            job["status"] = "cancelled"
-            raise ComfyUIError("Execution interrupted")
-
-        with mock.patch.object(main.comfyui, "upload_image", side_effect=upload), \
-                mock.patch.object(main.comfyui, "describe_image", side_effect=describe), \
-                mock.patch.object(Path, "read_bytes", return_value=b"x"):
-            return await main._auto_face_prompt("f.png", Path("p.png"), "head", job)
-
-    try:
-        asyncio.run(go())
-    except ComfyUIError:
-        return
-    raise AssertionError("the cancel must reach the job runner, not become a fallback prompt")
 
 
-def test_a_failed_vision_step_still_falls_back_when_nobody_cancelled():
-    job = {"id": "je", "status": "running"}
-
-    async def go():
-        async def upload(data, name):
-            return name
-
-        async def describe(name, ask, max_length=220, on_queued=None):
-            raise ComfyUIError("out of memory")
-
-        with mock.patch.object(main.comfyui, "upload_image", side_effect=upload), \
-                mock.patch.object(main.comfyui, "describe_image", side_effect=describe), \
-                mock.patch.object(Path, "read_bytes", return_value=b"x"):
-            return await main._auto_face_prompt("f.png", Path("p.png"), "head", job)
-
-    assert asyncio.run(go()) is None
 
 
 def test_the_qwen_job_records_its_prompt_so_a_cancel_can_interrupt_it(tmp_path):
@@ -467,95 +298,14 @@ def test_the_frame_question_asks_for_the_view():
 import face_crop  # noqa: E402
 
 
-def _run_job(req, tmp_path, job=None, viggle=None):
-    """Run a swap job with every outside step stubbed; return what was called and the result."""
-    calls = {"repaint": 0, "people": 0, "auto": 0, "viggle": []}
-
-    async def fake_repaint(job, request, video, duration, still):
-        calls["repaint"] += 1
-        return "/uploads/repainted.png", 1.0, "repaint prompt"
-
-    async def fake_people(job, request, video, duration):
-        calls["people"] += 1
-        return "/uploads/people.png", 0.5, "people prompt"
-
-    async def fake_auto(*args, **kwargs):
-        calls["auto"] += 1
-        return "auto"
-
-    async def resolve(url):
-        return tmp_path / url.rsplit("/", 1)[-1]
-
-    async def upload_video(data, name):
-        return name
-
-    async def upload_image(data, name):
-        calls.setdefault("uploaded", []).append(name)
-        return name
-
-    async def default_viggle(**kwargs):
-        calls["viggle"].append(kwargs["reference_filename"])
-        return b"mp4"
-
-    viggle = viggle or default_viggle
-
-    async def free(**kwargs):
-        return True
-
-    for name in ("a.mp4", "who.png", "given.png", "repainted.png", "people.png"):
-        (tmp_path / name).write_bytes(b"x")
-    job = job if job is not None else {"id": "jj", "status": "running"}
-    with mock.patch.object(main, "require_node"), \
-            mock.patch.object(main, "resolve_upload", side_effect=resolve), \
-            mock.patch.object(main, "_probe_video_geometry", return_value=(1376, 768, 120)), \
-            mock.patch.object(main, "_probe_fps", return_value=24.0), \
-            mock.patch.object(main, "_has_audio_stream", return_value=False), \
-            mock.patch.object(main, "_charswap_face_reference", side_effect=fake_repaint), \
-            mock.patch.object(main, "_charswap_people_reference", side_effect=fake_people), \
-            mock.patch.object(main, "_auto_face_prompt", side_effect=fake_auto), \
-            mock.patch.object(main, "UPLOAD_DIR", tmp_path), \
-            mock.patch.object(main, "save_state"), \
-            mock.patch.object(main.comfyui, "upload_video", side_effect=upload_video), \
-            mock.patch.object(main.comfyui, "upload_image", side_effect=upload_image), \
-            mock.patch.object(main.comfyui, "charswap_viggle", side_effect=viggle), \
-            mock.patch.object(main.comfyui, "free_memory", side_effect=free):
-        result = asyncio.run(main._run_charswap_job(job, req))
-    return calls, result
 
 
-def test_a_ready_made_reference_goes_to_viggle_without_any_repaint(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/given.png", mode="reference")
-    calls, result = _run_job(req, tmp_path)
-    assert calls["repaint"] == 0 and calls["people"] == 0 and calls["auto"] == 0
-    assert calls["viggle"] == ["given.png"]
-    assert result["mode"] == "reference" and result["face_prompt"] == ""
-    assert result["reference"]["url"] == result["reference"]["source_url"] == "/uploads/given.png"
 
 
-def test_a_single_person_swap_still_repaints_one_frame(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="person")
-    calls, result = _run_job(req, tmp_path)
-    assert calls["repaint"] == 1 and calls["people"] == 0
-    assert calls["viggle"] == ["repainted.png"] and result["face_prompt"] == "repaint prompt"
 
 
-def test_pointed_people_take_the_people_route_and_the_repaint_goes_to_viggle(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="person",
-                          targets=[{"x": 0.7, "y": 0.5, "image_url": "/uploads/who.png"}])
-    calls, result = _run_job(req, tmp_path)
-    assert calls["people"] == 1 and calls["repaint"] == 0
-    assert calls["viggle"] == ["people.png"] and result["face_frame_seconds"] == 0.5
 
 
-def test_pointed_people_need_person_mode():
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="head",
-                          targets=[{"x": 0.7, "y": 0.5, "image_url": "/uploads/who.png"}])
-    try:
-        asyncio.run(main._run_charswap_job({"id": "jt", "status": "running"}, req))
-    except ValueError as exc:
-        assert "person mode" in str(exc)
-        return
-    raise AssertionError("targets in head mode must be refused")
 
 
 def test_a_target_point_must_lie_on_the_frame_and_there_are_at_most_four():
@@ -601,7 +351,7 @@ def test_the_people_prompt_draws_no_face_for_a_person_seen_from_behind():
 
 
 def test_the_people_prompt_still_works_when_the_vision_model_said_nothing():
-    prompt = face_prompt.compose_people_prompt([{"x": 0.9, "wears": "", "view": "", "photo": {}}])
+    prompt = face_prompt.compose_people_prompt([{"x": 0.9, "wears": "", "view": ""}])
     assert "Replace the person on the right of the frame, about 90% from the left edge, with the person in <image 2>." in prompt
     assert "stays exactly as they are" in prompt
 
@@ -615,63 +365,8 @@ def test_the_strip_around_a_click_is_moved_not_shrunk_at_the_edge():
     assert (left + w, top) == (1000, 0)
 
 
-def test_the_people_reference_uses_the_pointed_frame_and_the_photos_in_order(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/p1.png", mode="person",
-                          seed=5, face_frame_seconds=-1,
-                          targets=[{"x": 0.3, "y": 0.5, "image_url": "/uploads/p1.png"},
-                                   {"x": 0.7, "y": 0.5, "image_url": "/uploads/p2.png"}])
-    job = {"id": "jp", "status": "running"}
-    asked, cut = [], []
-
-    async def resolve(url):
-        return tmp_path / url.rsplit("/", 1)[-1]
-
-    async def describe(frame_name, target, photo_path, index, job_arg):
-        return {"x": target.x, "wears": f"person {index}", "view": "from the front", "photo": PHOTO_FACTS}
-
-    async def qwen(job_arg, qwen_req):
-        asked.append(qwen_req)
-        return {"url": "/uploads/q.png", "seed": 5}
-
-    with mock.patch.object(main, "resolve_upload", side_effect=resolve), \
-            mock.patch.object(main, "_extract_video_still", side_effect=lambda src, dst, sec: cut.append(sec)), \
-            mock.patch.object(main, "_describe_target", side_effect=describe), \
-            mock.patch.object(main, "_run_qwen_image_job", side_effect=qwen), \
-            mock.patch.object(main.face_crop, "crop_to_bust", return_value=False), \
-            mock.patch.object(main, "UPLOAD_DIR", tmp_path), \
-            mock.patch.object(main, "save_state"):
-        url, seconds, prompt = asyncio.run(main._charswap_people_reference(job, req, Path("a.mp4"), 5.0))
-    assert url == "/uploads/q.png" and seconds == 0.0 and cut == [0.0]
-    assert asked[0].reference_urls == ["/uploads/charswap_face_src_jp.png", "/uploads/p1.png", "/uploads/p2.png"]
-    assert "<image 2>" in prompt and "<image 3>" in prompt and asked[0].seed == 5
 
 
-def test_the_people_reference_takes_the_callers_own_prompt_without_describing_anyone(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/p1.png", mode="person",
-                          face_prompt="my own", face_frame_seconds=2.0,
-                          targets=[{"x": 0.3, "y": 0.5, "image_url": "/uploads/p1.png"}])
-    job = {"id": "jq", "status": "running"}
-    asked = []
-
-    async def resolve(url):
-        return tmp_path / url.rsplit("/", 1)[-1]
-
-    async def qwen(job_arg, qwen_req):
-        asked.append(qwen_req)
-        return {"url": "/uploads/q.png", "seed": 1}
-
-    async def describe(*args, **kwargs):
-        raise AssertionError("nobody should be described when the prompt is given")
-
-    with mock.patch.object(main, "resolve_upload", side_effect=resolve), \
-            mock.patch.object(main, "_extract_video_still"), \
-            mock.patch.object(main, "_describe_target", side_effect=describe), \
-            mock.patch.object(main, "_run_qwen_image_job", side_effect=qwen), \
-            mock.patch.object(main.face_crop, "crop_to_bust", return_value=False), \
-            mock.patch.object(main, "UPLOAD_DIR", tmp_path), \
-            mock.patch.object(main, "save_state"):
-        _, seconds, prompt = asyncio.run(main._charswap_people_reference(job, req, Path("a.mp4"), 5.0))
-    assert prompt == "my own" and seconds == 2.0 and asked[0].prompt == "my own"
 
 
 # ── a restart must not run a finished swap again ─────────────────────────────
@@ -701,97 +396,22 @@ def _collect(job, state, tmp_path):
         return asyncio.run(main._collect_finished(job))
 
 
-def test_a_finished_viggle_render_is_collected_not_rendered_again(tmp_path):
-    job = {"id": "j1", "type": "charswap", "charswap_recovery": {"result": RESULT, "viggle_prompt_id": "pv"}}
-    assert _collect(job, "success", tmp_path) == RESULT
-    assert (tmp_path / "charswap_j1.mp4").read_bytes() == b"mp4:out.mp4"
 
 
-def test_a_swap_still_rendering_or_failed_is_run_again(tmp_path):
-    for state in ("running", "error", "interrupted"):
-        job = {"id": "j1", "type": "charswap", "charswap_recovery": {"result": RESULT, "viggle_prompt_id": "pv"}}
-        assert _collect(job, state, tmp_path) is None, state
-    assert not (tmp_path / "charswap_j1.mp4").exists()
 
 
-def test_a_swap_that_had_not_reached_viggle_is_run_again(tmp_path):
-    for recovery in (None, {"result": RESULT, "viggle_prompt_id": None}, {"viggle_prompt_id": "pv"}):
-        job = {"id": "j1", "type": "charswap", **({"charswap_recovery": recovery} if recovery is not None else {})}
-        assert _collect(job, "success", tmp_path) is None, recovery
 
 
-def test_a_run_from_the_start_forgets_an_earlier_runs_render():
-    job = {"id": "j2", "status": "running", "charswap_recovery": {"result": RESULT, "viggle_prompt_id": "old"}}
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="reference")
-    asyncio.run(_expect_missing_video(job, req))
-    assert "charswap_recovery" not in job
 
 
-async def _expect_missing_video(job, req):
-    try:
-        await main._run_charswap_job(job, req)
-    except FileNotFoundError:
-        pass
 
 
-def test_the_viggle_prompt_id_is_recorded_for_a_restart(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/given.png", mode="reference")
-    job = {"id": "jj", "status": "running"}
-    seen = {}
-
-    async def viggle(**kwargs):
-        kwargs["on_queued"]("prompt-v")
-        seen["recovery"] = dict(job["charswap_recovery"])
-        return b"mp4"
-
-    calls, result = _run_job(req, tmp_path, job=job, viggle=viggle)
-    assert seen["recovery"]["viggle_prompt_id"] == "prompt-v"
-    assert seen["recovery"]["result"] == result and job["prompt_id"] == "prompt-v"
 
 
-def test_a_requeued_swap_waits_for_its_render_and_returns_it_without_running_again(tmp_path):
-    job = {"id": "j1", "type": "charswap", "charswap_recovery": {"result": RESULT, "viggle_prompt_id": "pv"}}
-    ran = []
-
-    async def runner(j):
-        ran.append(j["id"])
-        return {}
-
-    prompt_state, video_bytes = _comfy_swap("success")
-    with mock.patch.object(main.comfyui, "prompt_state", side_effect=prompt_state),             mock.patch.object(main.comfyui, "get_video_bytes", side_effect=video_bytes),             mock.patch.object(main, "UPLOAD_DIR", tmp_path):
-        result = asyncio.run(main._after_prompt("pv", runner)(job))
-    assert result == RESULT and ran == [] and job["prompt_id"] == "pv"
 
 
-def test_a_person_swap_looks_for_the_face_in_the_middle_half_of_the_clip():
-    survey = [{"t": 0.5, "score": 0.2}, {"t": 2.5, "score": 0.1}, {"t": 4.9, "score": 0.5}]
-    with mock.patch.object(face_crop, "survey_faces", return_value=(survey, 5.0, 120)):
-        assert face_crop.best_face_frame(Path("a.mp4")) == 4.9
-        assert face_crop.best_face_frame(Path("a.mp4"), central=(0.25, 0.75)) == 2.5
-        assert face_crop.best_face_frame(Path("a.mp4"), central=(0.6, 0.8)) is None
 
 
-def test_the_reference_frame_search_is_central_for_a_person_swap_only(tmp_path):
-    seen = []
-
-    def best(video, samples=24, central=None):
-        seen.append(central)
-        return 2.0
-
-    for mode, want in (("person", (0.25, 0.75)), ("head", None)):
-        req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png",
-                              mode=mode, face_frame_seconds=-1)
-        job = {"id": "jc", "status": "running"}
-
-        async def fake_auto(*args, **kwargs):
-            return "auto"
-
-        async def fake_qwen(job_arg, qwen_req):
-            return {"url": "/uploads/q.png", "seed": 1}
-
-        with mock.patch.object(main.face_crop, "best_face_frame", side_effect=best),                 mock.patch.object(main, "_extract_video_still"),                 mock.patch.object(main, "_run_qwen_image_job", side_effect=fake_qwen),                 mock.patch.object(main, "_auto_face_prompt", side_effect=fake_auto),                 mock.patch.object(main.face_crop, "crop_to_bust", return_value=False),                 mock.patch.object(main, "save_state"):
-            asyncio.run(_charswap_face_reference(job, req, Path("a.mp4"), 5.0, Path("who.png")))
-        assert seen[-1] == want, mode
 
 
 def test_a_view_that_shows_no_face_gets_a_prompt_without_the_face():
@@ -853,28 +473,8 @@ def test_the_h3_engine_snaps_the_length_chains_windows_for_a_long_clip_and_refus
     raise AssertionError("12 frames must be refused")
 
 
-def test_the_h3_engine_refuses_head_mode_and_unknown_options():
-    base = dict(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", engine="h3")
-    for extra in ({"mode": "head"}, {"mode": "reference"}, {"h3_accel": "fast"}, {"h3_size": "huge"}):
-        try:
-            _run_h3(CharswapRequest(**base, **extra))
-        except ValueError:
-            continue
-        raise AssertionError(f"{extra} must be refused")
-    try:
-        _run_h3(CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", engine="sora"))
-    except ValueError as exc:
-        assert "engine" in str(exc)
-        return
-    raise AssertionError("an unknown engine must be refused")
 
 
-def test_the_viggle_engine_is_the_default_and_never_reaches_the_h3_path(tmp_path):
-    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="reference")
-    assert req.engine == "viggle" and req.h3_accel == "turbo8" and req.h3_size == "source"
-    with mock.patch.object(main, "_run_charswap_h3", side_effect=AssertionError("h3 must not run")):
-        calls, _ = _run_job(req, tmp_path)
-    assert calls["viggle"]
 
 
 def test_a_restart_collects_a_finished_h3_render_without_describing_or_rendering_again(tmp_path):
@@ -1110,9 +710,8 @@ def test_the_targets_of_the_h3_swap_are_named_by_one_question_or_by_the_points(t
         asked.append(ask)
         return "the man with a grey beard in a brown coat"           # the phrase alone, as the model answers it
 
-    async def target(frame, tgt, photo, index, job):
-        assert photo is None                    # the picture of the new person is not described for this engine
-        return {"x": tgt.x, "wears": "a grey hoodie", "view": "", "photo": {}}
+    async def target(frame, tgt, index, job):
+        return {"x": tgt.x, "wears": "a grey hoodie", "view": ""}
 
     def run(req):
         job = {"id": "jt", "status": "running"}
@@ -1144,14 +743,6 @@ def test_a_vision_step_that_fails_leaves_the_person_unnamed_not_the_swap_failed(
     assert got == [{}] and "the main subject" in face_prompt.compose_h3_swap_instruction(got)
 
 
-def test_the_scheduler_sees_an_h3_swap_as_an_h3_render_and_a_viggle_swap_as_viggle():
-    default = job_scheduler.describe("charswap", {"engine": "h3"})
-    assert default["family"] == "h3:ref2va"
-    taomate = job_scheduler.describe("charswap", {"engine": "h3", "h3_accel": "taomate3"})
-    small = job_scheduler.describe("charswap", {"engine": "h3", "h3_size": "small"})
-    assert default["units"] > taomate["units"] and default["units"] > small["units"]
-    assert job_scheduler.describe("charswap", {"engine": "viggle"})["family"] == "viggle"
-    assert job_scheduler.describe("charswap", {})["family"] == "viggle"
 
 
 def test_several_pointed_people_are_placed_by_rank_not_by_thirds():
@@ -1232,3 +823,48 @@ def test_the_h3_pose_step_asks_only_when_auto_finds_an_animal_replaced_by_a_pers
     assert run("follow", ("animal", "person")) is None and asked == []
     assert "walking upright" in run("upright", ("person", "person"))[0]
     assert face_prompt.H3_KIND_ASK not in asked
+
+
+def test_the_viggle_engine_and_the_reference_mode_are_refused_with_a_clear_message():
+    base = dict(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png")
+    assert CharswapRequest(**base).engine == "h3" and charswap_refusal(CharswapRequest(**base)) is None
+    viggle = charswap_refusal(CharswapRequest(**base, engine="viggle"))
+    assert "viggle" in viggle and "removed" in viggle and "H3" in viggle
+    reference = charswap_refusal(CharswapRequest(**base, mode="reference"))
+    assert "reference" in reference and "removed" in reference
+    assert "engine" in charswap_refusal(CharswapRequest(**base, engine="sora"))
+    assert charswap_refusal(CharswapRequest(**base, mode="head")) is None       # head runs as the person swap
+
+
+def test_the_endpoint_answers_400_for_the_removed_options_and_the_job_runner_refuses_them_too():
+    import fastapi
+    base = dict(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png")
+    for extra in ({"engine": "viggle"}, {"mode": "reference"}):
+        try:
+            asyncio.run(main.charswap(CharswapRequest(**base, **extra)))
+        except fastapi.HTTPException as exc:
+            assert exc.status_code == 400 and "removed" in exc.detail
+        else:
+            raise AssertionError(f"{extra} must be refused by the endpoint")
+        try:
+            asyncio.run(main._run_charswap_job({"id": "jr", "status": "running"}, CharswapRequest(**base, **extra)))
+        except ValueError as exc:
+            assert "removed" in str(exc)
+        else:
+            raise AssertionError(f"{extra} must be refused by the job runner")
+
+
+def test_head_mode_runs_the_h3_person_swap_and_says_so():
+    req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png", mode="head")
+    sent, _asked, result, _job = _run_h3(req)
+    assert sent[0].mode == "edit" and sent[0].motion_preset == "ref2va"
+    assert result["mode_requested"] == "head" and "not implemented" in result["note"]
+
+
+def test_the_scheduler_sees_a_swap_as_an_h3_render():
+    default = job_scheduler.describe("charswap", {"engine": "h3"})
+    assert default["family"] == "h3:ref2va"
+    taomate = job_scheduler.describe("charswap", {"engine": "h3", "h3_accel": "taomate3"})
+    small = job_scheduler.describe("charswap", {"engine": "h3", "h3_size": "small"})
+    assert default["units"] > taomate["units"] and default["units"] > small["units"]
+    assert job_scheduler.describe("charswap", {})["family"] == "h3:ref2va"

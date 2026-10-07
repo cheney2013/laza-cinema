@@ -409,7 +409,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   },
   {
     type: 'charswap',
-    label: '换人 · Viggle',
+    label: '换人 · H3',
     cat: '编辑 & 修复',
     color: '#2dd4bf',
     inputs: [
@@ -425,10 +425,6 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         status: 'idle',
         width: videoWidth,
         height: videoHeight,
-        // 0 = the driving clip's own length. The conditioning node snaps to H3's 17k+5
-        // grid itself; a cap above what the clip supplies mosaics the output.
-        length: 0,
-        megapixels: 0.8,
         seed: 95051,
         seedMode: 'fixed',
       };

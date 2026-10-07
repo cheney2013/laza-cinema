@@ -57,7 +57,7 @@ ComfyUI is not on 127.0.0.1:8188/8189.
 | ComfyUI-FL-MiniMaxH3 | github.com/filliptm/ComfyUI-FL-MiniMaxH3 | 4af2faa + **patch** | temporal reshot (local repair) |
 | Comfyui-MMH3-UltimateUpscale | github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale | 8d98e68 | latent upscale |
 | ComfyUI-H3-FunControl | github.com/wyzborrero/ComfyUI-H3-FunControl | 22a7ec3 | grey-box control video (needs the fused base, see §5) |
-| ComfyUI-Viggle-Animate-H3 | github.com/Saganaki22/ComfyUI-Viggle-Animate-H3 | 998d013 | character swap |
+| ComfyUI-Viggle-Animate-H3 | github.com/Saganaki22/ComfyUI-Viggle-Animate-H3 | 998d013 | character swap (engine removed 2026-10-07; unused, kept) |
 | ComfyUI-HyperFlow-H3 | this folder (`ComfyUI-HyperFlow-H3/`) | ours | HyperFlow preset (not usable at 16 GB, see §5) |
 | ComfyUI-WanAnimatePreprocess | github.com/kijai/ComfyUI-WanAnimatePreprocess | 1.0.3 | ONNX detector loader (pose) |
 | ComfyUI-SCAIL-Pose | github.com/kijai/ComfyUI-SCAIL-Pose | 1.0.2 | ViTPose → DWPose |

@@ -363,27 +363,21 @@ export interface AVBridgeRequest {
 export interface CharswapRequest {
   video_url: string;                 // driving clip: blocking, camera, set, everyone else
   character_image_url: string;       // one still of the replacement character
-  /** 0 = the clip's own frame count. A cap above it mosaics the output. */
-  length?: number;
-  steps?: number;
   seed?: number;
-  sampler?: string;
-  scheduler?: string;
-  megapixels?: number;
-  /** "person" (换人): the whole person. "head" (换头): the face, hair colour and bangs. A frame of the clip is repainted first.
-   *  "reference": the picture is already the reference and goes to Viggle as it is. */
-  mode?: 'person' | 'head' | 'reference';
-  /** Person mode with several people in the clip: who to replace (a point on the frame at face_frame_seconds, 0-1
-   *  from the top left) and with whose photo. Everyone not pointed at stays. */
+  /** "person" (换人): the whole person. "head" (换头) is accepted and runs as the person swap (the H3 engine has no
+   *  head-only swap yet). "reference" was removed with the Viggle engine on 2026-10-07 and is refused by the backend. */
+  mode?: 'person' | 'head';
+  /** Several people in the clip: who to replace (a point on the frame at face_frame_seconds, 0-1 from the top left)
+   *  and with whose photo. Everyone not pointed at stays. */
   targets?: { x: number; y: number; image_url: string }[];
-  /** "viggle" (default) or "h3": MiniMax-H3's own edit of the whole clip, person mode only. */
-  engine?: 'viggle' | 'h3';
+  /** Always "h3": the only engine since 2026-10-07 (the backend refuses "viggle"). */
+  engine?: 'h3';
   h3_accel?: 'taomate3' | 'turbo8';
   h3_size?: 'source' | 'small';
   pose?: 'auto' | 'follow' | 'upright';
-  /** Face mode: the second to repaint; negative = the middle of the clip. */
+  /** The second of the clip the points were made on; negative = the first frame. */
   face_frame_seconds?: number;
-  /** Face mode: the whole Qwen edit prompt (<image 1> = the clip's frame, <image 2> = the photo); empty = the default. */
+  /** The whole H3 instruction; empty = written by a vision model from the clip. */
   face_prompt?: string;
 }
 
@@ -734,9 +728,9 @@ export const api = {
     }),
 
   /**
-   * Character replacement through Viggle-Animate. No prompt exists on this route: the
-   * still supplies the identity, the driving clip everything else. Held props are lost -
-   * a prop-driven shot goes to the Ref2VA route instead.
+   * Character replacement by MiniMax-H3's own edit render (the Character-Swap LoRA): the
+   * still supplies the identity, the driving clip everything else. The Viggle engine was
+   * removed on 2026-10-07.
    */
   charswap: (req: CharswapRequest) =>
     request<{ job_id: string; status: string }>('/charswap', {

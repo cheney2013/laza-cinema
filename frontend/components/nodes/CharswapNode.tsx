@@ -20,40 +20,26 @@ import { useConnectedInputs } from '@/hooks/useConnectedInputs';
 import { useJobResult, useActiveBatchInfo } from '@/hooks/useJobPoller';
 import { BACKEND_URL as API_BASE } from '@/lib/config';
 import { t } from '@/lib/i18n';
-import { charswapRequest, swapMode, swapTargets, swapEngine, h3Accel, h3Size, swapPose } from '@/lib/charswapRequest';
+import { charswapRequest, swapMode, swapTargets, h3Accel, h3Size, swapPose } from '@/lib/charswapRequest';
 import SwapTargetPicker from './SwapTargetPicker';
 
 /**
- * Swap the performer in a clip for the person in one still — Viggle-Animate.
+ * Swap the performer in a clip for the person in one still: MiniMax-H3's own edit render with the
+ * Character-Swap LoRA (docs/CHARSWAP.md). The Viggle engine was removed on 2026-10-07; a saved node whose
+ * data still says swapEngine "viggle" or swapMode "reference" opens as the H3 person swap and those fields
+ * are ignored.
  *
- * Two inputs and nothing else: the still decides who, the driving clip decides
- * everything else — blocking, camera, handheld motion, the set, the light, the other
- * people. **There is no prompt on this route.** The model's text encoder is replaced by a
- * frozen 362-token embedding, so this node deliberately has no prompt port: a prompt
- * field here would be a control that does nothing.
- *
- * It replaced the Ref2VA + matting route on 2026-09-07 because it lands the swap with no
- * matting on the case that route needs matting for (a reference in the same wardrobe as
- * the source performer), holding identity across the whole clip with no bleed from the
- * reference still's own background.
- *
- * Wire the person's own photo; the node makes the reference. 换人 and 换头 first repaint one frame of
- * the driving clip with Qwen and use that frame as the reference, because a reference that does not
- * match the clip (a sunlit full-length photo for a dark indoor clip) comes out as the wrong person.
- * 换人 takes the whole person, clothes included; 换头 the face, hair colour and bangs (the clip's
- * hair length and clothes stay). 原样 sends the wired picture to Viggle untouched (a reference made
- * by hand). There is no face-only mode: Qwen kept handing back the clip's own face, and the swap
- * that followed gave a stranger. docs/CHARSWAP.md.
+ * Two inputs: the photo decides who, the driving clip decides everything else (blocking, camera, set,
+ * light, the other people). There is no prompt port: the backend writes one plain instruction from what a
+ * vision model sees, or takes the text typed in the box. A clip over 226 frames is rendered in chained
+ * windows by the backend; nothing to set here.
  *
  * A clip with several people: wire several photos and, in 换人, point at the people on a frame of the
  * clip (选要换的人). Point i is replaced with photo i, in the order the photos are wired; the people
- * not pointed at stay.
+ * not pointed at stay, and each pointed-at person is a render of their own.
  *
- * Two things it will not do, both measured, both worth knowing before wiring it:
- *   * The face is a **blend** — hair and fringe come from the still, the bone structure
- *     stays the driving performer's. Nothing in the parameters moves this.
- *   * **Held props are lost.** Whatever the performer is holding is repainted away with
- *     them. A shot whose story is a raised prop belongs on the Ref2VA route.
+ * 换头 is kept in the node but the H3 engine has no head-only swap yet: the backend runs the person swap
+ * for it and says so in the result.
  */
 
 function SwapIcon() {
@@ -85,10 +71,9 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
   useEffect(() => {
     if (!jobResult) return;
     if (jobResult.status === 'done' && jobResult.url) {
-      const used = jobResult as { mode?: string; reference?: { url?: string }; face_prompt?: string };
+      const used = jobResult as { mode?: string; face_prompt?: string };
       updateNodeData(id, {
         status: 'done', generatedUrl: jobResult.url as string, jobId: undefined,
-        faceReferenceUrl: used.reference?.url,
         facePromptUsed: used.face_prompt,
       });
     } else if (jobResult.status === 'error') {
@@ -98,13 +83,11 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
     }
   }, [jobResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const engine = swapEngine(data.swapEngine);
-  const isH3 = engine === 'h3';
   const accel = h3Accel(data.h3Accel);
   const size = h3Size(data.h3Size);
   const pose = swapPose(data.swapPose);
   const [promptCopied, setPromptCopied] = useState(false);
-  const mode = isH3 ? 'person' : swapMode(data.swapMode);
+  const mode = swapMode(data.swapMode);
   const points = swapTargets(data.swapTargets);
   // Several photos can only be told apart by pointing at the people they become.
   const pointsOk = mode !== 'person' || refUrls.length <= 1 || points.length > 0;
@@ -169,39 +152,17 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
       <div style={header} data-chrome-row="header" className="node-shell-header">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/[0.05] border border-white/[0.08] text-zinc-300">
           <SwapIcon />
-          <span style={label} className="text-zinc-200" data-chrome="label">{t('换人 · Viggle')}</span>
+          <span style={label} className="text-zinc-200" data-chrome="label">{t('换人 · H3')}</span>
         </div>
         <div className="flex items-center gap-1">
-          {!isH3 && (
-            <span className="text-[8px] font-mono text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-full"
-                  title={t('这条链没有提示词：身份只来自参考图，其余全来自驱动视频。人物手里拿着的东西会被一起重绘掉')}>
-              {t('无提示词 · 道具会丢')}
-            </span>
-          )}
           <span className="text-[10px] font-mono text-zinc-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
-            {isH3 ? (accel === 'taomate3' ? 3 : 8) : 4}  {t('步')}
+            {accel === 'taomate3' ? 3 : 8}  {t('步')}
           </span>
         </div>
       </div>
 
       <div data-chrome-row="mode" className="nodrag flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 py-1.5 text-[10px]">
-        <div className="flex overflow-hidden rounded-md border border-white/10">
-          {(['viggle', 'h3'] as const).map((e) => (
-            <button
-              key={e}
-              type="button"
-              disabled={busy}
-              title={e === 'viggle'
-                ? t('Viggle：先把驱动视频的一帧改成新人物，再用它换人。约 2 分钟，参考帧要选对；片子里姿态变化很大时会重影')
-                : t('H3 原生：把整段原片和参考照片交给 H3 编辑，提示词由视觉模型看图自动写。姿态变化大的片子更稳，但更慢；只换整个人，画面里有几个人时可以点选')}
-              onClick={() => updateNodeData(id, { swapEngine: e })}
-              className={`px-2 py-0.5 ${engine === e ? 'bg-violet-500/25 text-violet-200' : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200'}`}
-            >
-              {e === 'viggle' ? 'Viggle' : t('H3 原生')}
-            </button>
-          ))}
-        </div>
-        {isH3 && (
+        {(
           <>
             <div className="flex overflow-hidden rounded-md border border-white/10">
               {(['turbo8', 'taomate3'] as const).map((a) => (
@@ -257,26 +218,22 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
             )}
           </>
         )}
-        {!isH3 && (
         <div className="flex overflow-hidden rounded-md border border-white/10">
-          {(['person', 'head', 'reference'] as const).map((m) => (
+          {(['person', 'head'] as const).map((m) => (
             <button
               key={m}
               type="button"
               disabled={busy}
               title={m === 'person'
-                ? t('整个人换成参考照片里的人，衣服也以参考照片为准：先把驱动视频的一帧改成这个人，再用它换人')
-                : m === 'head'
-                  ? t('脸、发色和刘海换成参考照片的，发长和衣服保持源片；先把驱动视频的一帧改好再用它换人，姿态和光线保持原样')
-                  : t('接入的图已经是做好的参考图（和驱动视频同姿态、同机位），原样交给 Viggle，不再重画')}
+                ? t('整个人换成参考照片里的人，衣服也以参考照片为准：把整段原片和参考照片交给 H3 编辑')
+                : t('换头：H3 原生暂时没有只换头的做法，现在按换人处理（整个人换掉），结果里会注明')}
               onClick={() => updateNodeData(id, { swapMode: m })}
               className={`px-2 py-0.5 ${mode === m ? 'bg-teal-500/25 text-teal-200' : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200'}`}
             >
-              {m === 'person' ? t('换人') : m === 'head' ? t('换头') : t('原样')}
+              {m === 'person' ? t('换人') : t('换头')}
             </button>
           ))}
         </div>
-        )}
         {mode === 'person' && Boolean(driveUrl) && (
           <button
             type="button"
@@ -287,23 +244,6 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
           >
             {t('选要换的人')}{points.length ? ` · ${points.length}` : ''}
           </button>
-        )}
-        {!isH3 && mode !== 'reference' && (
-        <label className="flex items-center gap-1 text-zinc-400" title={t('取驱动视频的哪一秒来改脸。选脸朝向镜头的那一帧；留空取中间')}>
-          {t('取脸帧（秒）')}
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={typeof data.faceFrameSeconds === 'number' ? data.faceFrameSeconds : ''}
-            placeholder={t('中间')}
-            disabled={busy}
-            onChange={(e) => updateNodeData(id, {
-              faceFrameSeconds: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)),
-            })}
-            className="w-12 rounded border border-white/10 bg-black/30 px-1 py-0.5 text-zinc-200"
-          />
-        </label>
         )}
         {mode === 'person' && picking && driveUrl && (
           <SwapTargetPicker
@@ -316,17 +256,15 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
             onPoints={(p) => updateNodeData(id, { swapTargets: p })}
           />
         )}
-        {mode !== 'reference' && (
         <textarea
           rows={2}
           value={typeof data.facePrompt === 'string' ? data.facePrompt : ''}
-          placeholder={isH3 ? t('H3 提示词（留空=自动，由视觉模型看原片的几帧和照片来写六段式提示词）') : t('改脸提示词（留空=自动，由视觉模型看图来写）')}
-          title={t('Qwen 改脸用的完整提示词，<image 1> 是驱动视频的那一帧，<image 2> 是参考照片。留空时由视觉模型看这两张图自动写；想自己控制就写清帧里是谁、穿什么、在哪，哪些必须不变，新的发型是什么')}
+          placeholder={t('H3 提示词（留空=自动，由视觉模型看原片的几帧和照片来写六段式提示词）')}
+          title={t('完整的 H3 换人指令，<Video 1> 是原片，<Picture 1> 是参考照片。留空时由视觉模型看原片自动写；想自己控制就写清被换的是谁、保留什么')}
           disabled={busy}
           onChange={(e) => updateNodeData(id, { facePrompt: e.target.value })}
           className="nowheel order-last w-full basis-full resize-none rounded border border-white/10 bg-black/30 px-1.5 py-1 leading-snug text-zinc-200 placeholder:text-zinc-600"
         />
-        )}
         {(() => {
           // The instruction of the last run (written by the vision model unless typed) or, before any run, the typed one:
           // copied to be read in a translator.
@@ -345,16 +283,6 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
             </button>
           ) : null;
         })()}
-        {typeof data.faceReferenceUrl === 'string' && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`${API_BASE}${data.faceReferenceUrl}`}
-            alt=""
-            title={`${t('这次用的参考图（驱动视频的一帧改脸后的结果）')}${
-              typeof data.facePromptUsed === 'string' && data.facePromptUsed ? `\n\n${data.facePromptUsed}` : ''}`}
-            className="ml-auto h-6 rounded border border-white/10"
-          />
-        )}
       </div>
       </div>
 

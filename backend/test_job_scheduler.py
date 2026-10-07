@@ -252,8 +252,6 @@ class FreeByRoomTests(unittest.TestCase):
         self.assertEqual(sched.family_of_graph(text_only), "qwen")
         h3 = {"1": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {}}}
         self.assertEqual(sched.family_of_graph(h3), "h3")
-        viggle = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_ref2va_viggle_pruned_int8_convrot.safetensors"}}}
-        self.assertEqual(sched.family_of_graph(viggle), "viggle")
         self.assertIsNone(sched.family_of_graph({"1": {"class_type": "SaveVideo", "inputs": {}}}))
         self.assertIsNone(sched.family_of_graph(None))
 

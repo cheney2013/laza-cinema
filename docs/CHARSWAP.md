@@ -1,10 +1,14 @@
+> **Viggle 引擎已于 2026-10-07 移除；H3 原生换人是换人节点唯一的引擎。** 后端拒绝 `engine: "viggle"` 和 `mode: "reference"`；旧画布里的 `swapEngine: viggle` / `swapMode: reference` 会被忽略，按 H3 换人打开。换头（`mode: head`）仍可选，但 H3 路径还没有只换头的做法，现在按换人处理，结果里带说明。
+> `comfyui_nodes/third_party/ComfyUI-Viggle-Animate-H3`、`tools/comfyui_setup` 里的条目和 Viggle 权重都留着，现在没有任何节点使用它们。
+> 下面从开头到「H3 原生换人 + Character-Swap LoRA」之前，记的是 Viggle 时期的实测，只作历史参考；运行步骤请看「H3 原生换人」一节。
+
 # 换人 / 换头：怎样做才会成功
 
-画布上的 **换人 · Viggle** 节点（Viggle-Animate，MiniMax-H3 的微调）把驱动视频里的人换成一张照片里的人。
+画布上的 **换人 · H3** 节点把驱动视频里的人换成一张照片里的人。
 这份文档记的是 2026-10-04 在一条片子上实测出来的做法，包括哪些做法**不**成立。**只在一条 5 秒片、一个人身上验证过**，
 换片换人是否同样成立还不知道；标了"没验证"的地方就是没验证。
 
-## 先记住一条：参考图决定成败
+## 先记住一条：参考图决定成败（Viggle 时期）
 
 这条路没有提示词，身份只来自参考图，其余全来自驱动视频。参考图和驱动视频差得远（阳光草地的全身照对昏暗室内的背影），
 模型就认不出人：换成一个陌生人，衣服碎成三角块或迷彩。**所以不能把照片直接喂 Viggle。**
@@ -46,33 +50,7 @@ Viggle 随后换成一个陌生人、外套碎成迷彩。共试了 8 次 Qwen�
 
 想只换脸可以试：脸和发型差别更大的照片，或手写更强的提示词（"原来的脸不能保留，必须看起来是另一个人"这句让一次手工尝试成功过）。这两条没有系统验证过。
 
-## 最省事的做法：全自动
-
-**取脸帧留空、改脸提示词留空**，后端自己做完下面所有事：挑脸最大最正的一帧、把照片裁好、
-让视觉模型看那一帧和照片写出改脸提示词、Qwen 改图、Viggle 换人。
-视觉模型用的是 Qwen-Image 2.1 改图本来就要加载的文本编码器（`qwen3vl_8b_int8_convrot`，ComfyUI 的 `TextGenerate`），
-**没有引入任何新模型**；实测一次约 5 秒，编码器已经在显存里时只多 160 MiB。
-它写出的提示词和手写的同构（人物、衣服、姿态、环境、新发型、发长保持源片、保留清单），实际用的提示词会随结果存在节点上。
-视觉模型这一步失败（ComfyUI 出错、写出的内容缺项）时回退到通用默认提示词，**效果差**（上表第三行），所以出了问题先看节点上存的提示词。
-
-想自己控制，就按下面的步骤手写提示词；手写的永远优先于自动的。
-
-## 步骤（手写提示词时照这个做）
-
-1. **检查素材。** MCP 的 `inspect_charswap_inputs(project, node_id)`，或后端 `POST /charswap/inspect`。约 10 秒，不占 GPU 渲染。
-   它报告：脸最大最正的那一帧是第几秒（`best_frame_seconds`）、照片里脸占多宽、以及警告：开头是背影、整条片没有脸、
-   脸太小、照片里脸太小会被裁成半身像、片子超过一次能出的 124 帧。它只报能测出来的东西，**不能判断换人会不会成功**。
-2. **看图。** 看那一帧（`get_media_frames`）和参考照片。
-3. **写改脸提示词**（节点上的"改脸提示词"，MCP 的 `facePrompt`；留空则自动写）。`<image 1>` 是驱动视频的那一帧，`<image 2>` 是参考照片：
-   - 先描述帧里是谁、穿什么、在哪、什么姿态：`a dark photograph of a woman in a grey wool coat looking back over her shoulder at the camera, standing beside a rain-streaked window`；
-   - 再写要换成什么：`Replace her face and hairstyle with the face of the young woman in <image 2> and her hair colour and full see-through bangs`；
-   - **写明发长和源片一致**：`The hair stays short, ending at the nape of the neck like the hair in <image 1>; no hair is tied back and nothing hangs down the back of the coat`。
-     参考照片里头发拢在脑后时，背影镜头里模型会在外套后背画一条褐色长带，像血迹；写了这一句就没有了；
-   - 最后逐项点名要保留的东西：`Keep everything else in <image 1> exactly as it is: her grey wool coat with its wide collar, the turn of her shoulders and the angle of her head, the rain-streaked window, the dim blue light, the door frame at the left, and the framing`。
-   自动写的做不到你想要的时候，就自己写。
-4. **运行，逐帧看成片。** `run_canvas_node`，再 `refresh_canvas_node`，用 `get_frames` 看几个点：**开头（背影时）、脸最正的时刻、结尾**。
-   看外套有没有碎成块、后背有没有多出东西、脸是不是新人物。节点上有这次实际用的参考图缩略图。
-5. **失败了换参考图。** 换 Qwen 的种子（节点种子同时是 Qwen 的种子）或改提示词，不要只换 Viggle 的种子。
+检查素材：MCP 的 `inspect_charswap_inputs(project, node_id)`，或后端 `POST /charswap/inspect`，约 10 秒、不占 GPU，报告脸最大最正的一帧、照片里脸占多宽，以及开头是背影、脸太小、片子超过 226 帧等警告。
 
 取脸的帧不填时，后端用 MediaPipe 在 24 个等距帧里找脸最大、最正面的一帧；整条片都没有脸就取中间。
 
@@ -131,7 +109,7 @@ Viggle 随后换成一个陌生人、外套碎成迷彩。共试了 8 次 Qwen�
 没配 LoRA 时（六段式提示词、`singularity` 底模）的教训：提示词里写出场景（"混凝土屋顶"）会把原片的围栏和城镇重画掉；写出动作时间线时，视觉模型读错的视角（把侧脸读成背影）会被照着画；只写"同一机位"不写景别，镜头会拉近。
 深度控制（Fun ControlNet，强度 1.2）能让挥手跟上，但转身角度和背景是被提示词带偏的，不是控制的问题；这条路没有继续。
 
-和 Viggle 的差别：H3 原生一次最多 226 帧（约 9.4 秒），没有换头模式，多人同时换衣服不稳；更长的片子和换头仍只能走 Viggle。
+H3 原生一次最多 226 帧（约 9.4 秒），更长的片子分段接续（见下面「长片」一节）；没有只换头的模式（换头现在按换人处理），多人同时换衣服不稳。
 H3 原生不依赖选帧，姿态在片子里变化大时也稳；原分辨率约 7 分钟，864 小尺寸约 2 分钟，和 Viggle 差不多。
 
 ### 动物换人：姿态选项（2026-10-04 实测）

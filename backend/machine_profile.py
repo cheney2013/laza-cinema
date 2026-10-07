@@ -65,7 +65,7 @@ MACHINE_PROFILES: dict[str, dict] = {
         # What this card cannot run at all: these are 21-34 GB builds with no community quantisation
         # of the same weights (searched 2026-10-04), and the text encoder (15.7 GB) must sit beside
         # them in 32 GB of RAM. Presets are refused with a clear message; node types are hidden
-        # from the studio and refused by the backend. Viggle's pruned build has no smaller version.
+        # from the studio and refused by the backend. The H3 swap of the charswap node needs the ref2va base.
         "disabled_presets": ["fused", "hybrid", "ref2va_full", "hyperflow"],
         "disabled_node_types": ["charswap", "videoOrbit"],
         # Video enhance: the latent refine loads the fused int8 base (21 GB), so ESRGAN is the default
@@ -139,7 +139,7 @@ def substitute_preset(name: str) -> str:
 
 
 #: Node type -> the backend job that runs it, for the message below.
-_NODE_LABELS = {"charswap": "换人 (Viggle)", "videoOrbit": "360 环绕"}
+_NODE_LABELS = {"charswap": "换人 (H3)", "videoOrbit": "360 环绕"}
 
 
 def require_preset(name: str) -> None:
