@@ -3017,4 +3017,5 @@ export const ja: Record<string, string> = {
   '资料': '資料',
   '这个 RefMod 是用什么资料做的': 'この RefMod の元資料',
   '没有记录创建资料': '作成時の資料は記録されていません',
+  '情绪': '感情',
 };

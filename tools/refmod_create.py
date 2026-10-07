@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--voice", default="")
     ap.add_argument("--description", default="")
     ap.add_argument("--notes", default="", help="why this one was made, what it is for")
+    ap.add_argument("--emotion", default="", help="the feeling of the recording (e.g. dazed, frightened, firm); shown in the RefMod panel")
     a = ap.parse_args()
     if not (a.image or a.audio):
         sys.exit("give --image and/or --audio")
@@ -95,7 +96,7 @@ def main():
         mine = [s for s in sources if s["role"] == ("audio" if n.endswith("_audio") or (not a.image) else "image")]
         done = post(BACKEND + "/refmods/sources", {
             "name": n, "sources": mine or sources, "notes": a.notes,
-            "params": {k: v for k, v in inputs.items() if not isinstance(v, list)},
+            "params": {**{k: v for k, v in inputs.items() if not isinstance(v, list)}, **({"emotion": a.emotion} if a.emotion else {})},
         })
         print("sources kept for", n, len(done["sources"]))
 

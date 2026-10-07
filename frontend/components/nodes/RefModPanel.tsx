@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type RefModEntry } from '@/lib/api';
 import { BACKEND_URL } from '@/lib/config';
 import { t } from '@/lib/i18n';
+import AudioPlayer from './AudioPlayer';
 
 /** One RefMod row as the canvas stores it (data.refMods): a look (visual), a voice (audio), and a weight. */
 export interface RefModRow {
@@ -115,6 +116,9 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
                   <div key={nm} className="space-y-1">
                     <div className="font-mono text-[9px] text-zinc-300">{nm}</div>
                     {!e?.has_sources && <div className="text-[9px] text-zinc-500">{t('没有记录创建资料')}</div>}
+                    {typeof e?.params?.emotion === 'string' && e.params.emotion && (
+                      <div className="text-[9px] text-amber-300/80">{t('情绪')}：{e.params.emotion}</div>
+                    )}
                     {e?.notes && <div className="text-[9px] text-zinc-400">{e.notes}</div>}
                     {(e?.sources || []).map((src) => (
                       <div key={src.url} className="space-y-0.5">
@@ -122,7 +126,7 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
                           <img src={`${BACKEND_URL}${src.url}`} alt="" onClick={() => setBig(`${BACKEND_URL}${src.url}`)}
                                className="max-h-24 cursor-zoom-in rounded" />
                         )}
-                        {src.role === 'audio' && <audio controls src={`${BACKEND_URL}${src.url}`} className="h-7 w-full" />}
+                        {src.role === 'audio' && <AudioPlayer src={`${BACKEND_URL}${src.url}`} className="w-full" />}
                         {src.role === 'video' && <video controls src={`${BACKEND_URL}${src.url}`} className="max-h-24 rounded" />}
                         {src.note && <div className="text-[9px] text-zinc-500">{src.note}</div>}
                       </div>
