@@ -82,7 +82,7 @@ function OrbitNode({ id, data, selected }: NodeProps<OrbitNodeType>) {
     try {
       const { job_id } = await api.orbit({
         image_url: sourceUrl,
-        width: (data.width as number) || 768,
+        width: (data.width as number) || 1344,
         height: (data.height as number) || 768,
         duration: (data.duration as number) || 3,
         seed: effectiveSeed,

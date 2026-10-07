@@ -293,9 +293,9 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "label": "360 环绕",
         # One picture seen by a camera that circles the frozen scene (the 360-Orbit LoRA on H3 FL2VA).
         # The picture on in-image is both first and last frame; the prompt is the LoRA's own fixed
-        # sentence, so the node has none. Official defaults: 768x768, LoRA 1.0, 3 s (28 steps, fixed).
+        # sentence, so the node has none. Our default is the 16:9 canvas 1344x768 (the Space's "16:9 full"; its own default is 768x768), LoRA 1.0, 3 s (28 steps, fixed).
         # Measured: the swing is about +-120 degrees, not a full turn; a clear subject in the middle holds best.
-        "defaults": {"generatedUrl": None, "status": "idle", "width": 768, "height": 768,
+        "defaults": {"generatedUrl": None, "status": "idle", "width": 1344, "height": 768,
                      "duration": 3.0, "seed": 904231, "seedMode": "fixed",
                      "loraStrength": 1.0},
         "inputs": ["in-image"],
@@ -3451,7 +3451,7 @@ def _run_orbit_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: di
         raise ValueError(f"videoOrbit node {node_id}: picture {sources[0].get('id')} has no file yet.")
     payload = {
         "image_url": image_url,
-        "width": int(data.get("width") or 768), "height": int(data.get("height") or 768),
+        "width": int(data.get("width") or 1344), "height": int(data.get("height") or 768),
         "duration": float(data.get("duration") or 3.0),
         "seed": int(data.get("seed") if data.get("seed") is not None else 904231),
         "lora_strength": float(data.get("loraStrength") if data.get("loraStrength") is not None else 1.0),

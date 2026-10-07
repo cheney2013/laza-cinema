@@ -9970,14 +9970,14 @@ class OrbitRequest(BaseModel):
     """One picture orbited by the camera while the scene stays frozen (360-Orbit LoRA on H3 FL2VA).
 
     The picture is both the first and the last frame, which is the wiring the LoRA was trained with: the camera
-    leaves the picture and comes back to it. Defaults are the official Space's (768x768, LoRA 1.0, 3 s); the 28 steps are the fl2va preset's own count
+    leaves the picture and comes back to it. Defaults: the 16:9 canvas 1344x768 (the Space's "16:9 full"; the Space itself defaults to 768x768), LoRA 1.0, 3 s; the 28 steps are the fl2va preset's own count
     for a run with no speed LoRA, so the request has no step count to give.
 
     Measured 2026-10-05 on a street frame: the swing is about +-120 degrees, not a full turn, and a frame with a
     clear subject in the middle holds better than a wide street. Backgrounds the picture never showed are invented.
     """
     image_url: str
-    width: int = 768
+    width: int = 1344
     height: int = 768
     duration: float = 3.0            # seconds; snapped up to the 17k+5 frame grid
     seed: int = 904231

@@ -398,8 +398,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     createData: () => ({
       generatedUrl: null,
       status: 'idle',
-      // The official Space's defaults: 768x768, LoRA 1.0, 3 s (28 steps, set by the base).
-      width: 768,
+      // Our 16:9 default is the Space's "16:9 full" canvas (its own default is 768x768); LoRA 1.0, 3 s (28 steps, set by the base).
+      width: 1344,
       height: 768,
       duration: 3,
       seed: 904231,
