@@ -1621,8 +1621,6 @@ def build_h3_video_workflow(
             if chunk_frames:
                 raise ValueError("refmods cannot be combined with chunk_frames: the chunk path clones the native "
                                  "reference node.")
-            if valid_video_refs or valid_audio_refs:
-                raise ValueError("refmods cannot be combined with video or audio references on the same node.")
             picks = []
             for rm in refmods:
                 pick = {"on": True}
@@ -1641,9 +1639,15 @@ def build_h3_video_workflow(
                 "ref_image_size": ref_image_size, "reference_fps": 24.0, "max_total_tokens": 0,
                 "mods": ["320", 0],
             }
-            if all_images:
+            # Plain media rides in through the Media Loader (pictures first, then videos, then audios),
+            # labelled before the RefMods.
+            media = [{"kind": "picture", "file": f} for f in all_images]
+            media += [{"kind": "video", "file": v, "has_audio": v not in silent_video_references,
+                       "audio_mode": "paired"} for v in valid_video_refs]
+            media += [{"kind": "audio", "file": a} for a in valid_audio_refs]
+            if media:
                 wf["321"] = {"class_type": "MiniMaxH3MediaLoader",
-                             "inputs": {"media_state": json.dumps([{"kind": "picture", "file": f} for f in all_images])}}
+                             "inputs": {"media_state": json.dumps(media)}}
                 encode["references"] = ["321", 0]
             wf["31"] = {"class_type": "MiniMaxH3FantasticRefModTextEncode", "inputs": encode}
         else:

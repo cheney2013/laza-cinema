@@ -330,7 +330,16 @@ def check_summary(summary: str, r: Report) -> None:
                "summary 只留设定和分镜说明（H3_PRODUCTION_LINE §10.x）。")
 
 
-def check_retention(retain: str, r: Report) -> None:
+# Words that say the shot is staged in a built interior, where an unclaimed wall gets a window painted in.
+INTERIOR_WORDS = re.compile(
+    r"\b(walls?|wainscoting|wallpaper|ceiling|corridor|hallway|doorway|bedroom|living room|kitchen|study|office|"
+    r"interior of (?:a|the) (?:room|house|flat|apartment|building))\b", re.I)
+# A <Video N> entry that already says the clip is not a source for the look, the people or the place.
+VIDEO_LOOK_DISCLAIMED = re.compile(
+    r"not taken from|are not taken|only the (?:camera|structure|action|composition)|people[^.\n]* not|look[^.\n]* not", re.I)
+
+
+def check_retention(retain: str, r: Report, context: str = "") -> None:
     for m in re.finditer(r"^(<(?:Subject|Picture|Video|Audio) \d+>)([^\n]*)", retain, re.M):
         label, body = m.group(1), m.group(2)
         if not any(k in body for k in MARKERS):
@@ -340,8 +349,15 @@ def check_retention(retain: str, r: Report) -> None:
         r.err("retention_analysis 里出现了说话人 ID —— ref-en 5.4 明确禁止")
     # a <Video N> that pins camera/blocking but says nothing about architecture
     # leaves the walls ungoverned (feedback_h3_set_fidelity_rule)
+    # Only when the prompt is set in a built interior (the rule is about walls): a street, a wreck or
+    # a close shot through glass has no wall for the clip to leave ungoverned, and a <Video N> entry that
+    # says outright it gives only camera and action is already bounded.
+    if context and not INTERIOR_WORDS.search(context):
+        return
     for m in re.finditer(r"^(<Video \d+>)([^\n]*)", retain, re.M):
         body = m.group(2)
+        if VIDEO_LOOK_DISCLAIMED.search(body):
+            continue
         if re.search(r"camera|framing|blocking", body, re.I) and not re.search(
                 r"architect|wall|room|set\b|layout|furnish", body, re.I):
             r.warn(f"{m.group(1)} 的保真条目只写了机位/走位，没把墙和布局划给它管。"
@@ -678,7 +694,7 @@ def check(path: Path, frames: int | None = None, film: bool = False,
     if summary:
         check_summary(summary, r)
     if retain:
-        check_retention(retain, r)
+        check_retention(retain, r, defs + "\n" + detail)
     if detail:
         check_dialogue(detail, r)
         check_speakers(defs, detail, r)

@@ -136,8 +136,12 @@ def test_refmods_refuse_chunks_and_other_media():
     import pytest
     with pytest.raises(ValueError):
         wb.build_h3_video_workflow(prompt="x", refmods=[{"visual": "a"}], chunk_frames=124, length=300)
-    with pytest.raises(ValueError):
-        wb.build_h3_video_workflow(prompt="x", refmods=[{"visual": "a"}], audio_reference_filenames=["v.wav"])
+    wf = wb.build_h3_video_workflow(prompt="x", refmods=[{"visual": "a"}], image_reference_filenames=["p.png"],
+                                    video_reference_filenames=["clip.mp4"], silent_video_references=["clip.mp4"],
+                                    audio_reference_filenames=["v.wav"])
+    media = json.loads(wf["321"]["inputs"]["media_state"])
+    assert [m["kind"] for m in media] == ["picture", "video", "audio"]
+    assert media[1]["has_audio"] is False
 
 
 def test_ref2va_video_editing_and_revoicing():

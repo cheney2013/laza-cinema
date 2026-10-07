@@ -241,6 +241,36 @@ class Bad(unittest.TestCase):
     def test_missing_cut_verb(self): self.has_warning("[Shot 4] 首句没有")
 
 
+class VideoReferenceWalls(unittest.TestCase):
+    """The <Video N> walls rule is about built interiors, not every prompt with a reference clip."""
+
+    PICTURE_LINE = ("<Picture 1> (storyboard for [Shot 1] and [Shot 2]): fully_preserved - each shot takes camera position, "
+                    "framing and performer placement from its panel, and the set as drawn.")
+
+    def make(self, video_entry: str, interior: bool) -> str:
+        text = GOOD.replace("<Subject 1> is the woman.", "<Video 1> is a clip. <Subject 1> is the woman.")
+        text = text.replace(self.PICTURE_LINE, "<Picture 1> (storyboard): fully_preserved - the panels." + chr(10) + video_entry)
+        if not interior:
+            # the same prompt moved out to a street: no wall, room, wainscoting or doorway anywhere in it
+            text = re.sub(r"(walls?|wainscoting|study|doorway|room)", "street", text, flags=re.I)
+        return text
+
+    ENTRY = "<Video 1> (shot structure): partially_preserved - the camera position, framing and blocking are followed."
+
+    def flagged(self, r):
+        return any("没把墙和布局划给它管" in w for w in r.warnings)
+
+    def test_interior_prompt_still_flagged(self):
+        self.assertTrue(self.flagged(run(self.make(self.ENTRY, True), frames=124)))
+
+    def test_outdoor_prompt_is_not_flagged(self):
+        self.assertFalse(self.flagged(run(self.make(self.ENTRY, False), frames=124)))
+
+    def test_clip_that_disclaims_the_look_is_not_flagged(self):
+        entry = self.ENTRY[:-1] + "; the people and the look are not taken from it."
+        self.assertFalse(self.flagged(run(self.make(entry, True), frames=124)))
+
+
 class Helpers(unittest.TestCase):
     def test_timecode(self):
         self.assertEqual(chk.parse_timecode("[Shot 2] At 01:02.500, the shot cuts"), 62.5)
