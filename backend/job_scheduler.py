@@ -378,7 +378,9 @@ FOOTPRINT_GIB = {
     # Qwen3-VL text encoder alone: describing a picture, translating subtitles.
     "qwen_text": (9.0, 9.0),
 }
-HEADROOM_GIB = 1.5
+# VRAM use above this share of the card counts as the ceiling: past it Windows starts paging weights to
+# shared memory and every job slows down. A family fits only if loading it keeps use at or below it.
+VRAM_CEILING = 0.90
 _GIB = 1024 ** 3
 
 # VRAM actually taken per family, learned from the aicinema_vram route (what ComfyUI reports loaded)
@@ -433,9 +435,10 @@ def lacks_room(stats: dict, family: str) -> Optional[bool]:
     if not need:
         return None
     learned = LEARNED_VRAM_GIB.get(family) or LEARNED_VRAM_GIB.get(base_family(family))
-    # A card smaller than the footprint can only take the family on an empty card.
-    vram_need = min((learned or need[0]) * _GIB, 0.92 * vram_total)
-    return vram_free < vram_need + HEADROOM_GIB * _GIB or ram_free < need[1] * _GIB
+    # What is in use plus what this family takes must stay under the ceiling; a family as big as the
+    # card itself only fits when everything else is gone (free reaches the ceiling).
+    vram_need = min((learned or need[0]) * _GIB + (1 - VRAM_CEILING) * vram_total, VRAM_CEILING * vram_total)
+    return vram_free < vram_need or ram_free < need[1] * _GIB
 
 
 def family_of_graph(graph) -> Optional[str]:

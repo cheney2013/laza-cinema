@@ -225,6 +225,14 @@ class FreeByRoomTests(unittest.TestCase):
         self.assertTrue(sched.lacks_room(room(24), "h3:default"))
         self.assertFalse(sched.lacks_room(room(31), "h3:default"))
 
+    def test_ninety_percent_of_the_card_is_the_ceiling(self):
+        # Qwen takes 16 GiB; on a 32 GiB card that is 25.6 GiB of use at most 28.8: 19.2 GiB free is the line.
+        self.assertTrue(sched.lacks_room(room(19.0), "qwen"))
+        self.assertFalse(sched.lacks_room(room(19.3), "qwen"))
+        # H3 takes the whole card: it only fits once use is down to 10% (free 28.8 GiB).
+        self.assertTrue(sched.lacks_room(room(28.5), "h3:default"))
+        self.assertFalse(sched.lacks_room(room(29.0), "h3:default"))
+
     def test_unreadable_numbers_or_unknown_family_give_no_verdict(self):
         self.assertIsNone(sched.lacks_room({}, "qwen"))
         self.assertIsNone(sched.lacks_room(room(24), "esrgan"))
