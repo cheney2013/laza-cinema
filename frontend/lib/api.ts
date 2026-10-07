@@ -569,6 +569,12 @@ export interface RefModEntry {
   size_bytes: number;
   preview_url: string | null;
   description: string;
+  /** What was kept when it was made (POST /refmods/sources): the pictures and recordings, the settings, a note. */
+  created_at?: number | null;
+  notes?: string;
+  params?: Record<string, unknown>;
+  sources?: { role: string; url: string; note: string; origin: string }[];
+  has_sources?: boolean;
 }
 
 export const api = {

@@ -1306,6 +1306,19 @@ def list_refmods() -> dict[str, Any]:
 
 
 @_tool
+def register_refmod_sources(name: str, sources: list[dict[str, Any]], notes: str = "",
+                            params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Keep the material a saved RefMod was made from, so list_refmods and the studio can show it.
+
+    name: the RefMod as a node's data.refMods names it, e.g. "tlou/s5_joel3". sources: [{"role": "image" |
+    "audio" | "video" | "other", "url": "/uploads/...", "note": "..."}] -- each file is copied beside the RefMod.
+    params: the Create node's settings (appearance, voice description...). Call it every time a RefMod is made.
+    """
+    return _request("POST", "/refmods/sources",
+                    json={"name": name, "sources": sources, "notes": notes, "params": params or {}})
+
+
+@_tool
 def add_bible_entry(project: str, name: str, kind: str = "", from_node: str = "", scene: str = "",
                     url: str = "", notes: str = "") -> dict[str, Any]:
     """Add a shared reference to the bible. kind: cast | environment | prop | voice | other.

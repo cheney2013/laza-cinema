@@ -10022,6 +10022,30 @@ def _safetensors_header(path: Path) -> dict:
         return json.loads(f.read(n))
 
 
+_REFMOD_MANIFEST_KEYS = ("created_at", "notes", "params", "sources")
+
+
+def _refmod_manifest(rel: str) -> dict:
+    """What was recorded when a RefMod was made: the pictures and recordings it was baked from (copied beside
+    it, so they outlive the uploads folder), the settings, and a note. {} fields are empty when none was recorded."""
+    from comfyui_client import BACKEND_REFMODS_DIR
+    path = BACKEND_REFMODS_DIR / (rel + ".json")
+    data: dict = {}
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    sources = []
+    for src in data.get("sources") or []:
+        file = src.get("file")
+        if file:
+            sources.append({"role": src.get("role") or "", "note": src.get("note") or "",
+                            "url": "/uploads/refmods/" + file, "origin": src.get("origin") or ""})
+    return {"created_at": data.get("created_at"), "notes": data.get("notes") or "",
+            "params": data.get("params") or {}, "sources": sources, "has_sources": bool(sources)}
+
+
 def _refmod_entries() -> list[dict]:
     seen: dict[str, dict] = {}
     for root in _refmod_dirs():
@@ -10053,8 +10077,62 @@ def _refmod_entries() -> list[dict]:
                 "latent_frames": meta.get("latent_t"), "size_bytes": f.stat().st_size,
                 "modified": f.stat().st_mtime, "preview_url": preview,
                 "description": meta.get("description") or "",
+                **_refmod_manifest(rel),
             }
     return sorted(seen.values(), key=lambda e: e["name"])
+
+
+class RefModSource(BaseModel):
+    role: str                      # image | audio | video | other
+    url: str                       # an /uploads/ or /comfy_output/ file the RefMod was baked from
+    note: str = ""
+
+
+class RefModSourcesRequest(BaseModel):
+    name: str                      # the RefMod, as a node's data.refMods names it (e.g. "tlou/s5_joel3")
+    sources: list[RefModSource]
+    params: dict = {}              # the Create node's settings (appearance, voice description, ...)
+    notes: str = ""
+
+
+@app.post("/refmods/sources")
+async def register_refmod_sources(req: RefModSourcesRequest):
+    """Keep the material a RefMod was made from: each source file is copied to uploads/refmods/<name>_src/ and
+    listed in <name>.json, so GET /refmods can show every RefMod's pictures, recordings and settings."""
+    from comfyui_client import BACKEND_REFMODS_DIR
+    name = req.name.strip().strip("/")
+    if not name or ".." in name or ":" in name or name.startswith("\\"):
+        raise HTTPException(400, "bad RefMod name")
+    if not any((d / (name + ".safetensors")).is_file() for d in _refmod_dirs()):
+        raise HTTPException(404, f"no RefMod named {name!r}")
+    if not req.sources:
+        raise HTTPException(400, "a RefMod needs at least one source")
+    folder = Path(name + "_src")
+    out_dir = BACKEND_REFMODS_DIR / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = BACKEND_REFMODS_DIR / (name + ".json")
+    previous: dict = {}
+    if manifest_path.is_file():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+    kept = [x for x in previous.get("sources") or []]
+    for src in req.sources:
+        path = await resolve_upload(src.url)
+        dest = out_dir / path.name
+        if not dest.is_file() or dest.stat().st_size != path.stat().st_size:
+            shutil.copy2(path, dest)
+        entry = {"role": src.role, "file": (folder / path.name).as_posix(), "note": src.note,
+                 "origin": src.url}
+        kept = [x for x in kept if x.get("file") != entry["file"]] + [entry]
+    manifest = {"name": name, "created_at": previous.get("created_at") or time.time(),
+                "notes": req.notes or previous.get("notes") or "",
+                "params": {**(previous.get("params") or {}), **req.params}, "sources": kept}
+    tmp = manifest_path.with_name(manifest_path.name + ".tmp")
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, manifest_path)
+    return {"name": name, **_refmod_manifest(name)}
 
 
 @app.get("/refmods")

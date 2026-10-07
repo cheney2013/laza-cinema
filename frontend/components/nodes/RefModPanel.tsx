@@ -29,6 +29,7 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
   const [entries, setEntries] = useState<RefModEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [big, setBig] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -39,6 +40,7 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
   const looks = (entries || []).filter((e) => e.kind === 'image');
   const voices = (entries || []).filter((e) => e.kind === 'audio');
   const previewOf = (name?: string) => looks.find((e) => e.name === name)?.preview_url || null;
+  const entryOf = (name?: string) => (entries || []).find((e) => e.name === name);
   const patch = (i: number, p: Partial<RefModRow>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
 
   return (
@@ -59,7 +61,8 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
       {rows.map((row, i) => {
         const src = previewOf(row.visual);
         return (
-          <div key={i} className="flex items-center gap-2 rounded border border-white/10 bg-white/[0.03] p-1.5">
+          <div key={i} className="rounded border border-white/10 bg-white/[0.03]">
+          <div className="flex items-center gap-2 p-1.5">
             {src ? (
               <img
                 src={`${BACKEND_URL}${src}`}
@@ -93,11 +96,43 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
               <input type="number" min={0} max={2} step={0.1} className={`${field} w-10`} value={row.w ?? 1} disabled={busy}
                      onChange={(e) => patch(i, { w: parseFloat(e.target.value) || 0 })} />
             </label>
+            <button type="button" title={t('这个 RefMod 是用什么资料做的')}
+                    onClick={() => setOpen(open === i ? null : i)}
+                    className={`shrink-0 px-1 text-[9px] cursor-pointer ${open === i ? 'text-white' : 'text-zinc-500 hover:text-white'}`}>
+              {t('资料')}
+            </button>
             <button type="button" disabled={busy} title={t('移除这个 RefMod')}
                     onClick={() => onChange(rows.filter((_, j) => j !== i))}
                     className="shrink-0 px-1 text-zinc-500 hover:text-red-400 disabled:opacity-30 cursor-pointer">
               ×
             </button>
+          </div>
+          {open === i && (
+            <div className="space-y-2 border-t border-white/10 p-1.5">
+              {[row.visual, row.audio].filter(Boolean).map((nm) => {
+                const e = entryOf(nm);
+                return (
+                  <div key={nm} className="space-y-1">
+                    <div className="font-mono text-[9px] text-zinc-300">{nm}</div>
+                    {!e?.has_sources && <div className="text-[9px] text-zinc-500">{t('没有记录创建资料')}</div>}
+                    {e?.notes && <div className="text-[9px] text-zinc-400">{e.notes}</div>}
+                    {(e?.sources || []).map((src) => (
+                      <div key={src.url} className="space-y-0.5">
+                        {src.role === 'image' && (
+                          <img src={`${BACKEND_URL}${src.url}`} alt="" onClick={() => setBig(`${BACKEND_URL}${src.url}`)}
+                               className="max-h-24 cursor-zoom-in rounded" />
+                        )}
+                        {src.role === 'audio' && <audio controls src={`${BACKEND_URL}${src.url}`} className="h-7 w-full" />}
+                        {src.role === 'video' && <video controls src={`${BACKEND_URL}${src.url}`} className="max-h-24 rounded" />}
+                        {src.note && <div className="text-[9px] text-zinc-500">{src.note}</div>}
+                      </div>
+                    ))}
+                    {e?.created_at ? <div className="text-[8px] text-zinc-600">{new Date(e.created_at * 1000).toLocaleString()}</div> : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           </div>
         );
       })}
