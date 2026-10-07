@@ -301,6 +301,12 @@ class Helpers(unittest.TestCase):
         self.assertFalse(any("超过硬上限" in e for e in r.errors), joined(r.errors))
         self.assertTrue(any("无人场景板" in n for n in r.notes), joined(r.notes))
 
+    def test_group_subject_is_matched_as_a_word(self):
+        """`is the set` / `is the group` counts as scenery, `is the settled man` does not: the pattern
+        needs a word boundary (it used to end in a literal backspace and never matched)."""
+        self.assertTrue(chk.is_empty_room_plate("<Subject 1> is the set of the study.", "A pan across the room."))
+        self.assertFalse(chk.is_empty_room_plate("<Subject 1> is the settled man at the desk.", "A pan across the room."))
+
     def test_word_cap_returns_once_a_subject_is_back(self):
         """The exemption is a licence for empty rooms, not a way round the rule."""
         long = GOOD.replace("The camera holds a static shot.",

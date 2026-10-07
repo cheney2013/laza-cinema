@@ -452,7 +452,7 @@ def is_empty_room_plate(defs: str, detail: str) -> bool:
     for empty rooms, not a way around the rule.
     """
     if re.search(r"<Subject \d+> is (?:the|a) ", defs) and not re.search(
-            r"<Subject \d+> is the (?:handful|group|set|collection)", defs):
+            r"<Subject \d+> is the (?:handful|group|set|collection)\b", defs):
         return False
     return "<d>" not in detail
 
