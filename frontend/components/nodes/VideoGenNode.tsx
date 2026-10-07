@@ -738,6 +738,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         // Only a node that chose one sends it; w4a8 never gets Sol (the backend also enforces it).
         ...(effectiveAttention ? { sage: effectiveAttention } : {}),
         block_sparse: data.blockSparse === true,
+        ...(data.veda === true ? { veda: true } : {}),
         ...(audioLocks.length ? {
           audio_locks: audioLocks,
           audio_lock_feather: Number(data.audioLockFeather) || 0,
@@ -1383,6 +1384,18 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                 type="checkbox"
                 checked={data.blockSparse === true}
                 onChange={(e) => updateNodeData(id, { blockSparse: e.target.checked })}
+              />
+            </label>
+
+            <label
+              className="flex items-center justify-between text-[10px] text-zinc-400 font-medium cursor-pointer"
+              title={t('Veda 学习式稀疏注意力：替代上面的稀疏注意力；约 14 秒以上的片段才有明显提速，画面走向会和原路径不同')}
+            >
+              <span>{t('Veda 稀疏注意力')}</span>
+              <input
+                type="checkbox"
+                checked={data.veda === true}
+                onChange={(e) => updateNodeData(id, { veda: e.target.checked })}
               />
             </label>
 

@@ -1913,6 +1913,7 @@ class ComfyUIClient:
         sampler: str = "",
         crossview_warp: Optional[dict] = None,
         block_sparse: bool = False,
+        veda: bool = False,
         # Audio locks: backend/audio_lock.py builds the track and the ranges.
         audio_lock_track: str = "",
         audio_lock_ranges: str = "",
@@ -2018,6 +2019,7 @@ class ComfyUIClient:
             sampler=sampler,
             crossview_warp=crossview_warp,
             block_sparse=block_sparse,
+            veda=veda,
             audio_lock_track=audio_lock_track,
             audio_lock_ranges=audio_lock_ranges,
             audio_lock_feather=audio_lock_feather,

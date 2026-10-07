@@ -1172,6 +1172,10 @@ def build_h3_video_workflow(
     # Core BlockSparseAttention (sol-attn) before the guider. Measured on the
     # CrossView route only: 284 s -> 232 s, no visible loss at 100% crop.
     block_sparse: bool = False,
+    # Veda learned sparse attention (custom node Veda-on-ComfyUI, predictor in models/veda).
+    # Replaces block_sparse: the node takes the attention over, so the two cannot be combined.
+    # Measured on Ref2VA, 1376x768, seed fixed: 5.2 s 72.7 -> 83.6 s (slower), 14.4 s 252 -> 224 s.
+    veda: bool = False,
     # Audio locks (backend/audio_lock.py): a mixed track, one file in ComfyUI input,
     # and "a-b:strength;..." ranges on the GENERATION timeline. The sampler keeps
     # those stretches of the audio stream as recorded (AicinemaLockAudioRanges,
@@ -1448,7 +1452,18 @@ def build_h3_video_workflow(
         }
         model_src = ["92", 0]
 
-    if block_sparse:
+    if veda:
+        wf["96"] = {
+            "class_type": "VedaSparseAttention",
+            "inputs": {
+                "model": model_src,
+                "predictor": "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors",
+                "generated_sparsity": "90%", "reference_sparsity": "90%",
+                "full_attention_layers": "", "full_attention_steps": "", "verbose": False,
+            },
+        }
+        model_src = ["96", 0]
+    elif block_sparse:
         wf["95"] = {
             "class_type": "BlockSparseAttention",
             "inputs": {

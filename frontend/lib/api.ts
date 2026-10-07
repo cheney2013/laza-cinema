@@ -287,6 +287,8 @@ export interface VideoRequest {
   sage?: string;
   /** Block-sparse attention (sol-attn): ~21% faster, same composition, small details re-rolled. */
   block_sparse?: boolean;
+  /** Veda learned sparse attention (replaces block_sparse). */
+  veda?: boolean;
   /** Recordings kept as recorded on a second of the delivered clip (see lib/audioLocks.ts). */
   audio_locks?: Array<{ url: string; at: number; strength: number; text: string; from?: number; to?: number }>;
   audio_lock_feather?: number;

@@ -2723,6 +2723,8 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         # node sets data.blockSparse. Bedroom c12, 313 f: 322 s -> 256 s, same
         # composition, small props re-rolled (2026-09-23).
         "block_sparse": bool(data.get("blockSparse")),
+        # Veda learned sparse attention instead of sol-attn block sparse; sent only when on.
+        **({"veda": True} if data.get("veda") else {}),
         # Audio locks ride in the payload only when the node has some, so the
         # fingerprint of every other node is unchanged by this field existing.
         **({"audio_locks": _audio_lock_entries(canvas, data),

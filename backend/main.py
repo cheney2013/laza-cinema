@@ -1887,6 +1887,7 @@ class VideoRequest(BaseModel):
     # "source" as an uploads URL, the sparse-attention patch, and a sampler override.
     crossview_warp: Optional[dict] = None
     block_sparse: bool = False
+    veda: bool = False
     # Audio locks: recordings put on a second of the DELIVERED clip and kept as
     # recorded while the rest of the sound is generated around them. Each entry:
     # {"url": recording, "at": seconds, "strength": 0..1 (default 1), "text": words}
@@ -2546,6 +2547,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         guide_video_filename=guide_video_filename,
         crossview_warp=crossview_warp,
         block_sparse=req.block_sparse,
+        veda=req.veda,
         audio_lock_track=lock_track,
         audio_lock_ranges=lock_ranges,
         audio_lock_feather=float(req.audio_lock_feather or 0.0),
