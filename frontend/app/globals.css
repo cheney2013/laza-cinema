@@ -451,6 +451,12 @@ body {
 .node-shell[data-media-hidden] [data-node-media] {
   display: none !important;
 }
+/* .node-shell [data-chrome-row] { overflow: hidden } is more specific than .node-shell-drawer and cancelled
+   its overflow-y: auto, so a drawer taller than max-height was cut off with no way to reach the rest. */
+.node-shell [data-chrome-row].node-shell-drawer {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 .node-shell-drawer::-webkit-scrollbar {
   width: 6px;
 }
