@@ -37,7 +37,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--name", required=True)
     ap.add_argument("--subfolder", default="")
-    ap.add_argument("--image", help="picture under backend/uploads (a look)")
+    ap.add_argument("--image", nargs="+", help="one or more pictures under backend/uploads (a look). Several are stacked into ONE RefMod, one frame each, the first sets the frame size (the official 'One RefMod from all'); give them all in the same outfit and state")
     ap.add_argument("--audio", help="recording under backend/uploads (a voice)")
     ap.add_argument("--subject", required=True)
     ap.add_argument("--appearance", default="")
@@ -59,11 +59,18 @@ def main():
     }
     sources = []
     if a.image:
-        shutil.copy2(UPLOADS / a.image, COMFY_INPUT / a.image)
         graph["4"] = {"class_type": "VAELoader", "inputs": {"vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"}}
-        graph["i"] = {"class_type": "LoadImage", "inputs": {"image": a.image, "upload": "image"}}
-        inputs.update({"appearance": a.appearance, "image": ["i", 0], "vae": ["4", 0]})
-        sources.append({"role": "image", "url": f"/uploads/{a.image}", "note": a.appearance})
+        batch = None
+        for k, fn in enumerate(a.image):
+            shutil.copy2(UPLOADS / fn, COMFY_INPUT / fn)
+            graph[f"i{k}"] = {"class_type": "LoadImage", "inputs": {"image": fn, "upload": "image"}}
+            if batch is None:
+                batch = [f"i{k}", 0]
+            else:
+                graph[f"b{k}"] = {"class_type": "ImageBatch", "inputs": {"image1": batch, "image2": [f"i{k}", 0]}}
+                batch = [f"b{k}", 0]
+            sources.append({"role": "image", "url": f"/uploads/{fn}", "note": a.appearance})
+        inputs.update({"appearance": a.appearance, "image": batch, "vae": ["4", 0]})
     if a.audio:
         shutil.copy2(UPLOADS / a.audio, COMFY_INPUT / a.audio)
         graph["5"] = {"class_type": "VAELoader", "inputs": {"vae_name": "minimax_h3_audio_vae_fp32.safetensors"}}
