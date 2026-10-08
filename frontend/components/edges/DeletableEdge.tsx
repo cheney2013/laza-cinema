@@ -199,6 +199,15 @@ function DeletableEdge({
       if (!e || !path) return;
       const onCard = (e.target as Element | null)?.closest?.('.edge-delete-btn, .edge-offscreen-preview');
       if (e.buttons !== 0 || onCard) return;
+      // A pointer on a node is working with that node, not reaching for a line that happens to run behind
+      // it: no delete button over a node's picture or controls (2026-10-08, a button sat on a depth video).
+      if ((e.target as Element | null)?.closest?.('.react-flow__node')) {
+        if (proximityHover.current) {
+          proximityHover.current = false;
+          hideNow();
+        }
+        return;
+      }
       const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const scale = getViewport().zoom || 1;
       let nearest = Infinity;
@@ -232,7 +241,7 @@ function DeletableEdge({
       if (frame) cancelAnimationFrame(frame);
       proximityHover.current = false;
     };
-  }, [lit, screenToFlowPosition, getViewport, show, findOffscreenEnds, handleMouseMove, hideSoon]);
+  }, [lit, screenToFlowPosition, getViewport, show, findOffscreenEnds, handleMouseMove, hideSoon, hideNow]);
 
   return (
     <>
