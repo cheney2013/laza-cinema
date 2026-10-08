@@ -631,11 +631,15 @@ def _apply_size(node: dict[str, Any], operation: dict[str, Any]) -> None:
 
     if width is None and height is None and aspect is None:
         return
-    w = int(width) if width is not None else DEFAULT_NODE_WIDTH
+    # A width nobody asked for is the studio's default for that type, not a width the user chose:
+    # userWidth is the user's drag (it pins the card against the equation), so it is only written
+    # for an explicit width. The ratio comes from data.width/height, which the studio reads itself.
+    from node_sizing import DEFAULT_DIMS
+    w = int(width) if width is not None else DEFAULT_DIMS.get(node.get("type", ""), (DEFAULT_NODE_WIDTH, 0))[0]
     if node.get("type") in AUTO_HEIGHT_TYPES:
         node["width"] = w
         node.pop("height", None)
-        if "userWidth" not in data:
+        if width is not None and "userWidth" not in data:
             data["userWidth"] = w
         return
     if height is not None:
@@ -653,7 +657,7 @@ def _apply_size(node: dict[str, Any], operation: dict[str, Any]) -> None:
         h = node.get("height") or DEFAULT_NODE_WIDTH
     node["width"] = w
     node["height"] = h
-    if "userWidth" not in data:
+    if width is not None and "userWidth" not in data:
         data["userWidth"] = w
 
 

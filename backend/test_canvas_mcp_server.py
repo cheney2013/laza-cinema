@@ -760,6 +760,11 @@ class AutoHeightSizeTests(unittest.TestCase):
         image = {"type": "image", "data": {"width": 1376, "height": 768}}
         m._apply_size(image, {"width": 240})
         self.assertNotIn("height", image)
+        # No width asked for: the studio's default for the type, and no userWidth (that is the user's drag)
+        fresh = {"type": "video", "data": {"width": 1344, "height": 768}}
+        m._apply_size(fresh, {})
+        self.assertEqual(fresh["width"], 320)
+        self.assertNotIn("userWidth", fresh["data"])
         text = {"type": "prompt", "data": {}}
         m._apply_size(text, {"width": 240, "height": 180})
         self.assertEqual(text["height"], 180)          # a text card's height is the user's: still stored
