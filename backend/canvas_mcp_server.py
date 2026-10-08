@@ -2728,7 +2728,10 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         # composition, small props re-rolled (2026-09-23).
         "block_sparse": bool(data.get("blockSparse")),
         # Veda learned sparse attention instead of sol-attn block sparse; sent only when on.
-        **({"veda": True} if data.get("veda") else {}),
+        # On by default for a clip that has a reference video or is 10 s or longer (240 frames);
+        # a node that sets data.veda either way keeps its choice (2026-10-08, Yige).
+        **({"veda": True} if (data["veda"] if data.get("veda") is not None
+                              else bool(urls("in-ref-video")) or int(data.get("length") or 124) >= 240) else {}),
         # Audio locks ride in the payload only when the node has some, so the
         # fingerprint of every other node is unchanged by this field existing.
         **({"audio_locks": _audio_lock_entries(canvas, data),

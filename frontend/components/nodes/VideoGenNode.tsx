@@ -653,6 +653,9 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
     .filter((n) => n.targetHandle === 'in-refmod' && (n.refVisual || n.refAudio))
     .map((n) => ({ visual: n.refVisual, audio: n.refAudio, w: n.refWeight ?? 1 }));
   const refVideoUrls = refVideoInputs.map((n) => (n.url || n.generatedUrl) as string).filter(Boolean);
+  // Veda sparse attention is on by default for a clip with a reference video or 10 s+ (240 frames);
+  // a node that set data.veda either way keeps its choice. Same rule as canvas_mcp_server.py.
+  const vedaOn = typeof data.veda === 'boolean' ? data.veda : (refVideoUrls.length > 0 || currentLength >= 240);
   const refVideoResolution = refVideoInputs.find((n) => Number(n.width) > 0 && Number(n.height) > 0);
   const promptBinding = usePromptBinding(id);
   const connectedPromptText = (connected.filter((n) => n.type === 'prompt' || n.targetHandle === 'in-prompt').map((n) => n.text).filter(Boolean).join(' ')) || '';
@@ -738,7 +741,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         // Only a node that chose one sends it; w4a8 never gets Sol (the backend also enforces it).
         ...(effectiveAttention ? { sage: effectiveAttention } : {}),
         block_sparse: data.blockSparse === true,
-        ...(data.veda === true ? { veda: true } : {}),
+        ...(vedaOn ? { veda: true } : {}),
         ...(audioLocks.length ? {
           audio_locks: audioLocks,
           audio_lock_feather: Number(data.audioLockFeather) || 0,
@@ -1394,7 +1397,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               <span>{t('Veda 稀疏注意力')}</span>
               <input
                 type="checkbox"
-                checked={data.veda === true}
+                checked={vedaOn}
                 onChange={(e) => updateNodeData(id, { veda: e.target.checked })}
               />
             </label>
