@@ -740,7 +740,8 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         accel_lora: currentAccel,
         // Only a node that chose one sends it; w4a8 never gets Sol (the backend also enforces it).
         ...(effectiveAttention ? { sage: effectiveAttention } : {}),
-        block_sparse: data.blockSparse === true,
+        // Veda takes the attention over; the two cannot both act, so block sparse is not sent while Veda is on.
+        block_sparse: data.blockSparse === true && !vedaOn,
         ...(vedaOn ? { veda: true } : {}),
         ...(audioLocks.length ? {
           audio_locks: audioLocks,
@@ -1377,30 +1378,37 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               </div>
             </div>
 
-            {/* Block-sparse attention: on for new nodes, absent (off) on older ones */}
-            <label
-              className="flex items-center justify-between text-[10px] text-zinc-400 font-medium cursor-pointer"
-              title={t('稀疏注意力：快约 21%，构图动作不变但小细节会重画；已验收镜头重跑要保持原貌就关掉')}
-            >
-              <span>{t('稀疏注意力（加速）')}</span>
-              <input
-                type="checkbox"
-                checked={data.blockSparse === true}
-                onChange={(e) => updateNodeData(id, { blockSparse: e.target.checked })}
-              />
-            </label>
-
-            <label
-              className="flex items-center justify-between text-[10px] text-zinc-400 font-medium cursor-pointer"
-              title={t('Veda 学习式稀疏注意力：替代上面的稀疏注意力；约 14 秒以上的片段才有明显提速，画面走向会和原路径不同')}
-            >
-              <span>{t('Veda 稀疏注意力')}</span>
-              <input
-                type="checkbox"
-                checked={vedaOn}
-                onChange={(e) => updateNodeData(id, { veda: e.target.checked })}
-              />
-            </label>
+            {/* Sparse attention: one of three. Veda takes the attention over, so block sparse and Veda cannot both act. */}
+            <div>
+              <div className="text-[10px] text-zinc-400 font-medium mb-1.5 flex justify-between">
+                <span>{t('稀疏注意力')}</span>
+                <span className="font-mono text-zinc-200">{vedaOn ? 'Veda' : data.blockSparse === true ? t('块稀疏') : t('关')}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { label: t('关'), value: 'off', tip: t('不用稀疏注意力：最慢，细节最完整。已验收镜头要保持原貌就用它。') },
+                  { label: t('块稀疏'), value: 'block', tip: t('稀疏注意力：快约 21%，构图动作不变但小细节会重画；已验收镜头重跑要保持原貌就关掉') },
+                  { label: 'Veda', value: 'veda', tip: t('Veda 学习式稀疏注意力：替代块稀疏，两者不能同时生效；约 14 秒以上或挂了视频参考的片段提速明显，画面走向会和原路径不同') },
+                ].map((opt) => {
+                  const active = (vedaOn ? 'veda' : data.blockSparse === true ? 'block' : 'off') === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      title={opt.tip}
+                      onClick={() => updateNodeData(id, opt.value === 'veda'
+                        ? { veda: true, blockSparse: false }
+                        : { veda: false, blockSparse: opt.value === 'block' })}
+                      className={`py-1 px-1.5 text-[10px] rounded-lg border transition-colors cursor-pointer ${active
+                          ? 'bg-white/20 border-white/40 text-white font-semibold shadow-xs'
+                          : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Style LoRA (the speed LoRA is chosen above, not here) */}
             <div>

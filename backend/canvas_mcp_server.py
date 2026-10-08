@@ -2726,7 +2726,10 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         # Core BlockSparseAttention (sol-attn) before the guider; off unless the
         # node sets data.blockSparse. Bedroom c12, 313 f: 322 s -> 256 s, same
         # composition, small props re-rolled (2026-09-23).
-        "block_sparse": bool(data.get("blockSparse")),
+        # Veda takes the attention over (the two cannot both act), so block sparse is not sent while Veda is on.
+        "block_sparse": bool(data.get("blockSparse")) and not (
+            data["veda"] if data.get("veda") is not None
+            else bool(urls("in-ref-video")) or int(data.get("length") or 124) >= 240),
         # Veda learned sparse attention instead of sol-attn block sparse; sent only when on.
         # On by default for a clip that has a reference video or is 10 s or longer (240 frames);
         # a node that sets data.veda either way keeps its choice (2026-10-08, Yige).
