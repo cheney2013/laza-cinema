@@ -75,6 +75,8 @@ const MODE_LORAS = [
 const STACK_LORAS = [
   { file: 'NSFW Qwen by TheseAlpacas V2.safetensors', label: 'NSFW V2', strength: 1.0,
     title: 'NSFW Qwen by TheseAlpacas V2（Qwen 2.1 LoRA，rank 16）。可叠加，强度可调，默认 1.0。' },
+  { file: 'qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31.safetensors', label: 'NSFW 细节 v1.3', strength: 1.0,
+    title: 'qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31（Qwen 2.1 LoRA，rank 128；名字里的 L22-31 多半指第 22 到 31 层，文件里 32 个块的权重都在）。可叠加，强度可调，默认 1.0。' },
 ] as const;
 
 /**
