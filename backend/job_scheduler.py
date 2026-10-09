@@ -79,7 +79,7 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
         # (TaoMate is 3 steps, the standard LoRA 8; "small" is 864 on the long edge).
         small = r.get("h3_size") == "small"
         r = {"motion_preset": "ref2va", "length": 124,
-             "width": 864 if small else 1376, "height": 480 if small else 768,
+             "width": 864 if small else 1344, "height": 480 if small else 768,
              "steps": 3 if r.get("h3_accel") == "taomate3" else 8}
         job_type = "video_edit"
     if job_type in H3_TYPES:
@@ -108,7 +108,7 @@ def describe(job_type: str, request: Optional[dict]) -> dict:
     units = 1.0
     if base_family(family) == "h3" and job_type != "speech":
         frames = int(r.get("length") or 124)
-        px = int(r.get("width") or 1376) * int(r.get("height") or 768)
+        px = int(r.get("width") or 1344) * int(r.get("height") or 768)
         steps = int(r.get("steps") or 8)
         units = max(0.1, frames * px * steps / 1e9)
         chunk = int(r.get("chunk_frames") or 0)
@@ -133,8 +133,8 @@ def _ts(value) -> Optional[float]:
 # best predictor is the median of recent runs of exactly that configuration
 # (measured 2026-09-23 on 77 H3 renders: 3% median error, vs 4% / p90 35% for
 # the old seconds-per-unit rate). Seconds per unit is not constant across sizes:
-# attention grows with the square of the token count, so 1376x768x243 costs 2x
-# per unit what 768x1376x146 does. A new size is interpolated from per-step
+# attention grows with the square of the token count, so 1344x768x243 costs 2x
+# per unit what 768x1344x146 does. A new size is interpolated from per-step
 # sampler times fitted as a*N + b*N^2. Runs that hit memory paging (one step or
 # the whole run several times slower than its peers) are kept out of both.
 
@@ -148,7 +148,7 @@ def config_key(job_type: str, request: Optional[dict]) -> str:
     r = request or {}
     d = describe(job_type, r)
     if base_family(d["family"]) == "h3" and job_type != "speech":
-        parts = [job_type, d["family"], r.get("width") or 1376, r.get("height") or 768,
+        parts = [job_type, d["family"], r.get("width") or 1344, r.get("height") or 768,
                  r.get("length") or 124, r.get("steps") or 8, r.get("chunk_frames") or 0]
     elif job_type == "qwen_image":
         parts = [job_type, r.get("width"), r.get("height"), r.get("steps") or 25,
@@ -164,7 +164,7 @@ def tokens(job_type: str, request: Optional[dict]) -> float:
     if base_family(describe(job_type, r)["family"]) != "h3" or job_type == "speech":
         return 0.0
     frames = int(r.get("chunk_frames") or 0) or int(r.get("length") or 124)
-    return frames * int(r.get("width") or 1376) * int(r.get("height") or 768) / 1e6
+    return frames * int(r.get("width") or 1344) * int(r.get("height") or 768) / 1e6
 
 
 def _median(xs: list[float]) -> float:
@@ -341,9 +341,9 @@ class Estimator:
         if rate is None:
             fam = base_family(sched.get("family", NO_MODEL))
             base = DEFAULT_SECONDS.get(fam, 120.0)
-            # The H3 default is for one 124-frame 1376x768 8-step chunk.
+            # The H3 default is for one 124-frame 1344x768 8-step chunk.
             if fam == "h3" and job.get("type") != "speech":
-                base *= sched.get("units", 1.0) / (124 * 1376 * 768 * 8 / 1e9)
+                base *= sched.get("units", 1.0) / (124 * 1344 * 768 * 8 / 1e9)
             return base
         return rate * sched.get("units", 1.0)
 

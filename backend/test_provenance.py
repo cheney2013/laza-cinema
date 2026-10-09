@@ -12,7 +12,7 @@ import workflow_builders as wb
 def test_recovers_references_from_a_reference_to_video_graph():
     wf = wb.build_h3_video_workflow(
         prompt="[Shot 1] A woman turns to the window.",
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=4,
@@ -22,7 +22,7 @@ def test_recovers_references_from_a_reference_to_video_graph():
     record = provenance.describe_generation(wf)
 
     assert record["prompt"].startswith("[Shot 1]")
-    assert record["width"] == 1376 and record["height"] == 768 and record["length"] == 124
+    assert record["width"] == 1344 and record["height"] == 768 and record["length"] == 124
     assert record["seed"] == 81000
     # Order is meaning: it decides which reference is <Picture 1>.
     assert record["reference_images"] == ["style_a.png", "style_b.png", "style_c.png"]
@@ -31,7 +31,7 @@ def test_recovers_references_from_a_reference_to_video_graph():
 def test_recovers_guide_frames_mounted_around_the_references():
     wf = wb.build_h3_video_workflow(
         prompt="[Shot 2] The door closes.",
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=4,
@@ -51,7 +51,7 @@ def test_recovers_the_lightweight_image_to_video_path():
     # middle, which the link walk has to see through.
     wf = wb.build_h3_video_workflow(
         prompt="[Shot 3] Steam rises off the cup.",
-        width=1376,
+        width=1344,
         height=768,
         length=73,
         steps=4,
@@ -156,7 +156,7 @@ def test_upscale_from_a_plain_video_encodes_it_in_the_graph():
     assert "10" not in wf
     assert wf["900"]["class_type"] == "VHS_LoadVideoPath"
     assert wf["900"]["inputs"]["video"] == "D:/in/upscale_src_x.mp4"
-    assert wf["901"]["inputs"] == {"width": 1376, "height": 768, "length": 192}
+    assert wf["901"]["inputs"] == {"width": 1344, "height": 768, "length": 192}
     ctx = wf["902"]["inputs"]
     assert wf["902"]["class_type"] == "MiniMaxH3ExistingVideoMaskedContext"
     assert ctx["context_length"] == 192 and ctx["source_fps"] == 24.0

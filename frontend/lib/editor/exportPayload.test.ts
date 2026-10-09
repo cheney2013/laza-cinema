@@ -27,10 +27,10 @@ describe('nativeExportFps', () => {
 
 describe('the cover', () => {
   const film = (): Timeline => ({
-    fps: 24, width: 1376, height: 768,
+    fps: 24, width: 1344, height: 768,
     tracks: [{ id: 'V1', kind: 'video', name: 'V1', muted: false, locked: false }],
     clips: [{ id: 'c1', trackId: 'V1', assetId: 'a1', start: 0, inFrame: 0, outFrame: 48, speed: 1, volume: 1, muted: false, fadeIn: 0, fadeOut: 0 }],
-    assets: { a1: { id: 'a1', nodeId: 'n', url: '/uploads/shot.mp4', title: 'shot', kind: 'video', width: 1376, height: 768, fps: 24, frames: 48, timelineFrames: 48, hasAudio: true } },
+    assets: { a1: { id: 'a1', nodeId: 'n', url: '/uploads/shot.mp4', title: 'shot', kind: 'video', width: 1344, height: 768, fps: 24, frames: 48, timelineFrames: 48, hasAudio: true } },
   } as unknown as Timeline);
 
   it('is one frame of a picture on a lane above everything, so frame 0 is the cover and nothing else moves', async () => {

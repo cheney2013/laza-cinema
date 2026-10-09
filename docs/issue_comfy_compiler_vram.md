@@ -17,12 +17,12 @@ After updating to a build that includes **#15861 Introduce Comfy Compiler (CORE-
 | PyTorch | 2.12.1+cu130 |
 | comfy-aimdo / comfy-kitchen | 0.5.2 / 0.2.31, dynamic VRAM on (`aimdo_setup_hooks: installing 6 hooks`, `NVML pressure enabled`) |
 | Model | `minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors` (UNET), `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (TE), int8 convrot video VAE, fp32 audio VAE |
-| Graph | native MiniMaxH3ReferenceToVideo, 1376×768, 141 frames (also 73 and 362), 8 steps, 5 reference images scaled to 1376×768, `MiniMaxH3MemoryEfficientSolAttentionPatch` (also reproduced with the SageAttention patch) |
+| Graph | native MiniMaxH3ReferenceToVideo, 1344×768, 141 frames (also 73 and 362), 8 steps, 5 reference images scaled to 1344×768, `MiniMaxH3MemoryEfficientSolAttentionPatch` (also reproduced with the SageAttention patch) |
 
 ## Steps to reproduce
 
 1. Launch ComfyUI (default flags) on a build containing `804eb551`.
-2. Queue the same MiniMax H3 Ref2VA graph (1376×768, 141 frames, 8 steps) three or four times in a row without restarting.
+2. Queue the same MiniMax H3 Ref2VA graph (1344×768, 141 frames, 8 steps) three or four times in a row without restarting.
 3. Watch `Prompt executed in …` in the log and per‑process GPU memory:
    `Get-Counter '\GPU Process Memory(*)\Shared Usage','\GPU Process Memory(*)\Dedicated Usage'` (PowerShell) or Task Manager → GPU → Shared GPU memory.
 
@@ -52,7 +52,7 @@ Earlier the same day, on the build before `804eb551` (reflog: updated 2026‑09�
 
 ## A/B with `--disable-comfy-compiler`
 
-Same graph (MiniMaxH3ReferenceToVideo, 1376x768, **362 frames**, 8 steps, 5 reference images, Sol attention patch), ComfyUI Desktop restarted before each arm so both start cold; only the flag differs. Times are ComfyUI's own `Prompt executed in`, which includes the model load.
+Same graph (MiniMaxH3ReferenceToVideo, 1344x768, **362 frames**, 8 steps, 5 reference images, Sol attention patch), ComfyUI Desktop restarted before each arm so both start cold; only the flag differs. Times are ComfyUI's own `Prompt executed in`, which includes the model load.
 
 | flags | wall | s/it (steps 3-7) | GPU memory.used peak (nvidia-smi, 2 s) | process GPU memory after the run | process working set after the run | log |
 |---|---|---|---|---|---|---|

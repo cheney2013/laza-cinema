@@ -4,7 +4,7 @@ import { namesLiveOnCanvases, namesUsedByTimelines, ownedByProject, unusedLibrar
 import { defaultClip, emptyTimeline, type EditorAsset, type Timeline } from './types';
 
 const asset = (id: string, url: string, extra: Partial<EditorAsset> = {}): EditorAsset => ({
-  id, nodeId: '', url, title: id, kind: 'video', width: 1376, height: 768, fps: 24, frames: 100, timelineFrames: 100,
+  id, nodeId: '', url, title: id, kind: 'video', width: 1344, height: 768, fps: 24, frames: 100, timelineFrames: 100,
   hasAudio: true, ...extra,
 });
 

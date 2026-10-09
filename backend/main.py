@@ -2619,7 +2619,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
 # saved latent) and gives back the same file with a new soundtrack: the picture stream is copied,
 # not decoded again, so it stays exactly what it was.
 
-AUDIO_REFINE_COND_SIDE = 1376    # the long side the clip is read at; a larger clip is conditioned smaller
+AUDIO_REFINE_COND_SIDE = 1344    # the long side the clip is read at; a larger clip is conditioned smaller
 
 
 class AudioRefineRequest(BaseModel):
@@ -2886,7 +2886,7 @@ class CharacterSheetRequest(BaseModel):
     subject_noun: str = "person"
     face_image_url: Optional[str] = None      # optional single identity reference
     props: list[SheetProp] = []               # key props the costume names, with their own plates
-    width: int = 1376                         # verified four-panel generation size
+    width: int = 1344                         # verified four-panel generation size
     height: int = 768
     sheet_width: int = 1536                   # the house sheet format
     sheet_height: int = 1024
@@ -4295,7 +4295,7 @@ class MseFragmentRequest(BaseModel):
     video_url: str
     start: Optional[float] = 0.0
     duration: Optional[float] = 0.0
-    width: Optional[int] = 1376
+    width: Optional[int] = 1344
     height: Optional[int] = 768
     fps: Optional[int] = 24
 
@@ -4321,7 +4321,7 @@ async def build_mse_fragment(req: MseFragmentRequest):
     a new asset; the browser creates the continuous timeline in memory.
     """
     source = await resolve_upload(req.video_url)
-    width = max(32, int(req.width or 1376) // 2 * 2)
+    width = max(32, int(req.width or 1344) // 2 * 2)
     height = max(32, int(req.height or 768) // 2 * 2)
     fps = max(1, min(60, int(req.fps or 24)))
     start = max(0.0, float(req.start or 0.0))
@@ -4462,7 +4462,7 @@ def _prepare_upscale_source_video(video_path: Path, job_id: str, fit_long_side: 
     w = max(32, int(round(src_w / 32)) * 32)
     h = max(32, int(round(src_h / 32)) * 32)
     if fit_long_side and max(src_w, src_h) > fit_long_side:
-        # conditioning for an audio-only pass: a 2752x1536 clip is read at 1376x768, because attending
+        # conditioning for an audio-only pass: a 2752x1536 clip is read at 1344x768, because attending
         # over 4x the video tokens would change nothing in a picture that is kept as it is
         k = fit_long_side / max(src_w, src_h)
         w = max(32, int(round(src_w * k / 32)) * 32)
@@ -9279,7 +9279,7 @@ class CharswapRequest(BaseModel):
     targets: list[CharswapTarget] = Field(default_factory=list, max_length=4)
     engine: str = "h3"
     # The speed LoRA ("taomate3": 3 steps, "turbo8": 8 steps) and the size ("source": the clip's own, at
-    # most 1376 on the long edge; "small": 864 on the long edge, about 4x faster).
+    # most 1344 on the long edge; "small": 864 on the long edge, about 4x faster).
     h3_accel: str = "turbo8"
     h3_size: str = "source"
     # No points: the pose of a person put where an animal moved on four legs. "auto": upright when the clip's
@@ -9425,10 +9425,10 @@ def charswap_h3_length(frames: int) -> int:
 
 
 def charswap_h3_size(width: int, height: int, small: bool) -> tuple[int, int]:
-    """The render size of the H3 engine: the clip's own aspect, a long edge of 1376 (864 when `small`)
+    """The render size of the H3 engine: the clip's own aspect, a long edge of 1344 (864 when `small`)
     that is never above the clip's own, both edges on the 32 px grid."""
     long_edge = max(width, height)
-    target = min(864 if small else 1376, long_edge)
+    target = min(864 if small else 1344, long_edge)
     scale = target / long_edge
     w = max(32, round(width * scale / 32) * 32)
     h = max(32, round(height * scale / 32) * 32)
@@ -9697,7 +9697,7 @@ CROSSVIEW_LORA = "h3/MiniMax-H3_Ref2VA-LoRA-CrossView-Warp_v1_3500.safetensors"
 def _reangle_render_size(src_w: int, src_h: int, megapixels: float = 0.5) -> tuple[int, int]:
     """The model's render size: `megapixels` at the source's aspect, on the 32 px grid.
 
-    Not the source size: the CrossView LoRA was trained at 0.5 MP, and at 1376x768
+    Not the source size: the CrossView LoRA was trained at 0.5 MP, and at 1344x768
     it ignores the warp and copies the source (C27 frame 31, -30 deg, pivot
     0.8 m: 960x544 re-angled, 1376x768 unchanged, 2026-09-28). The output is
     scaled back to the source size afterwards (output_size).

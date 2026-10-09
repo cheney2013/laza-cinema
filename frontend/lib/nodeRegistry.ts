@@ -733,7 +733,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       costume: '',
       subjectNoun: 'person',
       width: 768,
-      height: 1376,
+      height: 1344,
       steps: 4,
       seed: 81000,
       seedMode: 'fixed',

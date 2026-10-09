@@ -37,8 +37,8 @@ import { areNodePropsEqual, copyImageToClipboard, downloadFile } from '@/lib/uti
 
 /** Only used when nothing is wired in: with a reference the canvas follows it. */
 const SIZES = [
-  { id: 'landscape', label: '横屏 1376×768', width: 1376, height: 768 },
-  { id: 'portrait', label: '竖屏 768×1376', width: 768, height: 1376 },
+  { id: 'landscape', label: '横屏 1344×768', width: 1344, height: 768 },
+  { id: 'portrait', label: '竖屏 768×1344', width: 768, height: 1344 },
   { id: 'square', label: '方形 1024×1024', width: 1024, height: 1024 },
 ] as const;
 

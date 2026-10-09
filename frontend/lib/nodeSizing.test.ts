@@ -12,8 +12,8 @@ import {
   FALLBACK_RATIO,
 } from './nodeSizing';
 
-const LANDSCAPE = 1376 / 768;
-const PORTRAIT = 768 / 1376;
+const LANDSCAPE = 1344 / 768;
+const PORTRAIT = 768 / 1344;
 
 describe('尺寸方程', () => {
   it('minH 是算出来的，不是常量：同一节点竖屏下限远高于横屏', () => {

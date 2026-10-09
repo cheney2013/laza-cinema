@@ -5,7 +5,7 @@ import { repointClipVersion } from './clipVersion';
 import type { Clip, EditorAsset, Timeline } from './types';
 
 const asset = (patch: Partial<EditorAsset> & { id: string }): EditorAsset => ({
-  nodeId: 'n1', url: '/a.mp4', title: 'shot', kind: 'video', width: 1376, height: 768,
+  nodeId: 'n1', url: '/a.mp4', title: 'shot', kind: 'video', width: 1344, height: 768,
   fps: 24, frames: 240, timelineFrames: 240, hasAudio: true, ...patch,
 });
 
@@ -15,7 +15,7 @@ const clip = (patch: Partial<Clip> & { id: string }): Clip => ({
 } as Clip);
 
 const timeline = (assets: EditorAsset[], clips: Clip[]): Timeline => ({
-  fps: 24, width: 1376, height: 768, tracks: [], clips,
+  fps: 24, width: 1344, height: 768, tracks: [], clips,
   assets: Object.fromEntries(assets.map((a) => [a.id, a])),
 } as unknown as Timeline);
 

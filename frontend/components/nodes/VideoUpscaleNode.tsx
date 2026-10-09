@@ -204,8 +204,8 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
   const refsMode = String(data.upscaleRefs || (wiredRefs.length ? 'wired' : 'inherit')).toLowerCase();
   const inheritedRefs = sourceWired ? sourceWired.split('|') : (connectedVideo?.referenceImages ?? []);
   const refineRefs = refsMode === 'none' ? [] : refsMode === 'wired' ? wiredRefs : inheritedRefs;
-  // Canvases written through the MCP store sizes as strings ("1376"). Compared as
-  // strings, "1376" > "768" is false, so a landscape clip took the portrait branch
+  // Canvases written through the MCP store sizes as strings ("1344"). Compared as
+  // strings, "1344" > "768" is false, so a landscape clip took the portrait branch
   // and every 2x target was clamped to 2176x1216 (2026-09-16).
   const connectedVideoWidth = Number(connectedVideo?.width) || undefined;
   const connectedVideoHeight = Number(connectedVideo?.height) || undefined;
@@ -834,7 +834,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const cW = connectedVideoWidth || 1376;
+                                  const cW = connectedVideoWidth || 1344;
                                   const cH = connectedVideoHeight || 768;
                                   const targetW = Math.round((cW * s) / 64) * 64;
                                   const targetH = Math.round((cH * s) / 64) * 64;

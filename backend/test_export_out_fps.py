@@ -11,7 +11,7 @@ def _graph(speed, out_fps):
         tracks=[main.ExportTrack(kind="video", clips=[
             main.ExportClip(url="/uploads/a.mp4", duration=96, src_in_s=0.0, src_out_s=2.0,
                             speed=speed)])],
-        fps=24, width=1376, height=768, duration=96, out_fps=out_fps)
+        fps=24, width=1344, height=768, duration=96, out_fps=out_fps)
     return main._build_export_graph(req, [(Path("a.mp4"), {"has_audio": False})])
 
 

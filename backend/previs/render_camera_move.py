@@ -95,7 +95,7 @@ SHUTTER = float(arg("--shutter", "0.5"))
 scene = bpy.context.scene
 scene_config.apply_set_edits(scene, CFG)
 
-W, H = int(1376 * SCALE) // 2 * 2, int(768 * SCALE) // 2 * 2
+W, H = int(1344 * SCALE) // 2 * 2, int(768 * SCALE) // 2 * 2
 scene.render.resolution_x, scene.render.resolution_y = W, H
 scene_config.workbench_grey(scene)
 

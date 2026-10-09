@@ -44,7 +44,7 @@ MACHINE_PROFILES: dict[str, dict] = {
     # does not fit, so this uses the pruned ref2va w4a8 (11.8 GB) plus the ref2v
     # turbo LoRA, at 480p. Not NVFP4: ComfyUI merges a LoRA into NVFP4 weights by
     # requantising with stochastic rounding (~17% relative error per layer) and
-    # the clip comes out hazy. 864x480 is the 16:9 size closest to 1376x768 on H3's 32-px grid.
+    # the clip comes out hazy. 864x480 is the 16:9 size closest to 1344x768 on H3's 32-px grid.
     # Tiled decode keeps the VAE's activation peak inside 16 GB.
     "lowvram": {
         "label": "RTX 5060 Ti 16GB",

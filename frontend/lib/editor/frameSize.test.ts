@@ -6,8 +6,8 @@ import { adoptFirstFrameSize, defaultClip, emptyTimeline, type Timeline } from '
 function film(): Timeline {
   const timeline = emptyTimeline();
   timeline.assets = {
-    tall: { width: 768, height: 1376 } as Timeline['assets'][string],
-    wide: { width: 1376, height: 768 } as Timeline['assets'][string],
+    tall: { width: 768, height: 1344 } as Timeline['assets'][string],
+    wide: { width: 1344, height: 768 } as Timeline['assets'][string],
   };
   return timeline;
 }
@@ -21,7 +21,7 @@ describe('影片尺寸跟随首帧素材', () => {
     ];
     const out = adoptFirstFrameSize(timeline);
     assert.equal(out.width, 768);
-    assert.equal(out.height, 1376);
+    assert.equal(out.height, 1344);
   });
 
   it('手动改过就不再跟随', () => {

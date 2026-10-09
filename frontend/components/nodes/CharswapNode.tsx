@@ -187,7 +187,7 @@ function CharswapNode({ id, data, selected }: NodeProps<CharswapNodeType>) {
                   type="button"
                   disabled={busy}
                   title={z === 'source'
-                    ? t('原分辨率：按驱动视频自己的尺寸（最长边最多 1376）')
+                    ? t('原分辨率：按驱动视频自己的尺寸（最长边最多 1344）')
                     : t('小尺寸：最长边 864，约快 4 倍，细节略软')}
                   onClick={() => updateNodeData(id, { h3Size: z })}
                   className={`px-2 py-0.5 ${size === z ? 'bg-teal-500/25 text-teal-200' : 'bg-white/[0.03] text-zinc-400 hover:text-zinc-200'}`}

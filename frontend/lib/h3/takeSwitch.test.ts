@@ -5,7 +5,7 @@ import type { H3Take } from './takes';
 import { currentTakeIndex, dirtyKeys, inputIssues, switchPatch, takeLatent } from './takeSwitch';
 
 const take = (over: Partial<H3Take>): H3Take => ({
-  id: 'j1', createdAt: 0, spec: null, prompt: 'p1', seed: 1, width: 1376, height: 768, length: 124,
+  id: 'j1', createdAt: 0, spec: null, prompt: 'p1', seed: 1, width: 1344, height: 768, length: 124,
   url: '/comfy_output/H3_Chunk_88439393_00001_.mp4', ...over,
 });
 
@@ -38,7 +38,7 @@ describe('takeSwitch', () => {
     assert.deepEqual(dirtyKeys(tk, { prompt: 'b', seed: 1 }), ['prompt']);
     // an old take's prompt is the compiled text: not compared
     const legacy = take({ prompt: 'compiled', seed: 3 });
-    assert.deepEqual(dirtyKeys(legacy, { prompt: 'mine', seed: 3, width: 1376, height: 768, length: 124 }), []);
+    assert.deepEqual(dirtyKeys(legacy, { prompt: 'mine', seed: 3, width: 1344, height: 768, length: 124 }), []);
   });
 
   it('reports deleted, unwired, changed and extra inputs', () => {

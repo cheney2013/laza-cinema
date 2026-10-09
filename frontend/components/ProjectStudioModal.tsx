@@ -16,7 +16,7 @@ import { t } from '@/lib/i18n';
 // ── Aspect Ratio Presets ───────────────────────────────────────────────────────
 const ASPECT_RATIOS = [
   { id: '16:9', label: '16:9 影院宽银幕', desc: '1344 × 768 电影与横屏主流', w: 1344, h: 768, iconRatio: 'w-8 h-4.5' },
-  { id: '9:16', label: '9:16 竖屏短视频', desc: '768 × 1376 抖音/TikTok/Shorts', w: 768, h: 1376, iconRatio: 'w-4.5 h-8' },
+  { id: '9:16', label: '9:16 竖屏短视频', desc: '768 × 1344 抖音/TikTok/Shorts', w: 768, h: 1344, iconRatio: 'w-4.5 h-8' },
   { id: '21:9', label: '21:9 宽银幕变形镜头', desc: '1536 × 640 院线史诗级大片', w: 1536, h: 640, iconRatio: 'w-9 h-4' },
   { id: '1:1', label: '1:1 正方形画幅', desc: '1024 × 1024 概念图与社交媒体', w: 1024, h: 1024, iconRatio: 'w-6 h-6' },
   { id: '4:3', label: '4:3 经典复古胶片', desc: '1152 × 864 IMAX / 经典电影', w: 1152, h: 864, iconRatio: 'w-7 h-5' },
@@ -232,7 +232,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             data: {
               prompt: '',
               width: 768,
-              height: 1376,
+              height: 1344,
               length: 124,
               steps: DEFAULT_H3_STEPS,
             },
@@ -245,7 +245,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             height: 420,
             data: {
               width: 768,
-              height: 1376,
+              height: 1344,
               steps: 4,
             },
           },

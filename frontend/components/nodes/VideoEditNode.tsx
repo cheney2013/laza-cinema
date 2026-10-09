@@ -37,8 +37,8 @@ const H3_LENGTH_OPTIONS = [
 ];
 
 const H3_RESOLUTION_OPTIONS = [
-  { label: '1376×768 (16:9 电影宽幅)', width: 1376, height: 768 },
-  { label: '768×1376 (9:16 竖屏短剧)', width: 768, height: 1376 },
+  { label: '1344×768 (16:9 电影宽幅)', width: 1344, height: 768 },
+  { label: '768×1344 (9:16 竖屏短剧)', width: 768, height: 1344 },
   { label: '1280×720 (720p HD)', width: 1280, height: 720 },
   { label: '1024×1024 (1:1 方形)', width: 1024, height: 1024 },
 ];
@@ -440,7 +440,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
     next[i] = v;
     updateNodeData(id, { guideFrameIndexes: next });
   };
-  const currentWidth = data.width || 1376;
+  const currentWidth = data.width || 1344;
   const currentHeight = data.height || 768;
 
   const effectivePrompt = localPrompt || connectedPromptText || '';

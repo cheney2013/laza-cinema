@@ -116,7 +116,7 @@ describe('migrateRetiredGenerators', () => {
   it('keeps rendered clips as video asset nodes and drops wires into the retired nodes', () => {
     const nodes = [
       { id: 'm', type: 'performerMask', position: { x: 0, y: 0 }, data: { status: 'idle', shots: null } },
-      { id: 'r', type: 'recast', position: { x: 0, y: 0 }, data: { generatedUrl: '/uploads/recast_1.mp4', prompt: 'swap her', width: 1376, height: 768, editMode: 'recast' } },
+      { id: 'r', type: 'recast', position: { x: 0, y: 0 }, data: { generatedUrl: '/uploads/recast_1.mp4', prompt: 'swap her', width: 1344, height: 768, editMode: 'recast' } },
       { id: 't', type: 'motionTransfer', position: { x: 0, y: 0 }, data: { generatedUrl: null, label: 'dance' } },
       { id: 'src', type: 'image', position: { x: 0, y: 0 }, data: { url: '/uploads/src.mp4', mediaType: 'video' } },
       { id: 'cut', type: 'preview', position: { x: 0, y: 0 }, data: {} },
@@ -130,7 +130,7 @@ describe('migrateRetiredGenerators', () => {
     assert.equal(out.migrated, 3);
     assert.deepEqual(out.nodes.map((n) => n.type), ['image', 'image', 'image', 'image', 'preview']);
     assert.deepEqual(out.nodes[0].data, { url: null, mediaType: 'video' });
-    assert.deepEqual(out.nodes[1].data, { url: '/uploads/recast_1.mp4', mediaType: 'video', width: 1376, height: 768, label: 'swap her', prompt: 'swap her' });
+    assert.deepEqual(out.nodes[1].data, { url: '/uploads/recast_1.mp4', mediaType: 'video', width: 1344, height: 768, label: 'swap her', prompt: 'swap her' });
     assert.deepEqual(out.nodes[2].data, { url: null, mediaType: 'video', label: 'dance' });
     assert.deepEqual(out.edges.map((e) => [e.id, e.sourceHandle]), [['e3', 'out-video']]);
   });

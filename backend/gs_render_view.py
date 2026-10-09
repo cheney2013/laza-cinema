@@ -12,7 +12,7 @@ looking down +z, metres. The camera is placed in that frame:
 Run with an interpreter that has gsplat (FlashWorld's venv; world_gen.FLASHWORLD_DIR):
 
     python gs_render_view.py scene.ply out.png --pos 1,0,0 --yaw 20 --pitch 0 \
-        --vfov 45 --size 1376x768
+        --vfov 45 --size 1344x768
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def main() -> None:
     ap.add_argument("--yaw", type=float, default=0.0)
     ap.add_argument("--pitch", type=float, default=0.0)
     ap.add_argument("--vfov", type=float, default=45.0)
-    ap.add_argument("--size", default="1376x768")
+    ap.add_argument("--size", default="1344x768")
     a = ap.parse_args()
     W, H = (int(v) for v in a.size.split("x"))
 

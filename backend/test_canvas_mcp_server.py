@@ -749,15 +749,15 @@ class CharswapEngineTests(unittest.TestCase):
 class AutoHeightSizeTests(unittest.TestCase):
     def test_a_swap_node_keeps_only_its_width(self):
         import canvas_mcp_server as m
-        swap = {"type": "charswap", "data": {"width": 1376, "height": 768}}
+        swap = {"type": "charswap", "data": {"width": 1344, "height": 768}}
         m._apply_size(swap, {"width": 240, "aspect_ratio": 1.79})
         self.assertEqual(swap["width"], 240)
         self.assertNotIn("height", swap)
         self.assertEqual(swap["data"]["userWidth"], 240)
-        video = {"type": "video", "data": {"width": 1376, "height": 768}}
+        video = {"type": "video", "data": {"width": 1344, "height": 768}}
         m._apply_size(video, {"width": 360})
         self.assertNotIn("height", video)
-        image = {"type": "image", "data": {"width": 1376, "height": 768}}
+        image = {"type": "image", "data": {"width": 1344, "height": 768}}
         m._apply_size(image, {"width": 240})
         self.assertNotIn("height", image)
         # No width asked for: the studio's default for the type, and no userWidth (that is the user's drag)

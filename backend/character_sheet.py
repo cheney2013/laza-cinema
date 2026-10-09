@@ -59,7 +59,7 @@ class SheetRequest:
     props: Optional[list] = None
     #: Qwen route: the approved sheet this one is derived from; <image 1>.
     base_sheet_url: Optional[str] = None
-    width: int = 1376
+    width: int = 1344
     height: int = 768
     steps: int = 4
     seed: int = 12345

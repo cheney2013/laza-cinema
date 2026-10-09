@@ -451,10 +451,10 @@ def test_the_h3_length_is_the_largest_5_plus_17k_the_clip_supplies():
 
 
 def test_the_h3_size_follows_the_clip_never_goes_above_it_and_sits_on_the_32_grid():
-    assert main.charswap_h3_size(1376, 768, small=False) == (1376, 768)
-    assert main.charswap_h3_size(1376, 768, small=True) == (864, 480)
-    assert main.charswap_h3_size(768, 1376, small=True) == (480, 864)
-    assert main.charswap_h3_size(1920, 1080, small=False) == (1376, 768)
+    assert main.charswap_h3_size(1344, 768, small=False) == (1344, 768)
+    assert main.charswap_h3_size(1344, 768, small=True) == (864, 480)
+    assert main.charswap_h3_size(768, 1344, small=True) == (480, 864)
+    assert main.charswap_h3_size(1920, 1080, small=False) == (1344, 768)
     assert main.charswap_h3_size(640, 360, small=False) == (640, 352)      # never up
     assert all(v % 32 == 0 for size in (main.charswap_h3_size(1000, 563, False), main.charswap_h3_size(1000, 563, True)) for v in size)
 
@@ -575,7 +575,7 @@ def test_the_who_answer_is_the_first_line_with_or_without_a_label():
     assert "a person or an animal" in face_prompt.H3_WHO_ASK and "brown dog" in face_prompt.H3_WHO_ASK
 
 
-def _run_h3(req, frames=124, size=(1376, 768), targets=None, lora_missing=False):
+def _run_h3(req, frames=124, size=(1344, 768), targets=None, lora_missing=False):
     """Run the H3 engine with the outside steps stubbed; return the VideoRequest it sent, the targets asked
     for and the result."""
     sent, asked, recoveries = [], [], []
@@ -612,7 +612,7 @@ def test_the_h3_engine_sends_the_instruction_with_the_swap_lora_on_the_official_
     sent, asked, result, job = _run_h3(req)
     r = sent[0]
     assert (r.mode, r.ref_video_urls, r.ref_image_urls, r.audio_strategy) == ("edit", ["/uploads/a.mp4"], ["/uploads/who.png"], "copy_source")
-    assert (r.motion_preset, r.accel_lora, r.length, r.width, r.height, r.seed) == ("ref2va", "turbo8", 124, 1376, 768, 7)
+    assert (r.motion_preset, r.accel_lora, r.length, r.width, r.height, r.seed) == ("ref2va", "turbo8", 124, 1344, 768, 7)
     assert r.style_loras == [{"name": main.H3_SWAP_LORA, "strength": 1.0}] and r.raw_prompt is True
     assert r.prompt.startswith("Replace only the girl with long black hair in a navy sailor uniform in <Video 1>")
     assert result["mode"] == "h3" and result["face_prompt"] == r.prompt and result["url"] == "/comfy_output/H3_Video_x.mp4"
@@ -621,7 +621,7 @@ def test_the_h3_engine_sends_the_instruction_with_the_swap_lora_on_the_official_
 
 def test_the_h3_engine_options_combine():
     for accel, size, want in (("turbo8", "small", ("turbo8", 864, 480)), ("taomate3", "small", ("taomate3", 864, 480)),
-                              ("turbo8", "source", ("turbo8", 1376, 768))):
+                              ("turbo8", "source", ("turbo8", 1344, 768))):
         req = CharswapRequest(video_url="/uploads/a.mp4", character_image_url="/uploads/who.png",
                               engine="h3", h3_accel=accel, h3_size=size)
         r = _run_h3(req)[0][0]

@@ -10,7 +10,7 @@ import { posterUrl } from './config';
  * 2026-09-06: Chrome refuses to create more than ~75 media players per page
  * ("Blocked attempt to create a WebMediaPlayer as there are too many"). The cut
  * room's bin, the asset library's grid and the provenance panels each mounted a
- * <video preload="metadata"> per clip just to print "1376×768 · 8.7s", and with a
+ * <video preload="metadata"> per clip just to print "1344×768 · 8.7s", and with a
  * 12-segment project open the player for the exported film itself was the one
  * refused. A metadata read does not need a player that lives as long as the row.
  *

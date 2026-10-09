@@ -219,7 +219,7 @@ def run_flashworld(image: Path, prompt: str, cameras: list[dict], work_dir: Path
     return ply, video
 
 
-if __name__ == "__main__":  # quick check of a trajectory: python world_gen.py ring 1376 768
+if __name__ == "__main__":  # quick check of a trajectory: python world_gen.py ring 1344 768
     cams = build_trajectory(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
     for c in cams[:3]:
         print(c)

@@ -51,8 +51,8 @@ const H3_LENGTH_OPTIONS = [
 ];
 
 const H3_ASPECT_RATIOS = [
-  { label: '16:9', desc: '院线横屏', w: 1376, h: 768, iconRatio: 'w-4 h-2.5' },
-  { label: '9:16', desc: '竖屏短剧', w: 768, h: 1376, iconRatio: 'w-2.5 h-4' },
+  { label: '16:9', desc: '院线横屏', w: 1344, h: 768, iconRatio: 'w-4 h-2.5' },
+  { label: '9:16', desc: '竖屏短剧', w: 768, h: 1344, iconRatio: 'w-2.5 h-4' },
   { label: '2.39:1', desc: '变形宽屏', w: 1536, h: 640, iconRatio: 'w-5 h-2' },
   { label: '1:1', desc: '正方形', w: 1024, h: 1024, iconRatio: 'w-3 h-3' },
   { label: '4:3', desc: '经典复古', w: 1152, h: 864, iconRatio: 'w-3.5 h-2.5' },
@@ -94,7 +94,7 @@ const styleLoraDefaultStrength = (name: string) =>
 type MotionPreset = MachineProfile['motion_preset'];
 
 // The backend's H3_MACHINE_PROFILE: what a node that never set size or base
-// model renders at on this box (1376x768 Singularity on the 5090, 864x480
+// model renders at on this box (1344x768 Singularity on the 5090, 864x480
 // pruned w4a8 on a 16 GB card).
 function useMachineProfile(): MachineProfile | null {
   const [profile, setProfile] = useState<MachineProfile | null>(null);
@@ -110,10 +110,10 @@ function useMachineProfile(): MachineProfile | null {
 // Remaps reference tokens (<Picture 1>, <Image 1>, <图1>, etc.) according to old-index -> new-index map
 // Calculate optimal MiniMax H3 video dimensions constrained by official 768p / 16-multiple rules
 export function calculateH3Resolution(srcW: number, srcH: number): { width: number; height: number } {
-  if (!srcW || !srcH) return { width: 1376, height: 768 };
+  if (!srcW || !srcH) return { width: 1344, height: 768 };
   const ratio = srcW / srcH;
-  // H3 standard training anchor is ~1.05 Megapixels (1376x768 = 1056768)
-  const TARGET_PIXELS = 1376 * 768; // ~1.05M
+  // H3 standard training anchor is ~1.03 Megapixels (1344x768 = 1032192)
+  const TARGET_PIXELS = 1344 * 768; // ~1.03M
 
   let w: number;
   let h: number;
@@ -602,7 +602,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
 
   const machineProfile = useMachineProfile();
   const currentLength = data.length || 124;
-  const currentWidth = data.width || machineProfile?.width || 1376;
+  const currentWidth = data.width || machineProfile?.width || 1344;
   const currentHeight = data.height || machineProfile?.height || 768;
   const currentPreset: MotionPreset = (data.motionPreset as MotionPreset | undefined)
     || machineProfile?.motion_preset || 'fused';

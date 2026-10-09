@@ -36,29 +36,29 @@ class SourceLatentTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
         self.f = self.dir / "H3_Latent_x_00001_.safetensors"
-        # the C14b latent: 1376x768, 175 frames -> video (1,24,52,48,86), audio (1,32,2,292)
+        # the C14b latent: 1344x768, 175 frames -> video (1,24,52,48,86), audio (1,32,2,292)
         _latent(self.f, (1, 24, 52, 48, 86), (1, 32, 2, 292))
 
     def test_fits_the_render_that_saved_it(self):
-        ar.check_source_latent(self.f, width=1376, height=768, length_frames=175)
+        ar.check_source_latent(self.f, width=1344, height=768, length_frames=175)
 
     def test_missing_file(self):
         with self.assertRaisesRegex(ar.AudioRedoError, "is gone"):
-            ar.check_source_latent(self.dir / "nope.safetensors", width=1376, height=768, length_frames=175)
+            ar.check_source_latent(self.dir / "nope.safetensors", width=1344, height=768, length_frames=175)
 
     def test_size_changed(self):
-        with self.assertRaisesRegex(ar.AudioRedoError, "saved at 1376x768"):
+        with self.assertRaisesRegex(ar.AudioRedoError, "saved at 1344x768"):
             ar.check_source_latent(self.f, width=1248, height=832, length_frames=175)
 
     def test_length_changed(self):
         with self.assertRaisesRegex(ar.AudioRedoError, "length changed"):
-            ar.check_source_latent(self.f, width=1376, height=768, length_frames=294)
+            ar.check_source_latent(self.f, width=1344, height=768, length_frames=294)
 
     def test_not_a_latent(self):
         bad = self.dir / "bad.safetensors"
         bad.write_bytes(b"not a safetensors file")
         with self.assertRaises(ar.AudioRedoError):
-            ar.check_source_latent(bad, width=1376, height=768, length_frames=175)
+            ar.check_source_latent(bad, width=1344, height=768, length_frames=175)
 
 
 if __name__ == "__main__":

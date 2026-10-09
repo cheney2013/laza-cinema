@@ -4,7 +4,7 @@ ComfyUI's own latent preview shows only the first frame and decodes on the
 GPU. This wraps latent_preview.prepare_callback: after every sampler step the
 current x0 estimate (video channels only, ~15 MB) is copied to host memory and
 handed to a low-priority worker process that decodes the whole clip with taeh3
-at half spatial resolution (~3 s for 146 frames at 768x1376 on 32 threads) and
+at half spatial resolution (~3 s for 146 frames at 768x1344 on 32 threads) and
 writes output/live_preview/<prompt_id>_s<step>.mp4. A step that arrives while
 the worker is busy replaces the queued one, so the sampler never waits.
 

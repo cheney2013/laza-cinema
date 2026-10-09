@@ -872,7 +872,7 @@ def build_qwen_image_21_workflow(
     prompt: str,
     reference_filenames: list[str] = None,
     negative_prompt: str = "",
-    width: int = 1376,
+    width: int = 1344,
     height: int = 768,
     steps: int = 25,
     cfg: float = 1.0,
@@ -1064,7 +1064,7 @@ def build_h3_video_workflow(
     # image_reference_filenames still ride along as media, labelled before the RefMods.
     refmods: list[dict] = None,
     ref_image_size: str = "match",
-    width: int = 1376,
+    width: int = 1344,
     height: int = 768,
     length: int = 124,
     steps: int = DEFAULT_H3_STEPS,
@@ -2296,7 +2296,7 @@ def build_h3_latent_upscale_workflow(
     # speed: interleaved over three seeds this pass takes 168.6s against 169.1s
     # for hybrid + live turbo LoRA -- identical. (Unlike generation, where merging
     # the LoRA does save real time.) What it buys is resolved detail the old pair
-    # smears: on a 1376x768 -> 2752x1536 refine a background licence plate came
+    # smears: on a 1344x768 -> 2752x1536 refine a background licence plate came
     # back legible where hybrid left a blur. PSNR to the source was 30.7 vs 31.0,
     # so neither drifts and the difference is detail rather than drift.
     unet_name: str = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors",
@@ -3456,7 +3456,7 @@ def build_h3_av_bridge_workflow(
     tail_start: int,
     preserve: int = 39,
     target: int = 107,
-    width: int = 1376,
+    width: int = 1344,
     height: int = 768,
     steps: int = 20,
     seed: int = 12345,

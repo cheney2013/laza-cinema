@@ -27,7 +27,7 @@ const liveNode = {
     generatedUrl: '/comfy_output/H3_Video_b094672c_00001_.mp4',
     latentFilename: 'H3_Latent_b094672c_00001_.safetensors',
     width: 768,
-    height: 1376,
+    height: 1344,
     length: 311,
     steps: 4,
     seed: 81000,
@@ -51,7 +51,7 @@ const recovered: AssetProvenance = {
   prompt: 'integrated_multimodal_description: …',
   seed: 81000,
   width: 768,
-  height: 1376,
+  height: 1344,
   length: 311,
   reference_images: REFS,
   reference_videos: [],
@@ -69,7 +69,7 @@ const restoredNode = (provenance = recovered) => ({
   data: {
     url: '/comfy_output/H3_Video_b094672c_00001_.mp4',
     mediaType: 'video',
-    ...restoredNodeData(provenance, { width: 768, height: 1376, duration: 12.96 }),
+    ...restoredNodeData(provenance, { width: 768, height: 1344, duration: 12.96 }),
   },
 });
 
@@ -118,7 +118,7 @@ describe('re-placing a shot from the library', () => {
       data: {
         generatedUrl: '/comfy_output/H3_Video_0a107ed1_00001_.mp4',
         latentFilename: 'H3_Latent_0a107ed1_00001_.safetensors',
-        width: 1376,
+        width: 1344,
         height: 768,
         submittedResources: {
           first_frame: {
@@ -145,7 +145,7 @@ describe('re-placing a shot from the library', () => {
             last_frame: null,
             latent_filename: 'H3_Latent_0a107ed1_00001_.safetensors',
           },
-          { width: 1376, height: 768 }
+          { width: 1344, height: 768 }
         ),
       },
     };
@@ -161,8 +161,8 @@ describe('re-placing a shot from the library', () => {
   it('prefers the file’s real pixels over the size the graph asked for', () => {
     // A clip re-encoded or replaced since generation is no longer the size it
     // was requested at, and the node box has to match what is on screen.
-    const data = restoredNodeData(recovered, { width: 1376, height: 768 });
-    assert.equal(data.width, 1376);
+    const data = restoredNodeData(recovered, { width: 1344, height: 768 });
+    assert.equal(data.width, 1344);
     assert.equal(data.height, 768);
   });
 

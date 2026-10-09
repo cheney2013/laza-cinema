@@ -777,7 +777,7 @@ class BuildInParts(unittest.TestCase):
 
         still = np.zeros(total)           # no image motion: the parts follow time alone
         with mock.patch.multiple(route_gs, sample_frames=fake_sample, run_worldmirror=fake_worldmirror,
-                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _probe=mock.Mock(return_value=(fps, 1344, 774)),
                                  _frame_count=mock.Mock(return_value=total),
                                  _flow_profile=mock.Mock(return_value=still)):
             out = tmp / "route.ply"
@@ -803,7 +803,7 @@ class BuildInParts(unittest.TestCase):
         sampled.clear()
         with mock.patch.multiple(route_gs, sample_frames=fake_sample,
                                  run_worldmirror=mock.Mock(side_effect=AssertionError("reconstructed again")),
-                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _probe=mock.Mock(return_value=(fps, 1344, 774)),
                                  _frame_count=mock.Mock(return_value=total),
                                  _flow_profile=mock.Mock(return_value=still)):
             again = route_gs.build_route_gaussian([clip], tmp / "again.ply", tmp / "work2", cache_dir=tmp / "cache",
@@ -918,7 +918,7 @@ class Inpainting(unittest.TestCase):
                                  dense_frames=fake_dense, sam3_submit=mock.Mock(return_value={}),
                                  sam3_collect=fake_collect, add_box_masks=mock.Mock(), comfy_free=mock.Mock(),
                                  inpaint_frames=fake_inpaint, _propainter_python=mock.Mock(return_value=Path("py")),
-                                 _probe=mock.Mock(return_value=(fps, 1376, 774)),
+                                 _probe=mock.Mock(return_value=(fps, 1344, 774)),
                                  _frame_count=mock.Mock(return_value=total),
                                  _flow_profile=mock.Mock(return_value=np.zeros(total))):
             out = tmp / "route.ply"

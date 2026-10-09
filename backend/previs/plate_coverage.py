@@ -25,7 +25,7 @@ The scene config (JSON, kept with the set, not in the repository):
     {
       "module_path": ".",                     # relative to the config file
       "build": [["module", "function", {kwargs}], ...],   # builds the set
-      "resolution": [1376, 768], "sensor": 36.0,
+      "resolution": [1344, 768], "sensor": 36.0,
       "pans": {"pan": {"eye": [..], "aim_a": [..], "aim_b": [..],
                        "frames": 175, "lens": 20.0}},
       "plates": {"name": {"eye": [..], "aim": [..], "lens": 20.0}
@@ -118,7 +118,7 @@ def load_shots(src):
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
-scene.render.resolution_x, scene.render.resolution_y = CFG.get("resolution", (1376, 768))
+scene.render.resolution_x, scene.render.resolution_y = CFG.get("resolution", (1344, 768))
 for module, function, kwargs in CFG.get("build", ()):
     getattr(importlib.import_module(module), function)(**kwargs)
 ASPECT = scene.render.resolution_x / scene.render.resolution_y

@@ -9,7 +9,7 @@ import workflow_builders as wb
 def test_t2va_workflow():
     wf = wb.build_h3_video_workflow(
         prompt="[Shot 1] Cinematic night street...",
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=4,
@@ -28,7 +28,7 @@ def test_i2va_workflow():
     wf = wb.build_h3_video_workflow(
         prompt="[Shot 1] Woman smiling...",
         first_frame_filename="start.png",
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=4,
@@ -45,7 +45,7 @@ def test_fl2va_workflow():
         prompt="Picture 1 aligns with 0.00s; Picture 2 aligns with 5.10s...",
         first_frame_filename="frame_start.png",
         last_frame_filename="frame_end.png",
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=4,
@@ -118,7 +118,7 @@ def test_refmods_replace_the_reference_node():
         prompt="<Picture 1> is the room, <Picture 2> is the man.",
         image_reference_filenames=["room.png"],
         refmods=[{"visual": "proj/man_visual", "audio": "proj/man_audio"}, {"visual": "proj/boy"}],
-        width=1376, height=768, length=124, steps=8,
+        width=1344, height=768, length=124, steps=8,
     )
     enc = wf["31"]
     assert enc["class_type"] == "MiniMaxH3FantasticRefModTextEncode"
@@ -150,7 +150,7 @@ def test_ref2va_video_editing_and_revoicing():
         video_reference_filenames=["source_scene.mp4"],
         image_reference_filenames=["character_concept.png"],
         audio_reference_filenames=["target_voice.wav"],
-        width=1376,
+        width=1344,
         height=768,
         length=124,
         steps=8,
@@ -336,19 +336,19 @@ def test_reference_video_downscale_keeps_aspect_ratio():
     from comfyui_client import ComfyUIClient
 
     # The fit is inside the generation box, never beyond it, and never up.
-    assert ComfyUIClient._fit_inside((1920, 1080), 1376, 768) == (1368, 768)
-    assert ComfyUIClient._fit_inside((3840, 2160), 1376, 768) == (1368, 768)
-    assert ComfyUIClient._fit_inside((1080, 1920), 1376, 768) == (432, 768)
-    assert ComfyUIClient._fit_inside((1000, 1000), 1376, 768) == (768, 768)
+    assert ComfyUIClient._fit_inside((1920, 1080), 1344, 768) == (1368, 768)
+    assert ComfyUIClient._fit_inside((3840, 2160), 1344, 768) == (1368, 768)
+    assert ComfyUIClient._fit_inside((1080, 1920), 1344, 768) == (432, 768)
+    assert ComfyUIClient._fit_inside((1000, 1000), 1344, 768) == (768, 768)
     # Already inside the box: left alone, because a reference is conditioning
     # and upscaling it costs memory without adding detail.
-    assert ComfyUIClient._fit_inside((640, 360), 1376, 768) is None
-    assert ComfyUIClient._fit_inside((1376, 768), 1376, 768) is None
-    assert ComfyUIClient._fit_inside((0, 0), 1376, 768) is None
+    assert ComfyUIClient._fit_inside((640, 360), 1344, 768) is None
+    assert ComfyUIClient._fit_inside((1344, 768), 1344, 768) is None
+    assert ComfyUIClient._fit_inside((0, 0), 1344, 768) is None
 
     # The /8 snap must not visibly move the framing.
     for src in [(1920, 1080), (1080, 1920), (2048, 858), (1440, 1080)]:
-        fitted = ComfyUIClient._fit_inside(src, 1376, 768)
+        fitted = ComfyUIClient._fit_inside(src, 1344, 768)
         assert fitted, src
         drift = abs((fitted[0] / fitted[1]) - (src[0] / src[1])) / (src[0] / src[1])
         assert drift < 0.005, f"{src} -> {fitted} moved the ratio by {drift:.2%}"
@@ -357,7 +357,7 @@ def test_reference_video_downscale_keeps_aspect_ratio():
         prompt="x",
         video_reference_filenames=["previs.mp4"],
         video_reference_sizes=[(1368, 768)],
-        width=1376, height=768, length=124, steps=4, seed=1,
+        width=1344, height=768, length=124, steps=4, seed=1,
     )
     assert wf["300"]["class_type"] == "LoadVideo"
     assert wf["350"]["class_type"] == "GetVideoComponents"
@@ -381,7 +381,7 @@ def test_reference_video_passthrough_when_not_oversized():
             prompt="x",
             video_reference_filenames=["previs.mp4"],
             video_reference_sizes=sizes,
-            width=1376, height=768, length=124, steps=4, seed=1,
+            width=1344, height=768, length=124, steps=4, seed=1,
         )
         assert "380" not in wf, sizes
         assert wf["31"]["inputs"]["ref_videos.ref_video_0"] == ["350", 0]
@@ -395,7 +395,7 @@ def test_reference_video_sizes_track_filenames_not_positions():
         prompt="x",
         video_reference_filenames=["still.png", "previs.mp4"],
         video_reference_sizes=[None, (640, 360)],
-        width=1376, height=768, length=124, steps=4, seed=1,
+        width=1344, height=768, length=124, steps=4, seed=1,
     )
     assert wf["300"]["inputs"]["file"] == "previs.mp4"
     assert (wf["380"]["inputs"]["width"], wf["380"]["inputs"]["height"]) == (640, 360)

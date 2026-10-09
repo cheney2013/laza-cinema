@@ -545,7 +545,7 @@ export default function VideoPreviewModal({ beforeUrl, afterUrl, onClose, onCapt
           ratio, instead of each fitting itself into the viewport.
 
           The upscaler does not preserve the source ratio — it snaps to a
-          multiple of 128, so 1376×768 comes back 2816×1536. Letterboxing each
+          multiple of 128, so 1344×768 comes back 2816×1536. Letterboxing each
           video independently then places the two pictures at different scales
           and offsets, and the wipe seam no longer matches: that is the
           misalignment. `cover` on the source trims the ~2% difference instead of

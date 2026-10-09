@@ -2092,7 +2092,7 @@ export const useCutRoom = create<CutRoomState>((set, get) => ({
     get().commit();
     set((state) => ({
       // An auto-sized film follows its first frame, and that frame just changed
-      // resolution. Without this the film stayed 1376x768 after relinking to a
+      // resolution. Without this the film stayed 1344x768 after relinking to a
       // 2752x1536 master, so the monitor and the export scaled the HD file back
       // down and the swap changed nothing visible. A size picked by hand stays.
       timeline: adoptFirstFrameSize({

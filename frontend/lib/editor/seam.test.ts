@@ -5,7 +5,7 @@ import { applySeamPlan, planAllSeamDissolves, planSeamDissolve } from './seam';
 import { type Clip, type EditorAsset, type Timeline, clipGain } from './types';
 
 const asset = (patch: Partial<EditorAsset> & { id: string }): EditorAsset => ({
-  nodeId: 'n', url: `/${patch.id}.mp4`, title: patch.id, kind: 'video', width: 1376, height: 768,
+  nodeId: 'n', url: `/${patch.id}.mp4`, title: patch.id, kind: 'video', width: 1344, height: 768,
   fps: 24, frames: 300, timelineFrames: 300, hasAudio: true, ...patch,
 });
 
@@ -15,7 +15,7 @@ const clip = (patch: Partial<Clip> & { id: string }): Clip => ({
 } as Clip);
 
 const timeline = (assets: EditorAsset[], clips: Clip[]): Timeline => ({
-  fps: 24, width: 1376, height: 768, tracks: [{ id: 'V1', kind: 'video', name: 'V1', muted: false, locked: false }],
+  fps: 24, width: 1344, height: 768, tracks: [{ id: 'V1', kind: 'video', name: 'V1', muted: false, locked: false }],
   clips, assets: Object.fromEntries(assets.map((a) => [a.id, a])),
 } as unknown as Timeline);
 

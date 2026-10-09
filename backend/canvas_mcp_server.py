@@ -268,7 +268,7 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "label": "定妆照",
         "defaults": {"generatedUrl": None, "status": "idle", "identity": "", "costume": "",
                      "subjectNoun": "person", "propDescriptions": {}, "width": 768,
-                     "height": 1376, "steps": 4, "seed": 81000, "seedMode": "fixed"},
+                     "height": 1344, "steps": 4, "seed": 81000, "seedMode": "fixed"},
         "inputs": ["in-base", "in-face", "in-prop"],
         "outputs": ["out-image"],
     },
@@ -2883,7 +2883,7 @@ def _run_character_sheet_locked(resolved: dict[str, Any], canvas: dict[str, Any]
         "face_image_url": _node_url(faces[0]) if faces else None,
         "props": props,
         "width": int(data.get("width") or 768),
-        "height": int(data.get("height") or 1376),
+        "height": int(data.get("height") or 1344),
         "steps": int(data.get("steps") or 4),
         "seed": int(data.get("seed") if data.get("seed") is not None else 81000),
         # Qwen-Image-2.1 by default: full front / full back / waist-up front.

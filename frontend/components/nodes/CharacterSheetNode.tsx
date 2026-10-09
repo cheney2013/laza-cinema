@@ -22,8 +22,8 @@ import { areNodePropsEqual } from '@/lib/utils';
 
 /** Portrait is the house format: a landscape full body comes out too small (定妆板用竖屏). */
 const SIZES = [
-  { id: 'portrait', label: '竖屏 768×1376（推荐）', width: 768, height: 1376 },
-  { id: 'landscape', label: '横屏 1376×768', width: 1376, height: 768 },
+  { id: 'portrait', label: '竖屏 768×1344（推荐）', width: 768, height: 1344 },
+  { id: 'landscape', label: '横屏 1344×768', width: 1344, height: 768 },
 ] as const;
 
 const SUBJECTS = [

@@ -83,7 +83,7 @@ for entry in CFG.get("cull_outside", []):
     bm.free()
     print("cull: removed", len(out), "faces from", entry["object"])
 
-scene.render.resolution_x, scene.render.resolution_y = 1376, 768
+scene.render.resolution_x, scene.render.resolution_y = 1344, 768
 scene_config.workbench_grey(scene, ridge=1.0)
 
 cd = bpy.data.cameras.new("plate")

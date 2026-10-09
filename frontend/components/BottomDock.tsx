@@ -117,7 +117,7 @@ function BottomDock() {
       category: 'image',
       color: '#fbbf24',
       icon: <span className="text-sm grayscale group-hover:grayscale-0 transition-all">🧍</span>,
-      data: { generatedUrl: null, status: 'idle', identity: '', costume: '', subjectNoun: 'person', width: 768, height: 1376, steps: 4, seed: 81000, seedMode: 'fixed' },
+      data: { generatedUrl: null, status: 'idle', identity: '', costume: '', subjectNoun: 'person', width: 768, height: 1344, steps: 4, seed: 81000, seedMode: 'fixed' },
     },
     {
       type: 'wardrobeSwap',

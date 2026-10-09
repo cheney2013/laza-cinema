@@ -70,7 +70,7 @@ def test_qwen_fixed_size_keeps_the_sheet_canvas():
 
 
 def test_compose_extracts_midpoint_and_preserves_aspect_ratio(monkeypatch):
-    source = Image.new("RGB", (1376, 768), (40, 50, 60))
+    source = Image.new("RGB", (1344, 768), (40, 50, 60))
     seen = []
 
     def fake_frame(_path, frame_number):

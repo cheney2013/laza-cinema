@@ -18,7 +18,7 @@ def job(jid, jtype, request=None, age=0.0, pinned=None):
     return j
 
 
-LONG_H3 = {"length": 124 * 6, "width": 1376, "height": 768, "steps": 8}
+LONG_H3 = {"length": 124 * 6, "width": 1344, "height": 768, "steps": 8}
 EST = sched.Estimator([])
 
 
@@ -155,8 +155,8 @@ def done(jtype, request, secs, prompts=None):
     return sched.timing_record(j, prompts)
 
 
-SMALL = {"length": 146, "width": 768, "height": 1376, "steps": 8}
-BIG = {"length": 243, "width": 1376, "height": 768, "steps": 8}
+SMALL = {"length": 146, "width": 768, "height": 1344, "steps": 8}
+BIG = {"length": 243, "width": 1344, "height": 768, "steps": 8}
 
 
 class DurationTest(unittest.TestCase):
@@ -184,7 +184,7 @@ class DurationTest(unittest.TestCase):
         # step = 0.05 N + 0.0005 N^2 on two sizes; ask for a third.
         f = lambda req: 0.05 * sched.tokens("video", req) + 0.0005 * sched.tokens("video", req) ** 2
         est = sched.Estimator([], [run(SMALL, f(SMALL)), run(BIG, f(BIG))])
-        mid = {"length": 200, "width": 1376, "height": 768, "steps": 8}
+        mid = {"length": 200, "width": 1344, "height": 768, "steps": 8}
         q = {"type": "video", "request": mid}
         self.assertEqual(est.source(q), "fit")
         self.assertAlmostEqual(est.step_seconds(q), f(mid), places=3)

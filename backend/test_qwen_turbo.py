@@ -17,7 +17,7 @@ class QwenTurboGraphTest(unittest.TestCase):
         self.assertFalse(by_class(wf, "ViggleTurboLora"))
 
     def test_text_to_image_turbo_uses_unmerged_lora_and_seven_steps(self):
-        wf = wb.build_qwen_image_21_workflow(prompt="p", width=768, height=1376, seed=5, turbo=True)
+        wf = wb.build_qwen_image_21_workflow(prompt="p", width=768, height=1344, seed=5, turbo=True)
         self.assertFalse(by_class(wf, "KSampler"))
         self.assertFalse(by_class(wf, "LoraLoaderModelOnly"), "merging drops part of the LoRA's update")
         (lora_id, lora), = by_class(wf, "ViggleTurboLora")
@@ -44,7 +44,7 @@ class QwenTurboGraphTest(unittest.TestCase):
 
     def test_fixed_size_edit_keeps_its_empty_latent(self):
         wf = wb.build_qwen_image_21_workflow(prompt="p", reference_filenames=["a.png"], fixed_size=True,
-                                             width=1376, height=768, turbo=True)
+                                             width=1344, height=768, turbo=True)
         self.assertEqual(wf["qi:6"]["inputs"]["latent_image"], ["qi:5", 0])
         self.assertEqual(wf["qi:sigmas"]["inputs"]["latent"], ["qi:5", 0])
 

@@ -58,7 +58,7 @@ for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         break
     except TypeError:
         continue
-scene.render.resolution_x = 1376
+scene.render.resolution_x = 1344
 scene.render.resolution_y = 768
 scene.render.resolution_percentage = 100
 scene.render.filepath = OUT

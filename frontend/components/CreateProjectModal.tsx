@@ -29,7 +29,7 @@ const ASPECT_RATIOS = [
     label: '9:16 竖屏短视频',
     sublabel: '抖音 / TikTok / 小红书 / 短剧',
     w: 768,
-    h: 1376,
+    h: 1344,
     previewRatio: 'aspect-[9/16]',
     desc: '专为移动端竖屏短剧设计，人物肖像与高动态全身动效极具视觉冲击。',
   },
@@ -285,7 +285,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             data: {
               prompt: '',
               width: 768,
-              height: 1376,
+              height: 1344,
               length: 124,
               steps: DEFAULT_H3_STEPS,
             },
@@ -298,7 +298,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             height: 420,
             data: {
               width: 768,
-              height: 1376,
+              height: 1344,
               steps: 4,
             },
           },

@@ -1,4 +1,4 @@
-"""Compose previs stills into one 1376x768 storyboard sheet.
+"""Compose previs stills into one 1344x768 storyboard sheet.
 
 H3 reads a single sheet better than a stack of separate reference images: the
 panel order carries the shot order, and it costs one reference slot instead of
@@ -13,7 +13,7 @@ import sys
 
 from PIL import Image
 
-W, H = 1376, 768
+W, H = 1344, 768
 MARGIN, GAP, BORDER = 18, 14, 3
 BACKING = (16, 16, 18)
 FRAME = (238, 238, 238)

@@ -10,7 +10,7 @@ def _chains(seam_mute=None, transition=None):
     b = main.ExportClip(url="/uploads/b.mp4", start=78, duration=60, src_in_s=0.0, src_out_s=2.5,
                         transition=transition, seam_mute=seam_mute)
     req = main.TimelineExportRequest(tracks=[main.ExportTrack(kind="video", clips=[a, b])],
-                                     fps=24, width=1376, height=768, duration=138)
+                                     fps=24, width=1344, height=768, duration=138)
     src = (Path("x.mp4"), {"has_audio": True})
     graph = main._build_export_graph(req, [src, src])[1].split(";\n")
     return (next(l for l in graph if l.endswith("[a0]")), next(l for l in graph if l.endswith("[a1]")))

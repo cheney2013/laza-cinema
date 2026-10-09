@@ -221,10 +221,10 @@ def main() -> None:
     for n, ci in enumerate(chosen):
         c = cands[ci]
         seen = np.maximum(seen, cover[ci])
-        rgb, _, _ = splat.render(c["pos"], c["yaw"], 0.0, c["lens"], 1376, 774)
+        rgb, _, _ = splat.render(c["pos"], c["yaw"], 0.0, c["lens"], 1344, 774)
         name = f"plate_{n + 1}"
         Image.fromarray((rgb.cpu().numpy() * 255).astype(np.uint8)).save(out / f"{name}.png")
-        rgb_h, depth_h, alpha_h = splat.render(c["pos"], c["yaw"], 0.0, c["lens"], 1376, 774)
+        rgb_h, depth_h, alpha_h = splat.render(c["pos"], c["yaw"], 0.0, c["lens"], 1344, 774)
         clean, mask = clean_view(rgb_h, depth_h, alpha_h)
         Image.fromarray((clean * 255).astype(np.uint8)).save(out / f"{name}_clean.png")
         report["plates"].append({
