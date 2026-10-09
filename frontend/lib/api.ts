@@ -846,7 +846,10 @@ export const api = {
     lora_name?: string;
     lora_strength?: number;
     base_model?: string;
-    /** 'turbo' (backend default): 7-step distilled LoRA; steps, cfg and negative_prompt are ignored. */
+    /** Sampler / scheduler of the 25-step graph (the 全身 switch sends er_sde + beta); turbo ignores them. */
+    sampler_name?: string;
+    scheduler?: string;
+    /** 'turbo' (backend default): the official Qwen-Image-2.1-Turbo checkpoint, 8 steps; steps, cfg and negative_prompt are ignored. */
     speed?: 'turbo' | 'base';
   }) =>
     request<{ job_id: string; status: string }>('/generate-qwen-image', {

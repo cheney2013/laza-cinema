@@ -1,4 +1,4 @@
-"""Qwen-Image-2.1 turbo: the Viggle distilled LoRA path of build_qwen_image_21_workflow and its request defaults."""
+"""Qwen-Image-2.1 turbo: the official Qwen-Image-2.1-Turbo checkpoint path of build_qwen_image_21_workflow and its request defaults."""
 import unittest
 
 import main
@@ -14,39 +14,44 @@ class QwenTurboGraphTest(unittest.TestCase):
         wf = wb.build_qwen_image_21_workflow(prompt="p", reference_filenames=["a.png"])
         self.assertEqual(wf["qi:6"]["class_type"], "KSampler")
         self.assertEqual(wf["qi:6"]["inputs"]["steps"], 25)
-        self.assertFalse(by_class(wf, "ViggleTurboLora"))
+        self.assertEqual(wf["qi:1"]["inputs"]["unet_name"], wb.QWEN_IMAGE_21_UNET)
+        self.assertFalse(by_class(wf, "ManualSigmas"))
 
-    def test_text_to_image_turbo_uses_unmerged_lora_and_seven_steps(self):
+    def test_text_to_image_turbo_loads_the_turbo_checkpoint_with_eight_steps_and_no_lora(self):
         wf = wb.build_qwen_image_21_workflow(prompt="p", width=768, height=1344, seed=5, turbo=True)
         self.assertFalse(by_class(wf, "KSampler"))
-        self.assertFalse(by_class(wf, "LoraLoaderModelOnly"), "merging drops part of the LoRA's update")
-        (lora_id, lora), = by_class(wf, "ViggleTurboLora")
-        self.assertEqual(lora["inputs"]["lora_name"], wb.QWEN_TURBO_LORA)
-        self.assertEqual(lora["inputs"]["strength"], 1.0)
-        self.assertEqual(lora["inputs"]["model"], ["qi:1", 0])
-        self.assertEqual(wf["qi:guider"]["inputs"]["model"], [lora_id, 0])
+        self.assertFalse(by_class(wf, "LoraLoaderModelOnly"))
+        self.assertFalse(by_class(wf, "ViggleTurboLora"), "the Viggle LoRA path was replaced by the official checkpoint")
+        self.assertEqual(wf["qi:1"]["inputs"]["unet_name"], wb.QWEN_IMAGE_21_TURBO_UNET)
+        self.assertEqual(wf["qi:guider"]["inputs"]["model"], ["qi:1", 0])
         sampler = wf["qi:6"]
         self.assertEqual(sampler["class_type"], "SamplerCustomAdvanced")
         self.assertEqual(sampler["inputs"]["latent_image"], ["qi:5", 0])
         self.assertEqual(wf["qi:noise"]["inputs"]["noise_seed"], 5)
-        sigmas = wf["qi:sigmas"]["inputs"]
-        self.assertEqual(sigmas["latent"], ["qi:5", 0])
-        self.assertEqual(len(sigmas["nodes"].split(",")), wb.QWEN_TURBO_STEPS)
-        self.assertEqual(wb.QWEN_TURBO_STEPS, 7)
+        self.assertEqual(wf["qi:sampler"]["inputs"]["sampler_name"], "euler")
+        self.assertEqual(wb.QWEN_TURBO_STEPS, 8)
 
-    def test_edit_turbo_puts_the_lora_before_the_cache_and_sizes_sigmas_from_the_encoder_latent(self):
+    def test_turbo_sigmas_are_the_saved_schedule_with_the_terminal_zero(self):
+        wf = wb.build_qwen_image_21_workflow(prompt="p", turbo=True)
+        values = [float(v) for v in wf["qi:sigmas"]["inputs"]["sigmas"].split(",")]
+        self.assertEqual(len(values), wb.QWEN_TURBO_STEPS + 1, "N steps need N+1 sigmas")
+        self.assertEqual(values[0], 1.0)
+        self.assertEqual(values[-1], 0.0, "without the terminal 0 the last step stops half denoised")
+        self.assertEqual(values[-2], 0.414568)
+        self.assertEqual(values, sorted(values, reverse=True))
+        self.assertNotIn("latent", wf["qi:sigmas"]["inputs"], "no resolution shift: the card's scheduler has shift 1.0")
+
+    def test_edit_turbo_puts_the_cache_between_the_checkpoint_and_the_guider(self):
         wf = wb.build_qwen_image_21_workflow(prompt="p", reference_filenames=["a.png", "b.png"], turbo=True)
-        self.assertEqual(wf["qi:cache"]["inputs"]["model"], ["qi:lora", 0])
+        self.assertEqual(wf["qi:cache"]["inputs"]["model"], ["qi:1", 0])
         self.assertEqual(wf["qi:guider"]["inputs"]["model"], ["qi:cache", 0])
         self.assertEqual(wf["qi:6"]["inputs"]["latent_image"], ["qi:4", 2])
-        self.assertEqual(wf["qi:sigmas"]["inputs"]["latent"], ["qi:4", 2])
         self.assertEqual(wf["qi:4"]["inputs"]["images.image_2"], ["qi:ref2", 0])
 
     def test_fixed_size_edit_keeps_its_empty_latent(self):
         wf = wb.build_qwen_image_21_workflow(prompt="p", reference_filenames=["a.png"], fixed_size=True,
                                              width=1344, height=768, turbo=True)
         self.assertEqual(wf["qi:6"]["inputs"]["latent_image"], ["qi:5", 0])
-        self.assertEqual(wf["qi:sigmas"]["inputs"]["latent"], ["qi:5", 0])
 
     def test_every_node_the_turbo_graph_wires_exists(self):
         wf = wb.build_qwen_image_21_workflow(prompt="p", reference_filenames=["a.png"], turbo=True)

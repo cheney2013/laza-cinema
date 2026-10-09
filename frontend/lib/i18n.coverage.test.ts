@@ -55,6 +55,8 @@ const SAME_IN_BOTH = new Set([
   '水平', '垂直', '左', '右', '固定', '生成', '正方形', '秒数',
   // 生成图片 node's speed picker label: 速度 is the Japanese word for it too
   '速度',
+  // 生成图片 node's full-body LoRA switch: 全身 is the Japanese word too, the rest is the LoRA's name
+  '全身（fullbody LoRA）',
   // the same words with the punctuation or icon they are rendered with
   '行', '行 ·', '中 ·', '🔒 固定',
   // depth layers: 前景 and 中景 are the Japanese terms as well (後景 is not)

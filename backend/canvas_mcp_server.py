@@ -339,11 +339,15 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # baseModel: "qwen21" (default) or "noctAnime" (Noct Q Anime, a merged
         # anime checkpoint on the same graph; runs at cfg 3, prompt starts
         # "An anime illustration of...").
-        # speed: "turbo" (default) runs the Viggle distilled LoRA, 7 steps, 2-4x
-        # faster with the same look on plates, edits and sheets; steps, cfg and
-        # negativePrompt are then ignored. "base" is the 25-step graph. Dense small
-        # print (several columns of body text, credit blocks) is the one place both
-        # write badly; headlines and short lines are fine on turbo.
+        # fullBody: the qwen21_fullbody_pass2 LoRA (full-body figures) at strength 0.8 with 25 steps,
+        # cfg 4, sampler er_sde, scheduler beta; runs the 25-step graph, so turbo is off for it.
+        # anyAngle wins when both are set.
+        # speed: "turbo" (default) runs the official Qwen-Image-2.1-Turbo checkpoint,
+        # 8 steps, no LoRA, fixed schedule; steps, cfg and negativePrompt are then
+        # ignored (the studio node no longer has a steps box at all). "base" is the
+        # 25-step graph, which anyAngle and noctAnime always use. Dense small print
+        # (several columns of body text, credit blocks) is the one place both write
+        # badly; headlines and short lines are fine on turbo.
         "label": "生成图片",
         "defaults": {"prompt": "", "negativePrompt": "", "generatedUrl": None,
                      "status": "idle", "width": 1344, "height": 768, "steps": 25,
@@ -2952,14 +2956,14 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         "negative_prompt": str(data.get("negativePrompt") or ""),
         "width": int(data.get("width") or 1344),
         "height": int(data.get("height") or 768),
-        "steps": int(data.get("steps") or 25),
+        "steps": 25,  # the studio node has no steps box; turbo ignores it, the base graph runs 25
         "cfg": float(data.get("cfg") if data.get("cfg") is not None else 1.0),
         "seed": int(data.get("seed") if data.get("seed") is not None else 81000),
         "base_model": str(data.get("baseModel") or "qwen21"),
         # references are worked at about refResolution^2 pixels; 0 keeps the first one at its own size
         "ref_resolution": int(data.get("refResolution") if data.get("refResolution") is not None else 1024),
-        # "turbo" (default): the Viggle distilled LoRA, 7 steps; "base": the 25-step graph at steps/cfg.
-        # The backend runs base by itself for anyAngle and noctAnime and when ComfyUI lacks the nodes.
+        # "turbo" (default): the official Qwen-Image-2.1-Turbo checkpoint, 8 steps; "base": the 25-step graph.
+        # The backend runs base by itself for any LoRA, noctAnime and when ComfyUI lacks the checkpoint.
         "speed": "base" if data.get("speed") == "base" else "turbo",
     }
     if payload["base_model"] == "noctAnime":
@@ -2971,6 +2975,11 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
                              f"references (<image 1> the original, <image 2> the new view); "
                              f"it has {len(refs)}.")
         payload.update({"lora_name": ANY_ANGLE_LORA, "lora_strength": 1.0, "cfg": 3.0})
+    elif data.get("fullBody"):
+        # Same as the studio's 全身 switch (QwenImageNode.tsx): the fullbody LoRA at 0.8, 25 steps,
+        # cfg 4, er_sde + beta -- the settings it was handed over with.
+        payload.update({"lora_name": FULL_BODY_LORA, "lora_strength": 0.8, "cfg": 4.0,
+                        "sampler_name": "er_sde", "scheduler": "beta"})
     submitted = _request("POST", "/generate-qwen-image", json=payload, project_id=resolved["id"])
     revision = _save_node_data(resolved["id"], node_id, {
         "status": "generating", "jobId": submitted["job_id"], "error": None,
@@ -2982,7 +2991,8 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
               "revision": revision, "input_counts": {"references": len(refs)},
               "route": "any_angle" if data.get("anyAngle") else "edit" if refs else "text_to_image",
               # what was asked for; the finished job's `speed` is what actually ran
-              "speed_requested": "turbo (7 steps, no cfg/negative)" if turbo_planned else "base (25 steps)"}
+              "speed_requested": ("turbo (Qwen-Image-2.1-Turbo, 8 steps, no cfg/negative)"
+                                  if turbo_planned else "base (25 steps)")}
     if prompt_synced:
         result["prompt_synced_from"] = prompt_synced
     return result
@@ -3021,6 +3031,7 @@ def _run_title_block_locked(resolved: dict[str, Any], canvas: dict[str, Any],
 
 
 ANY_ANGLE_LORA = "QI2.1_AnyAngle.safetensors"
+FULL_BODY_LORA = "qwen21_fullbody_pass2_fp16.safetensors"
 
 # How many versions a node keeps. Twelve pushed the director's accepted take out of the list
 # after a day of iterating (2026-09-30, s2-c5); the studio's own cap is the same number.
@@ -5199,14 +5210,16 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "continueTail": result.get("continue_tail"),
             # set by a trim: which frames of the source were kept
             **({"trimPlan": result["trim"]} if result.get("trim") else {}),
-            # qwenImage: which graph ran ("turbo" 7 steps / "base" 25 steps)
+            # qwenImage: which graph ran ("turbo" 8 steps / "base" 25 steps) and its checkpoint file
             **({"speedUsed": result["speed"]} if result.get("speed") else {}),
+            **({"modelUsed": result["model"]} if result.get("model") else {}),
             "takes": takes[:MAX_TAKES],
             "pendingTake": None,
         }, canvas)
         return {"project_id": resolved["id"], "node_id": node_id, "job_id": job_id,
                 "status": "done", "url": result.get("url"),
                 **({"speed": result["speed"]} if result.get("speed") else {}),
+                **({"model": result["model"]} if result.get("model") else {}),
                 **({"edit_window": result["edit_window"], "seams": result.get("seams")}
                    if result.get("edit_window") else {}),
                 **({"continue_tail": result["continue_tail"]} if result.get("continue_tail") else {}),

@@ -54,6 +54,12 @@ const ANY_ANGLE_LORA = 'QI2.1_AnyAngle.safetensors';
 const ANY_ANGLE_PROMPT = 'Change the camera angle from <image2> to <image1>.';
 
 /**
+ * 全身 (fullbody LoRA, ai-toolkit pass 2, 2000 steps): the settings it was handed over with are LoRA 0.8,
+ * 25 steps, cfg 4, sampler er_sde, scheduler beta. It is a LoRA, so the node runs the 25-step graph.
+ */
+const FULL_BODY_LORA = 'qwen21_fullbody_pass2_fp16.safetensors';
+
+/**
  * Base models (keys of QWEN_IMAGE_21_BASE_MODELS in backend/workflow_builders.py).
  * Noct Q Anime is a merged checkpoint on the same graph; its own workflow runs
  * cfg 3 with this negative prompt, and prompts start "An anime illustration of…".
@@ -63,13 +69,16 @@ const BASE_MODELS = [
   { id: 'noctAnime', label: 'Noct 动漫', title: 'NoctQA_V1_int8_convrot。Qwen 2.1 的动漫合并底模（无审查，仅限非商用）。cfg 固定 3，提示词以 An anime illustration of… 开头。' },
 ] as const;
 /**
- * Speed modes. Turbo is the Viggle distilled LoRA (backend/workflow_builders.py QWEN_TURBO_*): 7 steps,
- * 2-4x faster, measured 2026-10-05 to look the same on plates, edits and sheets. 6 steps was dropped
- * (it garbled headline text twice in twelve tries); 25 steps stays as 原生.
+ * Speed modes. Turbo is the official Qwen-Image-2.1-Turbo checkpoint (backend/workflow_builders.py
+ * QWEN_IMAGE_21_TURBO_UNET): 8 steps on its own saved schedule, no LoRA, no cfg or negative prompt. It
+ * replaced the Viggle distilled LoRA (7 steps) on 2026-10-10 after a side-by-side on plates, headlines,
+ * a character sheet and a two-reference edit. 25 steps stays as 原生 (换机位 and the anime base need it).
+ * There is no steps box: turbo is fixed at 8 and 原生 at BASE_STEPS.
  */
+const BASE_STEPS = 25;
 const SPEEDS = [
-  { id: 'turbo', label: '加速 · 7 步', title: 'Viggle 蒸馏 LoRA，7 步，比原生快 2 到 4 倍，画质在出板、改图、定妆板上看不出差别。' },
-  { id: 'base', label: '原生 · 25 步', title: '不挂 LoRA，原生 25 步，按步数和反向提示词出图。' },
+  { id: 'turbo', label: '加速 · 8 步', title: 'Qwen 官方 Turbo 检查点，8 步，不挂 LoRA，不用 cfg 和反向提示词，出板、改图、标题字都按它的固定调度走。' },
+  { id: 'base', label: '原生 · 25 步', title: '不挂 LoRA，原生 25 步，按反向提示词出图。' },
 ] as const;
 const ANIME_NEGATIVE ='low quality, low resolution, blurry, jpeg artifacts, washed-out colors, sloppy lines, messy line art, extra fingers, missing fingers, badly drawn hands, deformed anatomy, 3d render, photograph, photorealistic';
 
@@ -105,7 +114,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
   const baseModel = (data.baseModel as string) || 'qwen21';
   // Turbo is the default. 换机位 (its own LoRA) and the anime base run the 25-step graph, as the backend does.
   const speed = data.speed === 'base' ? 'base' : 'turbo';
-  const turboActive = speed === 'turbo' && baseModel === 'qwen21' && !data.anyAngle;
+  const turboActive = speed === 'turbo' && baseModel === 'qwen21' && !data.anyAngle && !data.fullBody;
   const [negative, setNegative] = useSyncedText((data.negativePrompt as string) || '');
 
   const jobResult = useJobResult(data.jobId as string | undefined);
@@ -117,7 +126,9 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
       const usedSeed = typeof jobResult.seed === 'number' ? { seed: jobResult.seed as number } : {};
       // Which graph actually ran: the backend falls back to 25 steps when ComfyUI lacks the turbo nodes.
       const usedSpeed = jobResult.speed === 'turbo' || jobResult.speed === 'base' ? { speedUsed: jobResult.speed as 'turbo' | 'base' } : {};
-      updateNodeData(id, { status: 'done', generatedUrl: jobResult.url as string, jobId: undefined, ...usedSeed, ...usedSpeed });
+      // The checkpoint file that ran, so a picture made before the 2026-10-10 swap (no modelUsed) is told apart.
+      const usedModel = typeof jobResult.model === 'string' ? { modelUsed: jobResult.model as string } : {};
+      updateNodeData(id, { status: 'done', generatedUrl: jobResult.url as string, jobId: undefined, ...usedSeed, ...usedSpeed, ...usedModel });
     } else if (jobResult.status === 'error') {
       updateNodeData(id, { status: 'error', error: (jobResult.error as string) || t('生成失败'), jobId: undefined });
     } else if (jobResult.status === 'cancelled') {
@@ -141,12 +152,15 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
         negative_prompt: (data.negativePrompt as string) || '',
         width: size.width,
         height: size.height,
-        steps: (data.steps as number) || 25,
-        cfg: data.anyAngle || baseModel === 'noctAnime' ? 3.0 : typeof data.cfg === 'number' ? (data.cfg as number) : 1.0,
+        steps: BASE_STEPS,
+        cfg: data.anyAngle || baseModel === 'noctAnime' ? 3.0 : data.fullBody ? 4.0 : typeof data.cfg === 'number' ? (data.cfg as number) : 1.0,
         seed: effectiveSeed,
         base_model: baseModel,
         speed,
         ...(data.anyAngle ? { lora_name: ANY_ANGLE_LORA, lora_strength: 1.0 } : {}),
+        ...(data.fullBody && !data.anyAngle
+          ? { lora_name: FULL_BODY_LORA, lora_strength: 0.8, sampler_name: 'er_sde', scheduler: 'beta' }
+          : {}),
       });
       updateNodeData(id, { jobId: job_id });
     } catch (error: any) {
@@ -260,19 +274,19 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
               </div>
               <span className="block text-[9px] leading-relaxed text-zinc-500">
                 {turboActive
-                  ? t('加速：蒸馏 LoRA，7 步，不用 cfg 和反向提示词（下面的步数、反向提示词不生效）。整栏密集小字（多栏正文、片尾署名）两种都写不清。')
+                  ? t('加速：官方 Turbo 检查点，8 步，不用 cfg 和反向提示词（下面的反向提示词不生效）。整栏密集小字（多栏正文、片尾署名）两种都写不清。')
                   : speed === 'turbo'
                     ? t('换机位和动漫底模自己跑原生 25 步，加速不生效。')
-                    : t('原生 25 步，按下面的步数和反向提示词。')}
+                    : t('原生 25 步，按下面的反向提示词。')}
               </span>
               {data.generatedUrl && data.speedUsed && data.speedUsed !== speed && (
                 <span className="block text-[9px] text-amber-300">
-                  {t('当前这张是用「{mode}」出的，不是现在选的。', { mode: data.speedUsed === 'turbo' ? t('加速 · 7 步') : t('原生 · 25 步') })}
+                  {t('当前这张是用「{mode}」出的，不是现在选的。', { mode: data.speedUsed === 'turbo' ? t('加速 · 8 步') : t('原生 · 25 步') })}
                 </span>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <label className="space-y-1">
                 <span className="text-zinc-400">{t('画幅（只在没有参考图时生效）')}</span>
                 <select
@@ -287,21 +301,6 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
                   {SIZES.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
                 </select>
               </label>
-              <label className="space-y-1">
-                <span className="text-zinc-400">{t('步数')}</span>
-                <input
-                  type="number"
-                  min={4}
-                  max={60}
-                  disabled={turboActive}
-                  title={turboActive ? t('加速模式固定 7 步') : undefined}
-                  value={turboActive ? 7 : (data.steps as number) || 25}
-                  onChange={(e) => updateNodeData(id, { steps: Math.max(4, Math.min(60, Number(e.target.value) || 25)) })}
-                  onFocus={() => window.dispatchEvent(new Event('inputFocused'))}
-                  onBlur={() => window.dispatchEvent(new Event('inputBlurred'))}
-                  className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200 disabled:opacity-40"
-                />
-              </label>
             </div>
 
             <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
@@ -313,6 +312,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
                   const current = ((data.prompt as string) || '').trim();
                   updateNodeData(id, {
                     anyAngle: on,
+                    ...(on ? { fullBody: false } : {}),
                     ...(on && !current ? { prompt: ANY_ANGLE_PROMPT } : {}),
                   });
                 }}
@@ -326,6 +326,22 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
                 {data.anyAngle && refs.length !== 2 && (
                   <span className="block text-[9px] text-amber-300">{t('需要正好 2 张参考图，现在是 {n} 张', { n: refs.length })}</span>
                 )}
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+              <input
+                type="checkbox"
+                checked={Boolean(data.fullBody) && !data.anyAngle}
+                disabled={Boolean(data.anyAngle)}
+                onChange={(e) => updateNodeData(id, { fullBody: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span className="space-y-0.5">
+                <span className="block font-medium text-zinc-200">{t('全身（fullbody LoRA）')}</span>
+                <span className="block text-[9px] leading-relaxed text-zinc-500">
+                  {t('挂全身 LoRA，强度 0.8，原生 25 步，cfg 4，采样器 er_sde，调度器 beta（交付时的参数）。会用原生图，加速不生效；和换机位二选一。')}
+                </span>
               </span>
             </label>
 

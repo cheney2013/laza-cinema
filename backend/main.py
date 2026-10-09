@@ -3986,10 +3986,15 @@ class QwenImageRequest(BaseModel):
     # ref_resolution x ref_resolution pixels (1024 = about 1 MP, what the model is tuned for); 0 keeps
     # reference 1 at its own size, so a 2752x1536 source comes out 2752x1536.
     ref_resolution: int = Field(1024, ge=0, le=4096)
-    # "turbo": the Viggle distilled LoRA, 7 steps, no CFG, no negative prompt (steps, cfg and
-    # negative_prompt are then ignored). "base": the plain graph at `steps` / `cfg`. Turbo only
-    # applies to the qwen21 base without another LoRA; anything else runs as "base", and so does a
-    # ComfyUI without the turbo nodes. The result says which one ran.
+    # Sampler and scheduler of the 25-step graph (ignored by turbo, which has its own). The studio's
+    # 全身 switch sends er_sde + beta, the settings the fullbody LoRA was made for.
+    sampler_name: str = "euler"
+    scheduler: str = "simple"
+    # "turbo": the official Qwen-Image-2.1-Turbo checkpoint, 8 steps, no CFG, no negative prompt
+    # (steps, cfg and negative_prompt are then ignored). "base": the plain graph at `steps` / `cfg`.
+    # Turbo only applies to the qwen21 base without another LoRA; anything else runs as "base", and
+    # so does a ComfyUI that does not list the turbo checkpoint. The result says which one ran
+    # and with which checkpoint file.
     speed: Literal["turbo", "base"] = "turbo"
 
 
@@ -4022,6 +4027,8 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
         base_model=req.base_model,
         ref_resolution=req.ref_resolution,
         turbo=req.speed == "turbo",
+        sampler_name=req.sampler_name,
+        scheduler=req.scheduler,
         info=ran,
         on_queued=_make_on_queued(job),
     )
@@ -4029,7 +4036,7 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
     out_name = f"qwen21_{job['id']}.png"
     (UPLOAD_DIR / out_name).write_bytes(img_bytes)
     return {"url": f"/uploads/{out_name}", "seed": seed,
-            "speed": "turbo" if ran.get("turbo") else "base"}
+            "speed": "turbo" if ran.get("turbo") else "base", "model": ran.get("unet")}
 
 
 @app.post("/generate-qwen-image")

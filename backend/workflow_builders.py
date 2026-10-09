@@ -822,16 +822,17 @@ def _qwen_image_21_unet_loader(unet_name: str) -> dict:
 #: bit-identical output, because that size is already on the 32 grid.
 QWEN_IMAGE_21_REF_RESOLUTION = 1024
 
-#: Viggle turbo: a few-step distilled LoRA for Qwen-Image-2.1 (Qwen Research License,
-#: non-commercial). Measured 2026-10-04/05 on the 5090: 2-4x faster than the 25-step
-#: base, same picture quality on plates, edits and sheets; 7 steps rather than the
-#: card's 6 because 6 garbled headline text twice in 12 tries and 7 did not.
-#: Needs the `ViggleTurboLora` / `ViggleTurboSigmas` custom nodes (tools/comfyui_setup/README.md);
-#: the stock LoRA loaders merge it into the weights, which drops part of the update.
-QWEN_TURBO_LORA = "Qwen-Image-2.1-viggle-turbo-v0.3-6step-lora-r256.safetensors"
-#: Raw (unshifted) nodes of the 7-step schedule; ViggleTurboSigmas applies the resolution shift.
-QWEN_TURBO_NODES = "1.0, 0.9583, 0.9167, 0.875, 0.75, 0.5, 0.25"
-QWEN_TURBO_STEPS = 7
+#: Qwen-Image-2.1-Turbo (Qwen/Qwen-Image-2.1-Turbo, Qwen Research License, non-commercial): the
+#: official 8-step distilled checkpoint of the same 7B transformer, so it runs on the same text
+#: encoder, VAE and graph and only the UNETLoader file changes. The two diffusers shards were
+#: merged unchanged into one file (ComfyUI reads the unfused gate_layer/proj MLP layout natively).
+#: No LoRA, CFG 1 (BasicGuider: no negative prompt), euler, and the 8-step schedule the card saves in
+#: model_index.json as `sample_sigmas`, used as is -- its scheduler has shift 1.0 and dynamic shifting
+#: off, so no resolution shift is applied. The card lists 8 values and diffusers appends the terminal
+#: 0.0 itself; without it the last step would stop half denoised.
+QWEN_IMAGE_21_TURBO_UNET = env_value("QWEN_IMAGE_TURBO_UNET") or "qwen_image_2.1_turbo_bf16.safetensors"
+QWEN_TURBO_SIGMAS = "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0.0"
+QWEN_TURBO_STEPS = 8
 
 
 def sampler_seeds_in_png(data: bytes) -> set[int]:
@@ -883,6 +884,8 @@ def build_qwen_image_21_workflow(
     lora_strength: float = 1.0,
     base_model: str = "qwen21",
     turbo: bool = False,
+    sampler_name: str = "euler",
+    scheduler: str = "simple",
 ) -> dict:
     """Qwen-Image-2.1: text-to-image, or edit against up to 10 reference images.
 
@@ -913,11 +916,14 @@ def build_qwen_image_21_workflow(
     a lower denoise is not img2img here -- measured 2026-09-20, it decodes to
     noise texture, not to a lightly-edited picture.
 
-    turbo=True swaps the sampler for the distilled LoRA path: unmerged
-    `ViggleTurboLora`, `BasicGuider`, `ViggleTurboSigmas` and QWEN_TURBO_STEPS
-    steps; `steps`, `cfg` and `negative_prompt` do not apply (the card says no CFG and
-    no negative). It cannot be stacked with `lora_name` (AnyAngle was never tested
-    with it) and needs the plain Qwen 2.1 base.
+    sampler_name / scheduler only matter on the 25-step graph (the fullbody LoRA runs er_sde + beta);
+    turbo has its own sampler and schedule.
+
+    turbo=True runs the official Qwen-Image-2.1-Turbo checkpoint (QWEN_IMAGE_21_TURBO_UNET)
+    on `BasicGuider`, `ManualSigmas` (QWEN_TURBO_SIGMAS) and QWEN_TURBO_STEPS steps; `steps`,
+    `cfg` and `negative_prompt` do not apply (the card says CFG 1, no negative). It cannot be
+    stacked with `lora_name` (AnyAngle was made for the 25-step base and never tested on the
+    distilled weights) and needs the plain Qwen 2.1 base model key.
     """
     refs = list(reference_filenames or [])
     if len(refs) > 10:
@@ -935,7 +941,7 @@ def build_qwen_image_21_workflow(
         "resolution": ref_resolution,
     }
     workflow = {
-        "qi:1": _qwen_image_21_unet_loader(qwen_image_21_unet(base_model)),
+        "qi:1": _qwen_image_21_unet_loader(QWEN_IMAGE_21_TURBO_UNET if turbo else qwen_image_21_unet(base_model)),
         "qi:2": {"class_type": "CLIPLoader",
                  "inputs": {"clip_name": QWEN_IMAGE_21_CLIP,
                             "type": "qwen_image", "device": "default"}},
@@ -945,7 +951,7 @@ def build_qwen_image_21_workflow(
                  "inputs": {"model": ["qi:1", 0], "positive": ["qi:4", 0],
                             "negative": ["qi:4", 1], "latent_image": ["qi:5", 0],
                             "seed": seed, "steps": steps, "cfg": cfg,
-                            "sampler_name": "euler", "scheduler": "simple",
+                            "sampler_name": sampler_name, "scheduler": scheduler,
                             "denoise": 1.0}},
         "qi:7": {"class_type": "VAEDecode",
                  "inputs": {"samples": ["qi:6", 0], "vae": ["qi:3", 0]}},
@@ -985,19 +991,11 @@ def build_qwen_image_21_workflow(
     if turbo:
         latent = workflow["qi:6"]["inputs"]["latent_image"]
         unet = workflow["qi:6"]["inputs"]["model"]  # the cache node when there are references
-        workflow["qi:lora"] = {"class_type": "ViggleTurboLora",
-                               "inputs": {"model": ["qi:1", 0], "lora_name": QWEN_TURBO_LORA,
-                                          "strength": 1.0}}
-        if refs:
-            workflow["qi:cache"]["inputs"]["model"] = ["qi:lora", 0]
-        else:
-            unet = ["qi:lora", 0]
         workflow["qi:guider"] = {"class_type": "BasicGuider",
                                  "inputs": {"model": unet, "conditioning": ["qi:4", 0]}}
         workflow["qi:noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
         workflow["qi:sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}}
-        workflow["qi:sigmas"] = {"class_type": "ViggleTurboSigmas",
-                                 "inputs": {"latent": latent, "nodes": QWEN_TURBO_NODES}}
+        workflow["qi:sigmas"] = {"class_type": "ManualSigmas", "inputs": {"sigmas": QWEN_TURBO_SIGMAS}}
         workflow["qi:6"] = {"class_type": "SamplerCustomAdvanced",
                             "inputs": {"noise": ["qi:noise", 0], "guider": ["qi:guider", 0],
                                        "sampler": ["qi:sampler", 0], "sigmas": ["qi:sigmas", 0],
