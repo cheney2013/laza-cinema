@@ -273,6 +273,8 @@ export interface QwenImageNodeData extends SizedNodeData {
   anyAngle?: boolean;
   /** The fullbody LoRA at 0.8, 25 steps, cfg 4, er_sde + beta. A LoRA, so it runs the 25-step graph; anyAngle wins. */
   fullBody?: boolean;
+  /** Stackable LoRAs picked in the 叠加 LoRA capsule row: a file under loras/ and its strength. */
+  stackLoras?: { name: string; strength: number }[];
   /**
    * 'turbo' (the default when unset): the official Qwen-Image-2.1-Turbo checkpoint, 8 steps, no cfg
    * or negative prompt. 'base': the 25-step graph (the node sends a fixed 25; `steps` is a legacy

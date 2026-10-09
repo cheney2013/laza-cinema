@@ -849,6 +849,8 @@ export const api = {
     /** Sampler / scheduler of the 25-step graph (the 全身 switch sends er_sde + beta); turbo ignores them. */
     sampler_name?: string;
     scheduler?: string;
+    /** Stackable LoRAs, chained in order after `lora_name`; any LoRA runs the 25-step graph. */
+    extra_loras?: { name: string; strength: number }[];
     /** 'turbo' (backend default): the official Qwen-Image-2.1-Turbo checkpoint, 8 steps; steps, cfg and negative_prompt are ignored. */
     speed?: 'turbo' | 'base';
   }) =>

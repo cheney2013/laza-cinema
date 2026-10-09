@@ -60,6 +60,24 @@ const ANY_ANGLE_PROMPT = 'Change the camera angle from <image2> to <image1>.';
 const FULL_BODY_LORA = 'qwen21_fullbody_pass2_fp16.safetensors';
 
 /**
+ * LoRA capsules, two rows. MODE_LORAS carry their own cfg / sampler / prompt (换机位 needs exactly two references,
+ * 全身 is cfg 4 + er_sde + beta), so they are exclusive. STACK_LORAS are plain add-ons: any number, on top of a
+ * mode LoRA or alone, each with its own strength. All of them run the 25-step graph. A stackable LoRA is a
+ * file under ComfyUI's loras/ plus a capsule here; the node keeps them in data.stackLoras and the backend
+ * chains them after the mode LoRA in click order.
+ */
+const MODE_LORAS = [
+  { flag: 'anyAngle', label: '换机位', title: 'QI2.1_AnyAngle：第 1 张接原图，第 2 张接新机位的粗图，LoRA 1.0，cfg 3。',
+    hint: '第 1 张接原图，第 2 张接新机位的粗图（高斯查看器截图或灰模渲染）。提示词用 Change the camera angle from <image2> to <image1>.，cfg 固定 3。' },
+  { flag: 'fullBody', label: '全身', title: 'fullbody LoRA：强度 0.8，原生 25 步，cfg 4，采样器 er_sde，调度器 beta。',
+    hint: '挂全身 LoRA，强度 0.8，原生 25 步，cfg 4，采样器 er_sde，调度器 beta（交付时的参数）。会用原生图，加速不生效；和换机位二选一。' },
+] as const;
+const STACK_LORAS = [
+  { file: 'NSFW Qwen by TheseAlpacas V2.safetensors', label: 'NSFW V2', strength: 1.0,
+    title: 'NSFW Qwen by TheseAlpacas V2（Qwen 2.1 LoRA，rank 16）。可叠加，强度可调，默认 1.0。' },
+] as const;
+
+/**
  * Base models (keys of QWEN_IMAGE_21_BASE_MODELS in backend/workflow_builders.py).
  * Noct Q Anime is a merged checkpoint on the same graph; its own workflow runs
  * cfg 3 with this negative prompt, and prompts start "An anime illustration of…".
@@ -114,7 +132,8 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
   const baseModel = (data.baseModel as string) || 'qwen21';
   // Turbo is the default. 换机位 (its own LoRA) and the anime base run the 25-step graph, as the backend does.
   const speed = data.speed === 'base' ? 'base' : 'turbo';
-  const turboActive = speed === 'turbo' && baseModel === 'qwen21' && !data.anyAngle && !data.fullBody;
+  const stackLoras = ((data.stackLoras as { name: string; strength: number }[] | undefined) || []).filter((x) => x && x.name);
+  const turboActive = speed === 'turbo' && baseModel === 'qwen21' && !data.anyAngle && !data.fullBody && stackLoras.length === 0;
   const [negative, setNegative] = useSyncedText((data.negativePrompt as string) || '');
 
   const jobResult = useJobResult(data.jobId as string | undefined);
@@ -161,6 +180,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
         ...(data.fullBody && !data.anyAngle
           ? { lora_name: FULL_BODY_LORA, lora_strength: 0.8, sampler_name: 'er_sde', scheduler: 'beta' }
           : {}),
+        ...(stackLoras.length ? { extra_loras: stackLoras.map((x) => ({ name: x.name, strength: x.strength })) } : {}),
       });
       updateNodeData(id, { jobId: job_id });
     } catch (error: any) {
@@ -202,7 +222,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
               {data.anyAngle ? t('换机位 · {n} 张参考', { n: refs.length })
                 : refs.length ? t('改图 · {n} 张参考', { n: refs.length }) : t('文生图')}
             </MediaMetaChip>
-            <NodeHeaderIconButton active={showSettings} onClick={() => setShowSettings((v) => !v)} title={t('反向提示词、画幅、步数、参考图顺序')}>
+            <NodeHeaderIconButton active={showSettings} onClick={() => setShowSettings((v) => !v)} title={t('反向提示词、画幅、LoRA、参考图顺序')}>
               <GearIcon />
             </NodeHeaderIconButton>
           </div>
@@ -303,47 +323,93 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
               </label>
             </div>
 
-            <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-              <input
-                type="checkbox"
-                checked={Boolean(data.anyAngle)}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  const current = ((data.prompt as string) || '').trim();
-                  updateNodeData(id, {
-                    anyAngle: on,
-                    ...(on ? { fullBody: false } : {}),
-                    ...(on && !current ? { prompt: ANY_ANGLE_PROMPT } : {}),
-                  });
-                }}
-                className="mt-0.5"
-              />
-              <span className="space-y-0.5">
-                <span className="block font-medium text-zinc-200">{t('换机位（AnyAngle）')}</span>
-                <span className="block text-[9px] leading-relaxed text-zinc-500">
-                  {t('第 1 张接原图，第 2 张接新机位的粗图（高斯查看器截图或灰模渲染）。提示词用 Change the camera angle from <image2> to <image1>.，cfg 固定 3。')}
-                </span>
-                {data.anyAngle && refs.length !== 2 && (
-                  <span className="block text-[9px] text-amber-300">{t('需要正好 2 张参考图，现在是 {n} 张', { n: refs.length })}</span>
-                )}
-              </span>
-            </label>
+            {/* LoRA capsules. Mode LoRAs carry their own cfg / sampler / prompt, so only one at a time;
+                stackable ones are plain add-ons that can sit on top of either. */}
+            <div className="space-y-1">
+              <span className="text-zinc-400">{t('模式 LoRA（只能选一个，自带参数）')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {MODE_LORAS.map((m) => {
+                  const on = Boolean(data[m.flag]);
+                  return (
+                    <button
+                      key={m.flag}
+                      type="button"
+                      title={t(m.title)}
+                      onClick={() => {
+                        const current = ((data.prompt as string) || '').trim();
+                        updateNodeData(id, {
+                          anyAngle: false,
+                          fullBody: false,
+                          ...(on ? {} : { [m.flag]: true }),
+                          ...(!on && m.flag === 'anyAngle' && !current ? { prompt: ANY_ANGLE_PROMPT } : {}),
+                        });
+                      }}
+                      className={`nodrag py-1 px-2.5 text-[10px] rounded-full border transition-colors cursor-pointer ${on
+                          ? 'bg-white/20 border-white/40 text-white font-semibold shadow-xs'
+                          : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                        }`}
+                    >
+                      {t(m.label)}
+                    </button>
+                  );
+                })}
+              </div>
+              {MODE_LORAS.filter((m) => data[m.flag]).map((m) => (
+                <span key={m.flag} className="block text-[9px] leading-relaxed text-zinc-500">{t(m.hint)}</span>
+              ))}
+              {data.anyAngle && refs.length !== 2 && (
+                <span className="block text-[9px] text-amber-300">{t('需要正好 2 张参考图，现在是 {n} 张', { n: refs.length })}</span>
+              )}
+            </div>
 
-            <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-              <input
-                type="checkbox"
-                checked={Boolean(data.fullBody) && !data.anyAngle}
-                disabled={Boolean(data.anyAngle)}
-                onChange={(e) => updateNodeData(id, { fullBody: e.target.checked })}
-                className="mt-0.5"
-              />
-              <span className="space-y-0.5">
-                <span className="block font-medium text-zinc-200">{t('全身（fullbody LoRA）')}</span>
-                <span className="block text-[9px] leading-relaxed text-zinc-500">
-                  {t('挂全身 LoRA，强度 0.8，原生 25 步，cfg 4，采样器 er_sde，调度器 beta（交付时的参数）。会用原生图，加速不生效；和换机位二选一。')}
-                </span>
-              </span>
-            </label>
+            <div className="space-y-1">
+              <span className="text-zinc-400">{t('叠加 LoRA（可多选，可叠在模式 LoRA 上）')}</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {STACK_LORAS.map((l) => {
+                  const picked = stackLoras.find((x) => x.name === l.file);
+                  return (
+                    <span key={l.file} className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        title={t(l.title)}
+                        onClick={() => updateNodeData(id, {
+                          stackLoras: picked
+                            ? stackLoras.filter((x) => x.name !== l.file)
+                            : [...stackLoras, { name: l.file, strength: l.strength }],
+                        })}
+                        className={`nodrag py-1 px-2.5 text-[10px] rounded-full border transition-colors cursor-pointer ${picked
+                            ? 'bg-white/20 border-white/40 text-white font-semibold shadow-xs'
+                            : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                          }`}
+                      >
+                        {l.label}
+                      </button>
+                      {picked && (
+                        <input
+                          type="number"
+                          min={-2}
+                          max={2}
+                          step={0.05}
+                          title={t('强度')}
+                          value={picked.strength}
+                          onChange={(e) => updateNodeData(id, {
+                            stackLoras: stackLoras.map((x) => (x.name === l.file
+                              ? { ...x, strength: Math.max(-2, Math.min(2, Number(e.target.value))) }
+                              : x)),
+                          })}
+                          onFocus={() => window.dispatchEvent(new Event('inputFocused'))}
+                          onBlur={() => window.dispatchEvent(new Event('inputBlurred'))}
+                          className="nodrag w-14 rounded border border-white/10 bg-black/30 px-1 py-0.5 text-zinc-200"
+                        />
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+              {stackLoras.length > 0 && (
+                <span className="block text-[9px] leading-relaxed text-zinc-500">{t('挂了 LoRA 就走原生 25 步，加速不生效。')}</span>
+              )}
+            </div>
 
             {/* References, in the order the model will number them */}
             <div className="space-y-1.5">

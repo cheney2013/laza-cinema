@@ -1474,6 +1474,7 @@ class ComfyUIClient:
         turbo: bool = False,
         sampler_name: str = "euler",
         scheduler: str = "simple",
+        extra_loras: Optional[list] = None,
         info: Optional[dict] = None,
         on_queued=None,
     ):
@@ -1488,7 +1489,7 @@ class ComfyUIClient:
         model), the render runs on the plain 25-step graph instead and says so in the log.
         `info`, when given, gets `turbo` set to what actually ran and `unet` the checkpoint file.
         """
-        if turbo and (lora_name or (base_model or "qwen21") != "qwen21"):
+        if turbo and (lora_name or extra_loras or (base_model or "qwen21") != "qwen21"):
             turbo = False
         if turbo and not await self.qwen_turbo_ready():
             logger.warning("Qwen turbo requested but ComfyUI does not list %s; "
@@ -1513,6 +1514,7 @@ class ComfyUIClient:
             turbo=turbo,
             sampler_name=sampler_name,
             scheduler=scheduler,
+            extra_loras=extra_loras,
         )
         if info is not None:
             info["turbo"] = turbo

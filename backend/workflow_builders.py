@@ -886,6 +886,7 @@ def build_qwen_image_21_workflow(
     turbo: bool = False,
     sampler_name: str = "euler",
     scheduler: str = "simple",
+    extra_loras: Optional[list] = None,
 ) -> dict:
     """Qwen-Image-2.1: text-to-image, or edit against up to 10 reference images.
 
@@ -916,6 +917,10 @@ def build_qwen_image_21_workflow(
     a lower denoise is not img2img here -- measured 2026-09-20, it decodes to
     noise texture, not to a lightly-edited picture.
 
+    extra_loras is the stackable kind: [{"name": file, "strength": float}, ...], each one a
+    LoraLoaderModelOnly chained after `lora_name` (the mode LoRA: AnyAngle or fullbody, which set
+    their own cfg, sampler and prompt) in list order. Like any LoRA they refuse turbo.
+
     sampler_name / scheduler only matter on the 25-step graph (the fullbody LoRA runs er_sde + beta);
     turbo has its own sampler and schedule.
 
@@ -928,8 +933,9 @@ def build_qwen_image_21_workflow(
     refs = list(reference_filenames or [])
     if len(refs) > 10:
         raise ValueError(f"Qwen-Image-2.1 takes at most 10 reference images, got {len(refs)}")
-    if turbo and lora_name:
-        raise ValueError("turbo cannot be combined with another LoRA (lora_name)")
+    extra_loras = [x for x in (extra_loras or []) if x and x.get("name")]
+    if turbo and (lora_name or extra_loras):
+        raise ValueError("turbo cannot be combined with another LoRA (lora_name / extra_loras)")
     if turbo and (base_model or "qwen21") != "qwen21":
         raise ValueError(f"turbo is made for the qwen21 base model, not {base_model!r}")
 
@@ -970,11 +976,14 @@ def build_qwen_image_21_workflow(
     # An optional LoRA sits between the UNet and everything that samples from it
     # (QI2.1_AnyAngle: <image 1> the original, <image 2> the coarse new view).
     unet = ["qi:1", 0]
-    if lora_name:
-        workflow["qi:lora"] = {"class_type": "LoraLoaderModelOnly",
-                               "inputs": {"model": ["qi:1", 0], "lora_name": lora_name,
-                                          "strength_model": lora_strength}}
-        unet = ["qi:lora", 0]
+    chain = ([(lora_name, lora_strength)] if lora_name else []) + [
+        (x["name"], float(x.get("strength", 1.0))) for x in extra_loras]
+    for i, (name, strength) in enumerate(chain):
+        lora_id = "qi:lora" if i == 0 else f"qi:lora{i + 1}"
+        workflow[lora_id] = {"class_type": "LoraLoaderModelOnly",
+                             "inputs": {"model": unet, "lora_name": name,
+                                        "strength_model": strength}}
+        unet = [lora_id, 0]
         workflow["qi:6"]["inputs"]["model"] = unet
 
     if refs:

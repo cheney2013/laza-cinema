@@ -3961,6 +3961,12 @@ async def generate_inpaint(req: InpaintRequest):
 
 # ── Qwen-Image-2.1 ───────────────────────────────────────────────────────────
 
+class QwenLoraSpec(BaseModel):
+    """One stackable LoRA of a Qwen image request: a file under ComfyUI's loras/ and its strength."""
+    name: str
+    strength: float = Field(1.0, ge=-2.0, le=2.0)
+
+
 class QwenImageRequest(BaseModel):
     """Text-to-image, or an edit against up to 10 reference images.
 
@@ -3990,6 +3996,9 @@ class QwenImageRequest(BaseModel):
     # 全身 switch sends er_sde + beta, the settings the fullbody LoRA was made for.
     sampler_name: str = "euler"
     scheduler: str = "simple"
+    # Stackable LoRAs (the studio's second capsule row): each is chained after `lora_name`, in order.
+    # Any LoRA makes the run a 25-step "base" one.
+    extra_loras: list[QwenLoraSpec] = Field(default_factory=list)
     # "turbo": the official Qwen-Image-2.1-Turbo checkpoint, 8 steps, no CFG, no negative prompt
     # (steps, cfg and negative_prompt are then ignored). "base": the plain graph at `steps` / `cfg`.
     # Turbo only applies to the qwen21 base without another LoRA; anything else runs as "base", and
@@ -4029,6 +4038,7 @@ async def _run_qwen_image_job(job: dict, req: QwenImageRequest) -> dict:
         turbo=req.speed == "turbo",
         sampler_name=req.sampler_name,
         scheduler=req.scheduler,
+        extra_loras=[x.model_dump() for x in req.extra_loras],
         info=ran,
         on_queued=_make_on_queued(job),
     )

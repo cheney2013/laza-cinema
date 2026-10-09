@@ -60,7 +60,31 @@ class QwenTurboGraphTest(unittest.TestCase):
                 if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
                     self.assertIn(value[0], wf, f"{key} points at a node that is not in the graph")
 
+    def test_stackable_loras_chain_after_the_mode_lora_in_order(self):
+        wf = wb.build_qwen_image_21_workflow(
+            prompt="p", reference_filenames=["a.png"], lora_name="mode.safetensors", lora_strength=0.8,
+            extra_loras=[{"name": "one.safetensors", "strength": 0.5}, {"name": "two.safetensors"}])
+        self.assertEqual(wf["qi:lora"]["inputs"]["model"], ["qi:1", 0])
+        self.assertEqual(wf["qi:lora"]["inputs"]["strength_model"], 0.8)
+        self.assertEqual(wf["qi:lora2"]["inputs"]["model"], ["qi:lora", 0])
+        self.assertEqual(wf["qi:lora2"]["inputs"]["strength_model"], 0.5)
+        self.assertEqual(wf["qi:lora3"]["inputs"]["model"], ["qi:lora2", 0])
+        self.assertEqual(wf["qi:lora3"]["inputs"]["strength_model"], 1.0, "strength defaults to 1")
+        self.assertEqual(wf["qi:cache"]["inputs"]["model"], ["qi:lora3", 0], "references: the cache sits after the last LoRA")
+
+    def test_a_stackable_lora_alone_loads_first_and_feeds_the_sampler(self):
+        wf = wb.build_qwen_image_21_workflow(prompt="p", extra_loras=[{"name": "one.safetensors", "strength": 0.7}])
+        self.assertEqual(wf["qi:lora"]["inputs"]["lora_name"], "one.safetensors")
+        self.assertEqual(wf["qi:6"]["class_type"], "KSampler")
+        self.assertEqual(wf["qi:6"]["inputs"]["model"], ["qi:lora", 0])
+
+    def test_blank_stack_entries_are_ignored(self):
+        wf = wb.build_qwen_image_21_workflow(prompt="p", extra_loras=[{"name": ""}, None])
+        self.assertFalse(by_class(wf, "LoraLoaderModelOnly"))
+
     def test_turbo_refuses_another_lora_and_another_base(self):
+        with self.assertRaises(ValueError):
+            wb.build_qwen_image_21_workflow(prompt="p", extra_loras=[{"name": "one.safetensors"}], turbo=True)
         with self.assertRaises(ValueError):
             wb.build_qwen_image_21_workflow(prompt="p", lora_name="QI2.1_AnyAngle.safetensors", turbo=True)
         with self.assertRaises(ValueError):
@@ -70,6 +94,11 @@ class QwenTurboGraphTest(unittest.TestCase):
 class QwenTurboRequestTest(unittest.TestCase):
     def test_the_node_defaults_to_turbo(self):
         self.assertEqual(main.QwenImageRequest(prompt="p").speed, "turbo")
+
+    def test_extra_loras_come_through_the_request(self):
+        req = main.QwenImageRequest(prompt="p", extra_loras=[{"name": "one.safetensors", "strength": 0.6}])
+        self.assertEqual([x.model_dump() for x in req.extra_loras], [{"name": "one.safetensors", "strength": 0.6}])
+        self.assertEqual(main.QwenImageRequest(prompt="p").extra_loras, [])
 
     def test_only_two_speeds_exist(self):
         self.assertEqual(main.QwenImageRequest(prompt="p", speed="base").speed, "base")

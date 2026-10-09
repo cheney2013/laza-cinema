@@ -339,6 +339,8 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         # baseModel: "qwen21" (default) or "noctAnime" (Noct Q Anime, a merged
         # anime checkpoint on the same graph; runs at cfg 3, prompt starts
         # "An anime illustration of...").
+        # stackLoras: [{"name": <file under loras/>, "strength": 1.0}] -- the studio's 叠加 LoRA capsules
+        # (stackable, any number, on top of anyAngle / fullBody or alone). Any LoRA runs the 25-step graph.
         # fullBody: the qwen21_fullbody_pass2 LoRA (full-body figures) at strength 0.8 with 25 steps,
         # cfg 4, sampler er_sde, scheduler beta; runs the 25-step graph, so turbo is off for it.
         # anyAngle wins when both are set.
@@ -2980,12 +2982,16 @@ def _run_qwen_image_locked(resolved: dict[str, Any], canvas: dict[str, Any],
         # cfg 4, er_sde + beta -- the settings it was handed over with.
         payload.update({"lora_name": FULL_BODY_LORA, "lora_strength": 0.8, "cfg": 4.0,
                         "sampler_name": "er_sde", "scheduler": "beta"})
+    stack = [{"name": str(x["name"]), "strength": float(x.get("strength", 1.0))}
+             for x in (data.get("stackLoras") or []) if isinstance(x, dict) and x.get("name")]
+    if stack:
+        payload["extra_loras"] = stack  # the studio's 叠加 LoRA capsules; any LoRA means the 25-step graph
     submitted = _request("POST", "/generate-qwen-image", json=payload, project_id=resolved["id"])
     revision = _save_node_data(resolved["id"], node_id, {
         "status": "generating", "jobId": submitted["job_id"], "error": None,
     }, canvas)
     turbo_planned = (payload["speed"] == "turbo" and payload["base_model"] == "qwen21"
-                     and not payload.get("lora_name"))
+                     and not payload.get("lora_name") and not payload.get("extra_loras"))
     result = {"project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
               "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
               "revision": revision, "input_counts": {"references": len(refs)},
