@@ -2,8 +2,7 @@
 //
 // With an "H3 Clip Preview" node in the workflow, the clip is drawn on that node and its last frame
 // stays there after the run. Without one, the clip is drawn on the node that is sampling for as long
-// as it samples; if that node cannot be found (inside a subgraph, say) a small panel at the bottom
-// right of the window shows it instead.
+// as it samples. If no node can be found, nothing is shown.
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
@@ -12,7 +11,7 @@ const WIDGET = "h3_clip_preview";
 
 let executingNode = null; // id of the node ComfyUI says it is running
 let activePrompt = null;
-let host = null; // { node, widget, video, state, persistent, raf } or { panel, video, label }
+let host = null; // { node, widget, video, state, persistent, raf }
 
 function makeVideo() {
   const video = document.createElement("video");
@@ -24,15 +23,28 @@ function makeVideo() {
   return video;
 }
 
-function findNode(id) {
+// Ids of nodes inside subgraphs read "105:14": subgraph node 105, then node 14 inside it.
+function resolveNode(id) {
   if (id == null) return null;
-  const graph = app.graph;
-  return graph?.getNodeById?.(Number(id)) ?? graph?._nodes_by_id?.[id] ?? null;
+  const parts = String(id).split(":");
+  let graph = app.graph;
+  let node = null;
+  for (const part of parts) {
+    node = graph?.getNodeById?.(Number(part)) ?? graph?._nodes_by_id?.[part] ?? null;
+    if (!node) return null;
+    graph = node.subgraph ?? null;
+  }
+  return node;
 }
 
-function removeWidget(node) {
-  const i = node.widgets ? node.widgets.findIndex((w) => w.name === WIDGET) : -1;
+function removeWidget(node, widget) {
+  const i = node.widgets ? node.widgets.indexOf(widget) : -1;
   if (i >= 0) node.widgets.splice(i, 1);
+}
+
+function redraw(node) {
+  node.graph?.setDirtyCanvas?.(true, false);
+  app.canvas?.setDirty?.(true, false);
 }
 
 function stopVideo(video) {
@@ -55,14 +67,11 @@ function release({ keepLastFrame = false } = {}) {
       h.state.snapshot = snap;
       h.state.live = false;
     } else {
-      removeWidget(h.node);
+      removeWidget(h.node, h.widget);
       if (h.sizeBefore) h.node.setSize([Math.max(h.node.size[0], h.sizeBefore[0]), h.sizeBefore[1]]);
     }
     stopVideo(h.video);
-    h.node.graph?.setDirtyCanvas?.(true, true);
-  } else if (h.panel) {
-    stopVideo(h.video);
-    h.panel.remove();
+    redraw(h.node);
   }
 }
 
@@ -126,7 +135,6 @@ function attachToNode(node, persistent) {
   let built = persistent ? node.__h3clip : null;
   const sizeBefore = [...node.size];
   if (!(built && node.widgets?.includes(built.widget))) {
-    removeWidget(node);
     built = buildWidget(persistent);
     addWidget(node, built.widget);
     if (persistent) node.__h3clip = built;
@@ -136,23 +144,10 @@ function attachToNode(node, persistent) {
   host = { node, widget, video, state, persistent, sizeBefore, raf: 0 };
   const tick = () => {
     if (!host || host.widget !== widget) return;
-    node.graph?.setDirtyCanvas?.(true, false);
+    redraw(node);
     host.raf = requestAnimationFrame(tick);
   };
   host.raf = requestAnimationFrame(tick);
-}
-
-function attachPanel() {
-  const panel = document.createElement("div");
-  panel.style.cssText =
-    "position:fixed;right:16px;bottom:16px;z-index:1000;width:320px;max-width:40vw;background:#111;" +
-    "border:1px solid #444;border-radius:6px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.5)";
-  const video = makeVideo();
-  const label = document.createElement("div");
-  label.style.cssText = "font:11px sans-serif;color:#bbb;padding:2px 6px;display:flex;justify-content:space-between";
-  panel.append(video, label);
-  document.body.appendChild(panel);
-  host = { panel, video, label };
 }
 
 function show({ prompt_id, step, total, filename, subfolder, node_id, exec_node }) {
@@ -161,14 +156,19 @@ function show({ prompt_id, step, total, filename, subfolder, node_id, exec_node 
     activePrompt = prompt_id;
   }
   // The dedicated node when the workflow has one, else the node that is sampling.
-  const dedicated = findNode(node_id);
   // The sampler's own id comes with the event; the front end's running-node tracking is the fallback.
   const running = exec_node ?? executingNode ?? app.runningNodeId ?? null;
-  const target = dedicated || findNode(running);
-  if (!target) console.debug("[H3 Clip Preview] no node for", { node_id, running }, "- using the panel");
-  if (!host || (target && host.node !== target) || (!target && host.node)) {
+  const named = resolveNode(node_id);
+  const target = named || resolveNode(running);
+  const dedicated = !!named;
+  if (!target) {
+    console.debug("[H3 Clip Preview] no node to draw on for", { node_id, running });
     release();
-    target ? attachToNode(target, !!dedicated) : attachPanel();
+    return;
+  }
+  if (!host || host.node !== target) {
+    release();
+    attachToNode(target, dedicated);
   }
   const { video } = host;
   if (host.state) {
@@ -184,14 +184,6 @@ function show({ prompt_id, step, total, filename, subfolder, node_id, exec_node 
     if (t && video.duration) video.currentTime = Math.min(t, video.duration - 0.05);
     video.play().catch(() => {});
   }, { once: true });
-  if (host.label) {
-    host.label.textContent = "";
-    const a = document.createElement("span");
-    a.textContent = "H3 clip preview";
-    const b = document.createElement("span");
-    b.textContent = `step ${step}/${total}`;
-    host.label.append(a, b);
-  }
 }
 
 function finish(detail) {

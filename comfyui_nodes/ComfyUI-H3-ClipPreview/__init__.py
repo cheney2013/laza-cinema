@@ -191,40 +191,67 @@ _original = latent_preview.prepare_callback
 if "aicinema-live-preview" in (getattr(_original, "__module__", "") or ""):
     log.warning("the earlier 'aicinema-live-preview' pack is loaded: remove it from custom_nodes, "
                 "two copies would decode every step twice")
-_opted_out_cache: dict = {}
+_run_cache: dict = {}
 
 
-def _opted_out(prompt_id) -> bool:
-    """The prompt was queued with extra_data {"h3_clip_preview": false}."""
-    if prompt_id in _opted_out_cache:
-        return _opted_out_cache[prompt_id]
-    out = False
+def _upstream(prompt: dict, start) -> set:
+    """Ids of every node the node `start` reads from, directly or through other nodes."""
+    seen, stack = set(), [str(start)]
+    while stack:
+        nid = stack.pop()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        node = prompt.get(nid)
+        for value in ((node or {}).get("inputs") or {}).values():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                stack.append(value[0])
+    return seen
+
+
+def _run_info(prompt_id, exec_node=None) -> dict:
+    """What the running prompt says about the preview: {"off": bool, "node_id": str|None, "scale": str}.
+
+    "off" is extra_data {"h3_clip_preview": false}. node_id and scale come from the "H3 Clip Preview" node whose
+    model input is something the sampling `exec_node` reads from; a bypassed or muted node is not part of the
+    prompt, so it counts as absent."""
+    key = (prompt_id, exec_node)
+    if key in _run_cache:
+        return _run_cache[key]
+    info = {"off": False, "node_id": None, "scale": "half"}
     try:
         import server
         queue = server.PromptServer.instance.prompt_queue
         with queue.mutex:
             for item in queue.currently_running.values():
-                if item[1] == prompt_id and len(item) > 3 and isinstance(item[3], dict):
-                    out = (item[3].get("h3_clip_preview") is False
-                           or item[3].get("h3_clip_preview") is False)
+                if item[1] != prompt_id:
+                    continue
+                extra = item[3] if len(item) > 3 and isinstance(item[3], dict) else {}
+                info["off"] = extra.get("h3_clip_preview") is False or extra.get("aicinema_live_preview") is False
+                prompt = item[2] if isinstance(item[2], dict) else {}
+                reads = _upstream(prompt, exec_node) if exec_node is not None else set()
+                for nid, node in prompt.items():
+                    if not (isinstance(node, dict) and node.get("class_type") == "H3ClipPreview"):
+                        continue
+                    source = (node.get("inputs") or {}).get("model")
+                    if not (isinstance(source, list) and source and str(source[0]) in reads):
+                        continue
+                    info["node_id"] = str(nid)
+                    scale = (node.get("inputs") or {}).get("scale")
+                    info["scale"] = scale if scale in ("half", "quarter") else "half"
+                    break
     except Exception:  # noqa: BLE001
-        out = False
-    if len(_opted_out_cache) > 64:
-        _opted_out_cache.clear()
-    _opted_out_cache[prompt_id] = out
-    return out
+        pass
+    if len(_run_cache) > 64:
+        _run_cache.clear()
+    _run_cache[key] = info
+    return info
 
 
 def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
     inner = _original(model, steps, x0_output_dict, *args, **kwargs)
     if not ENABLED or not _is_h3(model):
         return inner
-    # Set by the "H3 Clip Preview" node when the workflow has one; without it every H3 sampling
-    # is previewed and the front end draws the clip on the node that is sampling.
-    opts = (getattr(model, "model_options", None) or {}).get("h3_clip_preview") or {}
-    if NODE_ONLY and not opts:
-        return inner
-    node_id, scale = opts.get("node_id"), opts.get("scale", "half")
 
     def callback(step, x0, x, total_steps):
         inner(step, x0, x, total_steps)
@@ -232,7 +259,12 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
         try:
             from comfy_execution.utils import get_executing_context
             ctx = get_executing_context()
-            if ctx is None or _opted_out(ctx.prompt_id):
+            info = _run_info(ctx.prompt_id, ctx.node_id) if ctx is not None else None
+            if info is None or info["off"]:
+                return
+            # With an "H3 Clip Preview" node in the workflow the clip goes there; without one every H3
+            # sampling is previewed (unless H3_CLIP_PREVIEW=node) and the front end draws it on the sampler.
+            if NODE_ONLY and info["node_id"] is None:
                 return
             # The last step's clip would land just as the real decode finishes.
             if step + 1 >= total_steps:
@@ -246,7 +278,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             lat = lat[:1, :24].detach().to("cpu", torch.float16)
             if _worker is None:
                 _worker = _Worker()
-            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, node_id, scale,
+            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, info["node_id"], info["scale"],
                            str(ctx.node_id) if ctx.node_id is not None else None)
         except Exception:  # noqa: BLE001
             log.warning("clip preview capture failed", exc_info=True)
@@ -285,7 +317,7 @@ else:
 WEB_DIRECTORY = "./web"
 
 class H3ClipPreview:
-    """Pass-through node: previews the H3 sampling that uses this model on the node itself."""
+    """Display node: the clip of an H3 sampling that uses this model plays here. Input only, like Preview Image."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -296,22 +328,16 @@ class H3ClipPreview:
                     "default": "half",
                     "tooltip": "Preview resolution relative to the render. Quarter decodes about four times faster."}),
             },
-            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
-    RETURN_TYPES = ("MODEL",)
-    RETURN_NAMES = ("model",)
-    FUNCTION = "apply"
+    RETURN_TYPES = ()
+    FUNCTION = "noop"
+    OUTPUT_NODE = True
     CATEGORY = "H3"
     DESCRIPTION = "Shows the whole clip taking shape on this node while MiniMax H3 samples. Decoded on the CPU."
 
-    def apply(self, model, scale, unique_id=None):
-        patched = model.clone()
-        patched.model_options["h3_clip_preview"] = {
-            "node_id": str(unique_id) if unique_id is not None else None,
-            "scale": scale,
-        }
-        return (patched,)
+    def noop(self, model, scale):
+        return {}
 
 
 NODE_CLASS_MAPPINGS = {"H3ClipPreview": H3ClipPreview}

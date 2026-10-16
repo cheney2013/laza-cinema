@@ -19,22 +19,20 @@ device-to-host copy of the latent per step.
 
 ## Use
 
-Add the **H3 Clip Preview** node (category `H3`) between the model loader and the sampler:
-
-    model loader -> H3 Clip Preview -> sampler
+Add the **H3 Clip Preview** node (category `H3`) and connect the H3 `model` to it (the same model that feeds the sampler). It has an input and no output, like a Preview Image node.
 
 | Input | Meaning |
 |---|---|
-| `model` | The H3 model. It is passed on unchanged. |
+| `model` | The H3 model. It is only read, never changed. |
 | `scale` | `half` or `quarter` of the render resolution. `quarter` decodes about four times faster. |
 
-While the sampler runs, the clip plays on this node and updates every step. When the run ends, the last
-frame stays on the node.
+While an H3 sampler runs, the clip plays on this node and updates every step. When the run ends, the last frame stays on
+the node. Bypass or mute the node to turn the preview off for that workflow.
 
-Without the node, every H3 sampling is still previewed and the clip is drawn on the sampler node for as long
-as it samples (a small panel at the bottom right if that node cannot be located, for example inside a subgraph).
-Set `H3_CLIP_PREVIEW=node` to preview only workflows that contain the node; bypassing the node then turns the
-preview off. Only models whose latent format is MiniMax H3 are affected; other models are untouched.
+Without the node, every H3 sampling is still previewed and the clip is drawn on the sampler node for as long as it
+samples. Set
+`H3_CLIP_PREVIEW=node` to preview only workflows that contain the node. Only models whose latent format is MiniMax H3
+are affected; other models are untouched.
 
 The pack relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing it logs which and stays
 inactive.
