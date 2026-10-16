@@ -80,7 +80,7 @@ class _Worker:
         self.proc = subprocess.Popen(
             [sys.executable, str(HERE / "worker.py")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
+            text=True, encoding="utf-8", bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
         )
 
     def submit(self, prompt_id, step, total, latent):
@@ -241,7 +241,36 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
     return callback
 
 
-latent_preview.prepare_callback = prepare_callback
+def _compat_problems() -> list:
+    """Names this pack relies on that are not public ComfyUI API. Verified on ComfyUI 0.38.0."""
+    problems = []
+    if not callable(getattr(latent_preview, "prepare_callback", None)):
+        problems.append("latent_preview.prepare_callback")
+    try:
+        from comfy_execution.utils import get_executing_context  # noqa: F401
+    except Exception:  # noqa: BLE001
+        problems.append("comfy_execution.utils.get_executing_context")
+    try:
+        from comfy.taesd.taehv import MemBlock, TGrow, TPool, TWorkItem  # noqa: F401
+    except Exception:  # noqa: BLE001
+        problems.append("comfy.taesd.taehv (MemBlock, TGrow, TPool, TWorkItem)")
+    try:
+        import server
+        if not hasattr(server.PromptServer, "send_sync"):
+            problems.append("server.PromptServer.send_sync")
+    except Exception:  # noqa: BLE001
+        problems.append("server.PromptServer")
+    return problems
+
+
+_problems = _compat_problems()
+if _problems:
+    log.warning("ComfyUI-H3-ClipPreview is inactive: this ComfyUI lacks %s (verified on ComfyUI 0.38.0)",
+                ", ".join(_problems))
+else:
+    latent_preview.prepare_callback = prepare_callback
+
+WEB_DIRECTORY = "./web"
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}

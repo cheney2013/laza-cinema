@@ -134,6 +134,9 @@ def prepare(lat):
 
 
 def main():
+    # Paths come in over a pipe: UTF-8 both ways, whatever the system code page is.
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
     model = load()
     for line in sys.stdin:
         try:
