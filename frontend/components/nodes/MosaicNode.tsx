@@ -272,6 +272,18 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 <div className="nodrag" onClick={addSeed} onMouseDown={(e) => e.stopPropagation()}
                   style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 30 }} />
               )}
+              {shownPreview?.busy && (!data.generatedUrl || showSource) && (
+                <div style={{
+                  position: 'absolute', left: '50%', top: '12%', transform: 'translateX(-50%)', zIndex: 32, pointerEvents: 'none',
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10,
+                  background: 'rgba(0,0,0,0.82)', border: '1px solid rgba(255,255,255,0.18)', color: '#e4e4e7', fontSize: 12,
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.5)', whiteSpace: 'nowrap',
+                }}>
+                  <span className="animate-spin" style={{ width: 12, height: 12, borderRadius: 6,
+                    border: '2px solid rgba(255,255,255,0.25)', borderTopColor: '#22d3ee' }} />
+                  {t('正在识别这一点…')}
+                </div>
+              )}
               {shownPreview?.url && (!data.generatedUrl || showSource) && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={`${API_BASE}${shownPreview.url}`} alt="" draggable={false}
