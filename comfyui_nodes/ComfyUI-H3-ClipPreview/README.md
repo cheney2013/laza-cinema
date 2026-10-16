@@ -1,6 +1,6 @@
 # ComfyUI-H3-ClipPreview
 
-中文说明: [README.zh-CN.md](README.zh-CN.md)
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
 Whole-clip sampling preview for MiniMax H3, decoded on the CPU.
 

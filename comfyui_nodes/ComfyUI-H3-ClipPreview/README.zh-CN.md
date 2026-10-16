@@ -1,10 +1,10 @@
 # ComfyUI-H3-ClipPreview
 
+<p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
+
 MiniMax H3 的整段视频采样预览，在 CPU 上解码。
 
 H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交给一个独立的低优先级进程，用 `taeh3` 微型自编码器解码**整段视频**，写成一个短 MP4。这样可以看到画面随采样逐步成形，而不是只有一帧色块。解码在 CPU 上运行，不占显存；GPU 一侧只有每步一次潜变量的设备到主机拷贝。
-
-English: [README.md](README.md)
 
 ## 安装
 
