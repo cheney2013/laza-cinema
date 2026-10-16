@@ -66,7 +66,7 @@ MACHINE_PROFILES: dict[str, dict] = {
         # of the same weights (searched 2026-10-04), and the text encoder (15.7 GB) must sit beside
         # them in 32 GB of RAM. Presets are refused with a clear message; node types are hidden
         # from the studio and refused by the backend. The H3 swap of the charswap node needs the ref2va base.
-        "disabled_presets": ["fused", "hybrid", "ref2va_full", "hyperflow"],
+        "disabled_presets": ["fused", "hybrid", "ref2va_full"],
         "disabled_node_types": ["charswap", "videoOrbit"],
         # Video enhance: the latent refine loads the fused int8 base (21 GB), so ESRGAN is the default
         # here and the latent method is refused. lms (same-size sharpen) runs on the substituted preset.

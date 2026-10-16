@@ -17,7 +17,7 @@ class DisabledOnLowVram(unittest.TestCase):
 
     def test_lowvram_refuses_int8_presets(self):
         mp = _load("lowvram")
-        for name in ("fused", "hybrid", "ref2va_full", "hyperflow"):
+        for name in ("fused", "hybrid", "ref2va_full"):
             with self.assertRaises(ValueError, msg=name):
                 mp.require_preset(name)
         mp.require_preset("pruned_w4a8")
@@ -51,7 +51,7 @@ class DisabledOnLowVram(unittest.TestCase):
 
     def test_workstation_refuses_nothing(self):
         mp = _load("workstation")
-        for name in ("fused", "hyperflow", "crossview"):
+        for name in ("fused", "crossview"):
             mp.require_preset(name)
         mp.require_node("charswap")
         mp.require_upscale_method("h3_latent")
@@ -141,7 +141,7 @@ class DisabledOnLowVram(unittest.TestCase):
         mp = _load("lowvram")
         public = mp.public_profile()
         self.assertIn("charswap", public["disabled_node_types"])
-        self.assertIn("hyperflow", public["disabled_presets"])
+        self.assertIn("hybrid", public["disabled_presets"])
 
 
 if __name__ == "__main__":

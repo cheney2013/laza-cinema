@@ -1964,6 +1964,11 @@ def _make_on_queued(job: dict):
 #: machine_profile picks it per box: "singularity" on the workstation,
 #: "pruned_w4a8" on a 16 GB card that cannot hold the int8 checkpoint.
 DEFAULT_H3_MOTION_PRESET = MACHINE_PROFILE["motion_preset"]
+# Presets taken out of the studio. Old takes still record them, so a node that still names one gets
+# this message instead of a silent render with some other base.
+REMOVED_H3_MOTION_PRESETS: dict[str, str] = {
+    "hyperflow": "同底模的对照请改用 'ref2va_full'（未剪枝 ref2va + turbo 8 步）。",
+}
 
 H3_MOTION_PRESETS: dict[str, dict] = {
     # Turbo and Mystic 0.7 already merged into the base, so nothing is stacked at
@@ -1995,7 +2000,7 @@ H3_MOTION_PRESETS: dict[str, dict] = {
     # third-party bases are judged against. Same size class as Singularity, half
     # the VRAM of the unpruned file, so it is the one to A/B with day to day.
     # Like every pruned build it has no time_embedder and no adaln_basis /
-    # adaln_mean, so HyperFlow and depth control still need their own presets.
+    # adaln_mean, so depth control still needs its own preset.
     # The FL2VA (first + last frame) pruned base, the one the community 360-orbit LoRA is trained on
     # (pablodawson/MiniMax-H3-360-Orbit-LoRA, run with accel_lora 'none'); the 8-step turbo is the
     # fl2v one the hybrid preset already uses.
@@ -2013,18 +2018,12 @@ H3_MOTION_PRESETS: dict[str, dict] = {
         "scheduler": "simple",
     },
     # The unpruned official ref2va (34 GB int8): the only local checkpoint that
-    # still has time_embedder, which HyperFlow's two-time conditioning needs
-    # (pruned/fused files bake it into adaln curves). "ref2va_full" is the same
-    # base with the ref2v turbo8 LoRA, the base-matched A/B for "hyperflow".
+    # still has time_embedder (pruned/fused files bake it into adaln curves).
     "ref2va_full": {
         "unet_name": "minimax_h3_ref2va_int8_convrot.safetensors",
         "lora_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
         "lora_strength": 1.0,
         "scheduler": "simple",
-    },
-    "hyperflow": {
-        "unet_name": "minimax_h3_ref2va_int8_convrot.safetensors",
-        "hyperflow_lora": "minimax_h3_hyperflow_8step_v1.0_comfyui.safetensors",
     },
     # WarmBloodAban ref2va pruned w4a8 (11.8 GB): asym_w4a8_int8 blocks (int4 +
     # Lloyd-Max codebook, convrot), int8_tensorwise token_refiner. Stock
@@ -2095,6 +2094,8 @@ def _h3_motion_preset(req: VideoRequest) -> dict:
     """
     named = substitute_preset((req.motion_preset or "").strip() or DEFAULT_H3_MOTION_PRESET)
     require_preset(named)
+    if named in REMOVED_H3_MOTION_PRESETS:
+        raise ValueError(f"运动预设 {named!r} 已移除：{REMOVED_H3_MOTION_PRESETS[named]}")
     preset = dict(H3_MOTION_PRESETS.get(named, {}))
     if preset.get("unet_name"):
         # A preset's own checkpoint may not fit this machine (crossview names the 21 GB int8 file).

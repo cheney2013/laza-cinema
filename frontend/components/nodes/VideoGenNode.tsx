@@ -634,8 +634,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
   const chosenAttention = (data.accel as string | undefined) || '';
   const attentionBlocked = (name: string) => Boolean(attention && !attention.allowed.includes(name));
   const effectiveAttention = chosenAttention && attentionBlocked(chosenAttention) ? (attention?.default ?? '') : chosenAttention;
-  // HyperFlow brings its own fixed 8-step grid in place of any speed LoRA.
-  const ownsSteps = currentPreset === 'fused' || currentPreset === 'hyperflow';
+  const ownsSteps = currentPreset === 'fused';
   const currentSteps = ownsSteps ? 8
     : currentAccel === 'taomate3' ? 3 : currentAccel === 'turbo8' ? 8 : 20;
   const refAudioUrls = connected
@@ -1275,8 +1274,6 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                     ? 'hybrid_b25-49 + turbo_8step'
                     : currentPreset === 'fused'
                       ? 'fused_refdelta_turbo8_mystic07'
-                      : currentPreset === 'hyperflow'
-                        ? 'ref2va_int8（未剪枝）+ HyperFlow 8步'
                       : currentPreset === 'ref2va'
                         ? 'ref2va_pruned_int8（官方剪枝）'
                         : currentPreset === 'ref2va_full'
@@ -1286,12 +1283,11 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                           : 'Singularity_ref2va_v1.3'}
                 </span>
               </div>
-              <div className="grid grid-cols-5 gap-1.5">
+              <div className="grid grid-cols-4 gap-1.5">
                 {[
                   { label: 'Singul.', value: 'singularity' },
                   { label: 'Fused', value: 'fused' },
                   { label: 'Hybrid', value: 'hybrid' },
-                  { label: 'HyperFlow', value: 'hyperflow' },
                   { label: '官方', value: 'ref2va' },
                 ].map((opt) => (
                   <button
@@ -1301,11 +1297,9 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                     title={machineProfile?.disabled_presets?.includes(opt.value)
                       ? t('这台机器的显存放不下这个底模，已禁用。')
                       : opt.value === 'ref2va'
-                      ? t('minimax_h3_ref2va_pruned_int8_convrot（19.5GB）+ ref2v turbo 8步 LoRA。MiniMax 官方权重的剪枝 int8 版，没有任何第三方微调、也没有合并 turbo 或 Mystic，是判断其他底模好坏的中性基准。和 Singularity 同一量级、比官方未剪枝版省一半显存，日常做 A/B 用这个。剪枝版不含 time_embedder，HyperFlow 仍需它自己的预设；深度控制走官方节点，这个底模可用。')
+                      ? t('minimax_h3_ref2va_pruned_int8_convrot（19.5GB）+ ref2v turbo 8步 LoRA。MiniMax 官方权重的剪枝 int8 版，没有任何第三方微调、也没有合并 turbo 或 Mystic，是判断其他底模好坏的中性基准。和 Singularity 同一量级、比官方未剪枝版省一半显存，日常做 A/B 用这个。深度控制走官方节点，这个底模可用。')
                       : opt.value === 'ref2va_full'
-                      ? t('minimax_h3_ref2va_int8_convrot（31.7GB）+ ref2v turbo 8步 LoRA。官方未剪枝权重，本机唯一还带 time_embedder 的底模，也是 HyperFlow 的同底模对照组。显存占用最高，除非要和 HyperFlow 对比，平时用「官方」那个剪枝版即可。')
-                      : opt.value === 'hyperflow'
-                      ? t('videorebirth/hyperflow 8 步蒸馏 LoRA，挂在未剪枝的 minimax_h3_ref2va_int8_convrot（34GB）上，用它自带的 sigma 网格 + euler，不走加速 LoRA。只有未剪枝底模带 time_embedder，所以不能配其他底模。2026-09-19 对比：和同底模 turbo8 几乎一样、慢约 20 秒；画面比 Singularity 亮一截（来自底模）。')
+                      ? t('minimax_h3_ref2va_int8_convrot（31.7GB）+ ref2v turbo 8步 LoRA。官方未剪枝权重，本机唯一还带 time_embedder 的底模。显存占用最高，平时用「官方」那个剪枝版即可。')
                       : opt.value === 'hybrid'
                       ? t('minimax_h3_hybrid_b25-49_int8 + minimax_h3_fl2v_turbo_8step_v1.0_768p + beta 调度。运动更克制：同一镜实测车身俯仰 34.7° vs Fused 的 42.4°，两者都消不掉。深度控制现在走官方节点（ControlNet 2.0），各底模都能用，不再需要 Fused。')
                       : opt.value === 'singularity'
@@ -1365,7 +1359,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               <div className="text-[10px] text-zinc-400 font-medium mb-1.5 flex justify-between">
                 <span>{t('加速 LoRA')}</span>
                 <span className="font-mono text-zinc-200">
-                  {currentPreset === 'fused' ? t('已合并进底模') : currentPreset === 'hyperflow' ? t('HyperFlow 自带 8 步') : currentAccel === 'taomate3' ? 'TaoMate 3步' : currentAccel === 'turbo8' ? 'turbo 8步' : t('不加速 20步')}
+                  {currentPreset === 'fused' ? t('已合并进底模') : currentAccel === 'taomate3' ? 'TaoMate 3步' : currentAccel === 'turbo8' ? 'turbo 8步' : t('不加速 20步')}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1.5">

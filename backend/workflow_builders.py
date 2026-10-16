@@ -1161,10 +1161,6 @@ def build_h3_video_workflow(
     pair_tag: Optional[str] = None,
     # VAEDecodeTiled instead of VAEDecode, for 16 GB cards (machine_profile).
     tiled_vae_decode: bool = False,
-    # videorebirth/hyperflow, converted to ComfyUI keys (custom node
-    # ComfyUI-HyperFlow-H3). Its own 8-step sigma grid + euler; needs an unpruned
-    # checkpoint (one with time_embedder), and replaces the turbo LoRA.
-    hyperflow_lora: str = "",
     # Overrides the sampler the LoRA logic below would pick. The CrossView route
     # runs the official DMD LoRA with res_multistep, as its released workflow does.
     sampler: str = "",
@@ -1248,10 +1244,6 @@ def build_h3_video_workflow(
         sampler_name, scheduler = _lock
     if sampler:
         sampler_name = sampler
-    if hyperflow_lora:
-        if lora_name:
-            raise ValueError("hyperflow_lora replaces the turbo LoRA; do not name both")
-        sampler_name = "euler"
 
     wf: dict = {
         "1": {
@@ -1347,13 +1339,7 @@ def build_h3_video_workflow(
     }
 
     # Model LoRA loader (Turbo LoRA support)
-    if hyperflow_lora:
-        wf["2"] = {
-            "class_type": "HyperFlowH3Apply",
-            "inputs": {"model": ["1", 0], "lora_name": _normalize_lora_name(hyperflow_lora), "strength": 1.0},
-        }
-        model_src = ["2", 0]
-    elif lora_name:
+    if lora_name:
         wf["2"] = {
             "class_type": "LoraLoaderModelOnly",
             "inputs": {
@@ -1515,9 +1501,6 @@ def build_h3_video_workflow(
             "denoise": 1.0,
         },
     }
-    if hyperflow_lora:
-        wf["42"] = {"class_type": "HyperFlowH3Sigmas",
-                    "inputs": {"lora_name": _normalize_lora_name(hyperflow_lora)}}
 
     # Determine conditioning approach
     # If only first_frame without any other ref images/audio/video/last_frame -> lightweight MiniMaxH3ImageToVideo

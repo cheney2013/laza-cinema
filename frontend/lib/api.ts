@@ -280,7 +280,7 @@ export interface VideoRequest {
    * removes the pitch: H3 draws a fast car working its springs whatever it is
    * told, so a shot that must sit still is finished in post.
    */
-  motion_preset?: 'fused' | 'hybrid' | 'singularity' | 'pruned_w4a8' | 'singularity_w4a8' | 'hyperflow' | 'ref2va' | 'ref2va_full';
+  motion_preset?: 'fused' | 'hybrid' | 'singularity' | 'pruned_w4a8' | 'singularity_w4a8' | 'ref2va' | 'ref2va_full';
   /** Speed LoRA for non-fused presets; fixes steps: 'turbo8' (default) 8, 'taomate3' 3, 'none' 20. */
   accel_lora?: 'taomate3' | 'turbo8' | 'none';
   /** Attention patch: 'sol' | 'kjsage' | 'none'. Unset keeps the machine's default. The backend never runs Sol on a w4a8 checkpoint. */
@@ -554,7 +554,7 @@ export interface CanvasData {
 export type MachineProfile = {
   name: string;
   label: string;
-  motion_preset: 'fused' | 'hybrid' | 'singularity' | 'pruned_w4a8' | 'singularity_w4a8' | 'hyperflow' | 'ref2va' | 'ref2va_full';
+  motion_preset: 'fused' | 'hybrid' | 'singularity' | 'pruned_w4a8' | 'singularity_w4a8' | 'ref2va' | 'ref2va_full';
   width: number;
   height: number;
   tiled_vae_decode: boolean;

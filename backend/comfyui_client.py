@@ -1921,7 +1921,6 @@ class ComfyUIClient:
         # here and brings its own turbo LoRA.
         unet_name: str = "",
         tiled_vae_decode: bool = False,
-        hyperflow_lora: str = "",
         # CrossView re-angle route (build_h3_video_workflow documents all three).
         sampler: str = "",
         crossview_warp: Optional[dict] = None,
@@ -2028,7 +2027,6 @@ class ComfyUIClient:
             control_skip_frames=control_skip_frames,
             control_strength=control_strength,
             tiled_vae_decode=tiled_vae_decode,
-            hyperflow_lora=hyperflow_lora,
             sampler=sampler,
             crossview_warp=crossview_warp,
             block_sparse=block_sparse,
