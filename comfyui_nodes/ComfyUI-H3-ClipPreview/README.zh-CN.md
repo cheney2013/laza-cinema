@@ -1,0 +1,50 @@
+# ComfyUI-H3-ClipPreview
+
+MiniMax H3 的整段视频采样预览，在 CPU 上解码。
+
+H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交给一个独立的低优先级进程，用 `taeh3` 微型自编码器解码**整段视频**，写成一个短 MP4。这样可以看到画面随采样逐步成形，而不是只有一帧色块。解码在 CPU 上运行，不占显存；GPU 一侧只有每步一次潜变量的设备到主机拷贝。
+
+English: [README.md](README.md)
+
+## 安装
+
+1. 把本文件夹复制到 `ComfyUI/custom_nodes/`。
+2. 把 `taeh3.safetensors` 放进 `ComfyUI/models/vae_approx/`（官方 taeh3 权重，来自 [madebyollin/taehv](https://github.com/madebyollin/taehv)）。
+3. 确认 `ffmpeg` 在 `PATH` 中。
+4. 重启 ComfyUI。
+
+本包不添加任何节点：它包装 ComfyUI 的预览回调，只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。
+
+## 输出
+
+对于任务 `<id>` 与采样步 `<n>`：
+
+    output/h3_clip_preview/<id>_s<nn>.mp4
+
+每个片段会在 ComfyUI 的 WebSocket 上发出通知：
+
+```json
+{"type": "h3_clip_preview",
+ "data": {"prompt_id": "...", "step": 7, "total": 8, "filename": "..._s07.mp4", "subfolder": "h3_clip_preview"}}
+```
+
+同一任务较早的步骤会在新片段到达时删除。最后一个采样步不解码（真正的解码紧随其后）。
+
+## 行为
+
+- 同一时刻只解一个。解码进行时到达的新步骤会替换排队中的旧步骤，采样器从不等待。
+- 半分辨率，24 fps，H.264 `ultrafast` CRF 28，8 个 CPU 线程，低于正常优先级。
+- 帧逐帧流式送入 ffmpeg，长片段的峰值内存也很低。
+- 任务采样结束后解码进程退出，在下一个模型载入前归还内存。
+- 连续三次解码失败（缺少 `taeh3`、ffmpeg 不可用）后，本包不再尝试。
+
+## 设置
+
+| 设置 | 作用 |
+|---|---|
+| `H3_CLIP_PREVIEW=0`（环境变量，启动 ComfyUI 前设置） | 关闭本包 |
+| 任务的 `extra_data: {"h3_clip_preview": false}` | 对该任务不做预览 |
+
+## 许可证
+
+Apache-2.0。

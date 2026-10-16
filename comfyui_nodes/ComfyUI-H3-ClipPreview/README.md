@@ -1,5 +1,7 @@
 # ComfyUI-H3-ClipPreview
 
+中文说明: [README.zh-CN.md](README.zh-CN.md)
+
 Whole-clip sampling preview for MiniMax H3, decoded on the CPU.
 
 While an H3 render samples, the pack takes the sampler's current latent after every step and decodes
