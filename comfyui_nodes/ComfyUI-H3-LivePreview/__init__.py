@@ -64,6 +64,7 @@ class _Worker:
         self.fails = 0               # consecutive failed decodes
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
         self.finished_id = None      # prompt whose sampling has ended
+        self.warm_wanted = False     # start the decode process before the first step arrives
         self.low_memory_noted = None # prompt the low-RAM warning was logged for
         self.wake = threading.Event()
         self.tmp = Path(tempfile.gettempdir()) / "h3_live_preview"
@@ -89,6 +90,11 @@ class _Worker:
             self.pending = (prompt_id, step, total, latent, scale, exec_node)
         self.wake.set()
 
+    def warm(self):
+        """Sampling is about to start: load the decoder now so the first step does not wait for it."""
+        self.warm_wanted = True
+        self.wake.set()
+
     def finish(self, prompt_id):
         """Sampling of this prompt has ended; let the decode process go once it is idle."""
         self.finished_id = prompt_id
@@ -111,6 +117,15 @@ class _Worker:
             with self.lock:
                 job, self.pending = self.pending, None
             if not job:
+                if self.warm_wanted:
+                    self.warm_wanted = False
+                    if not self.disabled and (self.proc is None or self.proc.poll() is not None) and not _low_memory():
+                        try:
+                            self._start()
+                        except Exception:  # noqa: BLE001
+                            log.warning("live preview worker failed to start", exc_info=True)
+                            self.proc = None
+                    continue
                 # Nothing queued and the prompt is over: hand the process's ~5 GB back.
                 if self.finished_id is not None:
                     self.finished_id = None
@@ -213,6 +228,25 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
     inner = _original(model, steps, x0_output_dict, *args, **kwargs)
     if not _is_h3(model):
         return inner
+
+    # Sampling starts here: load the decoder in the background and tell the front end to put up the
+    # (still black) preview box.
+    try:
+        from comfy_execution.utils import get_executing_context
+        ctx = get_executing_context()
+        if ctx is not None and not _opted_out(ctx.prompt_id):
+            global _worker
+            if _worker is None:
+                _worker = _Worker()
+            if not _worker.disabled:
+                _worker.warm()
+                from server import PromptServer
+                PromptServer.instance.send_sync(EVENT, {
+                    "prompt_id": ctx.prompt_id, "step": 0, "total": steps, "filename": None,
+                    "subfolder": OUT_SUB,
+                    "exec_node": str(ctx.node_id) if ctx.node_id is not None else None})
+    except Exception:  # noqa: BLE001
+        log.warning("live preview start failed", exc_info=True)
 
     def callback(step, x0, x, total_steps):
         inner(step, x0, x, total_steps)

@@ -151,7 +151,7 @@ function show(detail) {
   current.state.step = step;
   current.state.total = total;
   startLoop(current);
-  load(current, detail);
+  if (detail.filename) load(current, detail);
 }
 
 // The run is over: the real decode replaces the preview.
