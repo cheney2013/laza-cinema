@@ -1,4 +1,4 @@
-# ComfyUI-H3-ClipPreview
+# ComfyUI-H3-LivePreview
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
@@ -14,16 +14,16 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 
 ## 使用
 
-加入 **H3 Clip Preview** 节点（分类 `H3`），把 H3 的 `model` 连到它的输入（与接到采样器的是同一个模型）。它有输入、没有输出，和 Preview Image 节点一样。
+加入 **H3 Live Preview** 节点（分类 `H3`），把 H3 的 `model` 连到它的输入（与接到采样器的是同一个模型）。它有输入、没有输出，和 Preview Image 节点一样。
 
 | 输入 | 含义 |
 |---|---|
 | `model` | H3 模型，只读取、不修改。 |
 | `scale` | 预览分辨率，渲染分辨率的 `half`（一半）或 `quarter`（四分之一）。`quarter` 解码约快四倍。 |
 
-H3 采样器运行时，片段在该节点上播放，每一步刷新一次；任务结束后，节点上保留最后一帧。绕过（bypass）或静音该节点，即可关闭该工作流的预览。
+H3 采样器运行时，片段在该节点上播放，每一步刷新一次；任务结束后，节点上继续循环播放最后一个片段。绕过（bypass）或静音该节点，即可关闭该工作流的预览。
 
-没有这个节点时，每次 H3 采样仍会预览，片段画在正在采样的节点上。设置 `H3_CLIP_PREVIEW=node` 则只预览包含该节点的工作流。只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。
+没有这个节点时，每次 H3 采样仍会预览，片段画在正在采样的节点上。设置 `H3_LIVE_PREVIEW=node` 则只预览包含该节点的工作流。只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。
 
 本包依赖 ComfyUI 的几个内部接口（已在 ComfyUI 0.38.0 上验证）。缺少任何一个时，会在日志里写明缺哪个并保持停用。
 
@@ -31,13 +31,13 @@ H3 采样器运行时，片段在该节点上播放，每一步刷新一次；�
 
 对于任务 `<id>` 与采样步 `<n>`：
 
-    output/h3_clip_preview/<id>_s<nn>.mp4
+    output/h3_live_preview/<id>_s<nn>.mp4
 
 每个片段会在 ComfyUI 的 WebSocket 上发出通知：
 
 ```json
-{"type": "h3_clip_preview",
- "data": {"prompt_id": "...", "step": 7, "total": 8, "filename": "..._s07.mp4", "subfolder": "h3_clip_preview"}}
+{"type": "h3_live_preview",
+ "data": {"prompt_id": "...", "step": 7, "total": 8, "filename": "..._s07.mp4", "subfolder": "h3_live_preview"}}
 ```
 
 同一任务较早的步骤会在新片段到达时删除。最后一个采样步不解码（真正的解码紧随其后）。
@@ -55,11 +55,11 @@ H3 采样器运行时，片段在该节点上播放，每一步刷新一次；�
 
 | 设置 | 作用 |
 |---|---|
-| `H3_CLIP_PREVIEW=0`（环境变量，启动 ComfyUI 前设置） | 关闭本包 |
-| `H3_CLIP_PREVIEW=node` | 只预览包含 H3 Clip Preview 节点的工作流 |
-| 任务的 `extra_data: {"h3_clip_preview": false}` | 对该任务不做预览 |
-| `H3_CLIP_PREVIEW_THREADS=<n>` | 解码使用的 CPU 线程数 |
-| `H3_CLIP_PREVIEW_MIN_FREE_GB=<n>`（默认 8） | 可用内存低于该值时跳过该步；解码进程约占 5 GB |
+| `H3_LIVE_PREVIEW=0`（环境变量，启动 ComfyUI 前设置） | 关闭本包 |
+| `H3_LIVE_PREVIEW=node` | 只预览包含 H3 Live Preview 节点的工作流 |
+| 任务的 `extra_data: {"h3_live_preview": false}` | 对该任务不做预览 |
+| `H3_LIVE_PREVIEW_THREADS=<n>` | 解码使用的 CPU 线程数 |
+| `H3_LIVE_PREVIEW_MIN_FREE_GB=<n>`（默认 8） | 可用内存低于该值时跳过该步；解码进程约占 5 GB |
 
 ## 许可证
 

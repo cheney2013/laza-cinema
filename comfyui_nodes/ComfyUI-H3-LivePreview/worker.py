@@ -1,4 +1,4 @@
-"""CPU decoder for ComfyUI-H3-ClipPreview. Reads "latent.pt<TAB>out.mp4" lines on stdin,
+"""CPU decoder for ComfyUI-H3-LivePreview. Reads "latent.pt<TAB>out.mp4" lines on stdin,
 writes the clip and answers "ok" (or "err") on stdout, one line per request.
 
 Memory, not speed, is the constraint: the render beside it stages ~38 GB of
@@ -27,8 +27,8 @@ import folder_paths  # noqa: E402
 from comfy.taesd.taehv import MemBlock, TGrow, TPool, TWorkItem  # noqa: E402
 
 # Few threads: slower, but the render and the rest of the machine come first. Half the cores, at
-# most 8; H3_CLIP_PREVIEW_THREADS overrides.
-THREADS = int(os.environ.get("H3_CLIP_PREVIEW_THREADS") or min(8, max(1, (os.cpu_count() or 2) // 2)))
+# most 8; H3_LIVE_PREVIEW_THREADS overrides.
+THREADS = int(os.environ.get("H3_LIVE_PREVIEW_THREADS") or min(8, max(1, (os.cpu_count() or 2) // 2)))
 torch.set_num_threads(THREADS)
 FPS = 24
 

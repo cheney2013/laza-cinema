@@ -1,5 +1,5 @@
 [project]
-name = "comfyui-h3-clip-preview"
+name = "comfyui-h3-live-preview"
 version = "1.0.0"
 description = "Whole-clip sampling preview for MiniMax H3, decoded on the CPU with taeh3 so it costs no VRAM."
 license = { file = "LICENSE" }
@@ -8,9 +8,9 @@ requires-python = ">=3.10"
 dependencies = ["av>=17.0.0"]
 
 [project.urls]
-Repository = "https://github.com/OWNER/ComfyUI-H3-ClipPreview"
+Repository = "https://github.com/OWNER/ComfyUI-H3-LivePreview"
 
 [tool.comfy]
 PublisherId = ""
-DisplayName = "H3 Clip Preview"
+DisplayName = "H3 Live Preview"
 Icon = ""

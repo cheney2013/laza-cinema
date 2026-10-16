@@ -32,7 +32,7 @@ SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "ckpts"}
 # Weights are downloaded separately (docs/DEPLOY.md); they must not end up in the bundle.
 WEIGHT_SUFFIXES = {".safetensors", ".pth", ".pt", ".onnx", ".bin", ".ckpt", ".gguf", ".engine"}
 # Packs written for this project; they live in the repository under comfyui_nodes/ as well.
-OWN_PACKS = {"ComfyUI-H3-ClipPreview", "aicinema_audio_lock", "aicinema_chain"}
+OWN_PACKS = {"ComfyUI-H3-LivePreview", "aicinema_audio_lock", "aicinema_chain"}
 # What the studio needs: every pack that defines a node class the backend names (workflow_builders.py,
 # comfyui_client.py, main.py; checked against ComfyUI's /object_info on 2026-10-04), the RIFE pack for
 # frame interpolation ("RIFE VFI" has a space in its name and escapes a pattern search) and the live preview.
@@ -43,7 +43,7 @@ REQUIRED_PACKS = {
     "Comfyui-MMH3-UltimateUpscale", "ComfyUI-FL-MiniMaxH3", "ComfyUI-SCAIL-Pose", "comfyui-videohelpersuite",
     "ComfyUI-Viggle-Animate-H3", "ComfyUI-NLF-Minimal", "ComfyUI-sol-attn",
     "ComfyUI-CrossViewWarp", "comfyui_controlnet_aux", "ComfyUI-H3-AudioRefine", "ComfyUI-WanAnimatePreprocess",
-    "ComfyUI-Frame-Interpolation", "ComfyUI-H3-ClipPreview", "aicinema_audio_lock", "aicinema_chain",
+    "ComfyUI-Frame-Interpolation", "ComfyUI-H3-LivePreview", "aicinema_audio_lock", "aicinema_chain",
 }
 # Left out of the vendored copy: pictures and videos that only illustrate a pack's README or examples.
 MEDIA_SUFFIXES = (".gif", ".mp4", ".webm", ".mov", ".avi")

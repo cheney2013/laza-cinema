@@ -1,18 +1,18 @@
-"""ComfyUI-H3-ClipPreview: whole-clip sampling preview for MiniMax H3, decoded on the CPU.
+"""ComfyUI-H3-LivePreview: whole-clip sampling preview for MiniMax H3, decoded on the CPU.
 
 ComfyUI's built-in latent preview shows the first frame only and decodes on the
 GPU. This wraps latent_preview.prepare_callback: after every sampler step the
 current x0 estimate (video channels only, ~15 MB) is copied to host memory and
 handed to a low-priority worker process that decodes the whole clip with taeh3
-at half spatial resolution and writes output/h3_clip_preview/<prompt_id>_s<step>.mp4.
+at half spatial resolution and writes output/h3_live_preview/<prompt_id>_s<step>.mp4.
 A step that arrives while the worker is busy replaces the queued one, so the
 sampler never waits. The GPU cost is one device-to-host copy per step.
 
-Each written clip is announced on the websocket as "h3_clip_preview"
+Each written clip is announced on the websocket as "h3_live_preview"
 ({prompt_id, step, total, filename, subfolder}).
 
-Disable by setting H3_CLIP_PREVIEW=0 before starting ComfyUI, or per prompt with
-extra_data {"h3_clip_preview": false}.
+Disable by setting H3_LIVE_PREVIEW=0 before starting ComfyUI, or per prompt with
+extra_data {"h3_live_preview": false}.
 """
 import logging
 import os
@@ -27,19 +27,19 @@ import torch
 import folder_paths
 import latent_preview
 
-log = logging.getLogger("h3-clip-preview")
+log = logging.getLogger("h3-live-preview")
 HERE = Path(__file__).resolve().parent
-OUT_SUB = "h3_clip_preview"
-EVENT = "h3_clip_preview"
-# H3_CLIP_PREVIEW: "0" off; "node" only for workflows that contain an "H3 Clip Preview" node (so bypassing
+OUT_SUB = "h3_live_preview"
+EVENT = "h3_live_preview"
+# H3_LIVE_PREVIEW: "0" off; "node" only for workflows that contain an "H3 Live Preview" node (so bypassing
 # the node turns the preview off); anything else, the default, previews every H3 sampling.
-_MODE = os.environ.get("H3_CLIP_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower()
+_MODE = os.environ.get("H3_LIVE_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower()
 ENABLED = _MODE != "0"
 NODE_ONLY = _MODE == "node"
 
 
 # The decode process holds about 5 GB; below this much free RAM the step is skipped.
-MIN_FREE_GB = float(os.environ.get("H3_CLIP_PREVIEW_MIN_FREE_GB", "8"))
+MIN_FREE_GB = float(os.environ.get("H3_LIVE_PREVIEW_MIN_FREE_GB", "8"))
 
 
 def _low_memory() -> bool:
@@ -71,9 +71,9 @@ class _Worker:
         self.finished_id = None      # prompt whose sampling has ended
         self.low_memory_noted = None # prompt the low-RAM warning was logged for
         self.wake = threading.Event()
-        self.tmp = Path(tempfile.gettempdir()) / "h3_clip_preview"
+        self.tmp = Path(tempfile.gettempdir()) / "h3_live_preview"
         self.tmp.mkdir(exist_ok=True)
-        threading.Thread(target=self._loop, daemon=True, name="h3-clip-preview").start()
+        threading.Thread(target=self._loop, daemon=True, name="h3-live-preview").start()
 
     def _start(self):
         extra = {}
@@ -125,8 +125,8 @@ class _Worker:
             if (self.proc is None or self.proc.poll() is not None) and _low_memory():
                 if self.low_memory_noted != prompt_id:
                     self.low_memory_noted = prompt_id
-                    log.warning("clip preview skipped: less than %.0f GB of RAM free "
-                                "(H3_CLIP_PREVIEW_MIN_FREE_GB)", MIN_FREE_GB)
+                    log.warning("live preview skipped: less than %.0f GB of RAM free "
+                                "(H3_LIVE_PREVIEW_MIN_FREE_GB)", MIN_FREE_GB)
                 continue
             self.busy = True
             path = self.tmp / f"{prompt_id}_{step}.pt"
@@ -144,7 +144,7 @@ class _Worker:
                 self.proc.stdin.flush()
                 reply = self.proc.stdout.readline().strip()
             except Exception:  # noqa: BLE001 -- a preview must never break a render
-                log.warning("clip preview worker failed", exc_info=True)
+                log.warning("live preview worker failed", exc_info=True)
                 reply = ""
                 self.proc = None
             path.unlink(missing_ok=True)
@@ -166,7 +166,7 @@ class _Worker:
                 self.fails += 1
                 if self.fails >= 3 and not self.disabled:
                     self.disabled = True
-                    log.warning("clip preview disabled after %d failed decodes "
+                    log.warning("live preview disabled after %d failed decodes "
                                 "(is taeh3.safetensors in models/vae_approx?)", self.fails)
                     self._stop_proc()
             if reply != "ok":
@@ -212,7 +212,7 @@ def _upstream(prompt: dict, start) -> set:
 def _run_info(prompt_id, exec_node=None) -> dict:
     """What the running prompt says about the preview: {"off": bool, "node_id": str|None, "scale": str}.
 
-    "off" is extra_data {"h3_clip_preview": false}. node_id and scale come from the "H3 Clip Preview" node whose
+    "off" is extra_data {"h3_live_preview": false}. node_id and scale come from the "H3 Live Preview" node whose
     model input is something the sampling `exec_node` reads from; a bypassed or muted node is not part of the
     prompt, so it counts as absent."""
     key = (prompt_id, exec_node)
@@ -227,11 +227,11 @@ def _run_info(prompt_id, exec_node=None) -> dict:
                 if item[1] != prompt_id:
                     continue
                 extra = item[3] if len(item) > 3 and isinstance(item[3], dict) else {}
-                info["off"] = extra.get("h3_clip_preview") is False or extra.get("aicinema_live_preview") is False
+                info["off"] = extra.get("h3_live_preview") is False or extra.get("aicinema_live_preview") is False
                 prompt = item[2] if isinstance(item[2], dict) else {}
                 reads = _upstream(prompt, exec_node) if exec_node is not None else set()
                 for nid, node in prompt.items():
-                    if not (isinstance(node, dict) and node.get("class_type") == "H3ClipPreview"):
+                    if not (isinstance(node, dict) and node.get("class_type") == "H3LivePreview"):
                         continue
                     source = (node.get("inputs") or {}).get("model")
                     if not (isinstance(source, list) and source and str(source[0]) in reads):
@@ -262,8 +262,8 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             info = _run_info(ctx.prompt_id, ctx.node_id) if ctx is not None else None
             if info is None or info["off"]:
                 return
-            # With an "H3 Clip Preview" node in the workflow the clip goes there; without one every H3
-            # sampling is previewed (unless H3_CLIP_PREVIEW=node) and the front end draws it on the sampler.
+            # With an "H3 Live Preview" node in the workflow the clip goes there; without one every H3
+            # sampling is previewed (unless H3_LIVE_PREVIEW=node) and the front end draws it on the sampler.
             if NODE_ONLY and info["node_id"] is None:
                 return
             # The last step's clip would land just as the real decode finishes.
@@ -281,7 +281,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, info["node_id"], info["scale"],
                            str(ctx.node_id) if ctx.node_id is not None else None)
         except Exception:  # noqa: BLE001
-            log.warning("clip preview capture failed", exc_info=True)
+            log.warning("live preview capture failed", exc_info=True)
     return callback
 
 
@@ -309,14 +309,14 @@ def _compat_problems() -> list:
 
 _problems = _compat_problems()
 if _problems:
-    log.warning("ComfyUI-H3-ClipPreview is inactive: this ComfyUI lacks %s (verified on ComfyUI 0.38.0)",
+    log.warning("ComfyUI-H3-LivePreview is inactive: this ComfyUI lacks %s (verified on ComfyUI 0.38.0)",
                 ", ".join(_problems))
 else:
     latent_preview.prepare_callback = prepare_callback
 
 WEB_DIRECTORY = "./web"
 
-class H3ClipPreview:
+class H3LivePreview:
     """Display node: the clip of an H3 sampling that uses this model plays here. Input only, like Preview Image."""
 
     @classmethod
@@ -340,5 +340,5 @@ class H3ClipPreview:
         return {}
 
 
-NODE_CLASS_MAPPINGS = {"H3ClipPreview": H3ClipPreview}
-NODE_DISPLAY_NAME_MAPPINGS = {"H3ClipPreview": "H3 Clip Preview"}
+NODE_CLASS_MAPPINGS = {"H3LivePreview": H3LivePreview}
+NODE_DISPLAY_NAME_MAPPINGS = {"H3LivePreview": "H3 Live Preview"}

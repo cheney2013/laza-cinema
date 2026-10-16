@@ -8,7 +8,7 @@
   },
   "custom_nodes": [
     {
-      "name": "ComfyUI-H3-ClipPreview",
+      "name": "ComfyUI-H3-LivePreview",
       "required": true,
       "size_mb": 0.0,
       "source": "copy"

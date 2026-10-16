@@ -1,4 +1,4 @@
-# ComfyUI-H3-ClipPreview
+# ComfyUI-H3-LivePreview
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
@@ -19,19 +19,19 @@ device-to-host copy of the latent per step.
 
 ## Use
 
-Add the **H3 Clip Preview** node (category `H3`) and connect the H3 `model` to it (the same model that feeds the sampler). It has an input and no output, like a Preview Image node.
+Add the **H3 Live Preview** node (category `H3`) and connect the H3 `model` to it (the same model that feeds the sampler). It has an input and no output, like a Preview Image node.
 
 | Input | Meaning |
 |---|---|
 | `model` | The H3 model. It is only read, never changed. |
 | `scale` | `half` or `quarter` of the render resolution. `quarter` decodes about four times faster. |
 
-While an H3 sampler runs, the clip plays on this node and updates every step. When the run ends, the last frame stays on
-the node. Bypass or mute the node to turn the preview off for that workflow.
+While an H3 sampler runs, the clip plays on this node and updates every step. The last clip keeps looping on
+the node after the run ends. Bypass or mute the node to turn the preview off for that workflow.
 
 Without the node, every H3 sampling is still previewed and the clip is drawn on the sampler node for as long as it
 samples. Set
-`H3_CLIP_PREVIEW=node` to preview only workflows that contain the node. Only models whose latent format is MiniMax H3
+`H3_LIVE_PREVIEW=node` to preview only workflows that contain the node. Only models whose latent format is MiniMax H3
 are affected; other models are untouched.
 
 The pack relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing it logs which and stays
@@ -41,13 +41,13 @@ inactive.
 
 For prompt `<id>` and sampler step `<n>`:
 
-    output/h3_clip_preview/<id>_s<nn>.mp4
+    output/h3_live_preview/<id>_s<nn>.mp4
 
 Each clip is announced on the ComfyUI websocket:
 
 ```json
-{"type": "h3_clip_preview",
- "data": {"prompt_id": "...", "step": 7, "total": 8, "filename": "..._s07.mp4", "subfolder": "h3_clip_preview"}}
+{"type": "h3_live_preview",
+ "data": {"prompt_id": "...", "step": 7, "total": 8, "filename": "..._s07.mp4", "subfolder": "h3_live_preview"}}
 ```
 
 Older steps of a prompt are deleted as new ones arrive. The last sampler step is not decoded (the real
@@ -67,11 +67,11 @@ decode follows immediately).
 
 | Setting | Effect |
 |---|---|
-| `H3_CLIP_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
-| `H3_CLIP_PREVIEW=node` | Preview only workflows that contain an H3 Clip Preview node |
-| `extra_data: {"h3_clip_preview": false}` on a prompt | Skip the preview for that prompt |
-| `H3_CLIP_PREVIEW_THREADS=<n>` | CPU threads for decoding |
-| `H3_CLIP_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |
+| `H3_LIVE_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
+| `H3_LIVE_PREVIEW=node` | Preview only workflows that contain an H3 Live Preview node |
+| `extra_data: {"h3_live_preview": false}` on a prompt | Skip the preview for that prompt |
+| `H3_LIVE_PREVIEW_THREADS=<n>` | CPU threads for decoding |
+| `H3_LIVE_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |
 
 ## License
 
