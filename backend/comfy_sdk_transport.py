@@ -17,6 +17,11 @@ import logging
 import os
 from typing import Any, AsyncIterator, Optional
 
+try:
+    from envfile import env_value
+except ImportError:  # imported as backend.comfy_sdk_transport
+    from backend.envfile import env_value
+
 logger = logging.getLogger(__name__)
 
 # comfy-api-proxy's default port (8189) is where ComfyUI Desktop sometimes comes back, and
@@ -39,11 +44,11 @@ TERMINAL = frozenset({"succeeded", "canceled", "failed", "expired"})
 
 
 def enabled() -> bool:
-    return os.environ.get("COMFY_TRANSPORT", "native").strip().lower() == "sdk"
+    return (env_value("COMFY_TRANSPORT") or "native").lower() == "sdk"
 
 
 def sdk_url() -> str:
-    return (os.environ.get("COMFY_SDK_URL") or DEFAULT_SDK_URL).rstrip("/")
+    return (env_value("COMFY_SDK_URL") or DEFAULT_SDK_URL).rstrip("/")
 
 
 def decode_asset_id(asset_id: str) -> dict:

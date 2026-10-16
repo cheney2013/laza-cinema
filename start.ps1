@@ -166,6 +166,19 @@ Start-Sleep -Milliseconds 300
 Start-Process powershell -ArgumentList "-NoExit", "-File", $frontendPs1
 Start-Process powershell -ArgumentList "-NoExit", "-File", $mcpPs1
 
+# COMFY_TRANSPORT=sdk: jobs go through the Comfy SDK and a local comfy-api-proxy (see .env.example).
+$transport = $env:COMFY_TRANSPORT
+if (-not $transport -and (Test-Path "$root\.env")) {
+    foreach ($line in (Get-Content "$root\.env")) {
+        if ($line -match '^\s*COMFY_TRANSPORT\s*=\s*(.+)$') { $transport = $matches[1].Trim().Trim('"').Trim("'"); break }
+    }
+}
+if ($transport -eq 'sdk') {
+    $proxyPs1 = Join-Path $root "tools\start_comfy_api_proxy.ps1"
+    Start-Process powershell -ArgumentList "-NoExit", "-File", $proxyPs1, "-ComfyUI", $comfyUrl
+    Write-Host "  Comfy API proxy -> http://127.0.0.1:8290 (COMFY_TRANSPORT=sdk)" -ForegroundColor Yellow
+}
+
 Write-Host ""
 $versionFile = Join-Path $root "VERSION"
 $studioVersion = if (Test-Path $versionFile) { (Get-Content $versionFile -TotalCount 1).Trim() } else { "?" }
