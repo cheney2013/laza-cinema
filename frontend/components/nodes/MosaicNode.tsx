@@ -148,6 +148,8 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
   };
   const shownPreview = previews.find((p) => p.frame === curFrame);
 
+  /** Picking is on AND the source is the picture on screen (the click layer is live). */
+  const pickingActive = picking && (!data.generatedUrl || showSource);
   const isGenerating = data.status === 'generating';
   const canRun = Boolean(sourceVideoUrl) && !isGenerating;
   const withBreast = (data.mosaicClasses ?? []).includes(BREAST);
@@ -163,6 +165,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
   const handleRun = useCallback(async () => {
     if (!sourceVideoUrl) return;
     cancelledRef.current = false;
+    setPicking(false);
     videoRef.current?.pause();
     updateNodeData(id, {
       status: 'generating', jobId: undefined, error: undefined, sourceUrl: sourceVideoUrl,
@@ -255,7 +258,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 src={videoSrc}
                 videoRef={videoRef}
                 selected={selected}
-                hideChrome={picking}
+                hideChrome={pickingActive}
                 onMediaSize={sizing.onMediaSize}
                 actions={<><span />{data.generatedUrl && !showSource ? (
                   <button type="button" className="nodrag" style={{ ...smallBtn, background: 'none', border: 'none' }}
@@ -265,7 +268,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 ) : <span />}</>}
               />
               <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={1} statusText={batchInfo} onCancel={handleCancel} />
-              {picking && (!data.generatedUrl || showSource) && (
+              {pickingActive && (
                 <div className="nodrag" onClick={addSeed} onMouseDown={(e) => e.stopPropagation()}
                   style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 30 }} />
               )}
@@ -287,7 +290,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
               {t('连接一个视频')}
             </div>
           )}
-          {picking && videoSrc && (
+          {pickingActive && videoSrc && (
             <div className="nodrag" onMouseDown={(e) => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: 10, color: '#ccc' }}>
               <button className="nodrag" style={smallBtn} onClick={() => stepFrames(-1)}>‹</button>
@@ -314,9 +317,16 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
       <div data-chrome-row="actions" className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', fontSize: 11, color: '#bbb' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <button className="nodrag" disabled={!sourceVideoUrl}
-            style={{ ...smallBtn, background: picking ? 'rgba(34,211,238,0.25)' : smallBtn.background, color: picking ? '#a5f3fc' : '#ccc' }}
-            onClick={() => { setPicking((v) => !v); if (data.generatedUrl) setShowSource(true); videoRef.current?.pause(); }}>
-            {picking ? t('点击画面上的部位（再点一次结束）') : t('指定位置')}
+            style={{ ...smallBtn, background: pickingActive ? 'rgba(34,211,238,0.25)' : smallBtn.background, color: pickingActive ? '#a5f3fc' : '#ccc' }}
+            onClick={() => {
+              // One press always lands in picking: when the result is on screen the click layer is off,
+              // so "toggle" would only have closed a mode that was not doing anything.
+              if (pickingActive) { setPicking(false); return; }
+              setPicking(true);
+              if (data.generatedUrl) setShowSource(true);
+              videoRef.current?.pause();
+            }}>
+            {pickingActive ? t('点击画面上的部位（再点一次结束）') : t('指定位置')}
           </button>
           {seeds.length > 0 && (
             <button className="nodrag" style={smallBtn} onClick={() => { updateNodeData(id, { mosaicSeeds: [] }); setPreviews([]); }}>{t('清空')}</button>
