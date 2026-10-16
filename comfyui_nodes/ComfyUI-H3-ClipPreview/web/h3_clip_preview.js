@@ -155,14 +155,17 @@ function attachPanel() {
   host = { panel, video, label };
 }
 
-function show({ prompt_id, step, total, filename, subfolder, node_id }) {
+function show({ prompt_id, step, total, filename, subfolder, node_id, exec_node }) {
   if (activePrompt !== prompt_id) {
     release();
     activePrompt = prompt_id;
   }
   // The dedicated node when the workflow has one, else the node that is sampling.
   const dedicated = findNode(node_id);
-  const target = dedicated || findNode(executingNode);
+  // The sampler's own id comes with the event; the front end's running-node tracking is the fallback.
+  const running = exec_node ?? executingNode ?? app.runningNodeId ?? null;
+  const target = dedicated || findNode(running);
+  if (!target) console.debug("[H3 Clip Preview] no node for", { node_id, running }, "- using the panel");
   if (!host || (target && host.node !== target) || (!target && host.node)) {
     release();
     target ? attachToNode(target, !!dedicated) : attachPanel();
@@ -211,6 +214,14 @@ app.registerExtension({
     api.addEventListener("executing", (e) => {
       const d = e.detail;
       executingNode = d && typeof d === "object" ? (d.display_node ?? d.node) : d;
+    });
+    // Newer front ends report the running node through progress_state as well.
+    api.addEventListener("progress_state", (e) => {
+      const nodes = e.detail?.nodes;
+      if (!nodes) return;
+      const running = Object.values(nodes).filter((n) => n?.state === "running");
+      const last = running[running.length - 1];
+      if (last) executingNode = last.display_node_id ?? last.node_id ?? executingNode;
     });
     api.addEventListener(EVENT, (e) => show(e.detail));
     for (const ev of ["execution_success", "execution_error", "execution_interrupted"]) {

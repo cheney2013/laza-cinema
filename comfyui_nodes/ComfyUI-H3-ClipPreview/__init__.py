@@ -64,7 +64,7 @@ class _Worker:
     def __init__(self):
         self.proc = None
         self.lock = threading.Lock()
-        self.pending = None          # (prompt_id, step, total, latent, node_id, scale)
+        self.pending = None          # (prompt_id, step, total, latent, node_id, scale, exec_node)
         self.busy = False            # a decode is running; the callback skips its copy
         self.fails = 0               # consecutive failed decodes
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
@@ -87,11 +87,11 @@ class _Worker:
             text=True, encoding="utf-8", bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
         )
 
-    def submit(self, prompt_id, step, total, latent, node_id=None, scale="half"):
+    def submit(self, prompt_id, step, total, latent, node_id=None, scale="half", exec_node=None):
         # Only the host copy happens on the sampler thread; writing it to disk
         # waits for the worker thread.
         with self.lock:
-            self.pending = (prompt_id, step, total, latent, node_id, scale)
+            self.pending = (prompt_id, step, total, latent, node_id, scale, exec_node)
         self.wake.set()
 
     def finish(self, prompt_id):
@@ -121,7 +121,7 @@ class _Worker:
                     self.finished_id = None
                     self._stop_proc()
                 continue
-            prompt_id, step, total, latent, node_id, scale = job
+            prompt_id, step, total, latent, node_id, scale, exec_node = job
             if (self.proc is None or self.proc.poll() is not None) and _low_memory():
                 if self.low_memory_noted != prompt_id:
                     self.low_memory_noted = prompt_id
@@ -180,7 +180,8 @@ class _Worker:
                 from server import PromptServer
                 PromptServer.instance.send_sync(EVENT, {
                     "prompt_id": prompt_id, "step": step, "total": total,
-                    "filename": name, "subfolder": OUT_SUB, "node_id": node_id})
+                    "filename": name, "subfolder": OUT_SUB, "node_id": node_id,
+                    "exec_node": exec_node})
             except Exception:  # noqa: BLE001
                 pass
 
@@ -245,7 +246,8 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             lat = lat[:1, :24].detach().to("cpu", torch.float16)
             if _worker is None:
                 _worker = _Worker()
-            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, node_id, scale)
+            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, node_id, scale,
+                           str(ctx.node_id) if ctx.node_id is not None else None)
         except Exception:  # noqa: BLE001
             log.warning("clip preview capture failed", exc_info=True)
     return callback
