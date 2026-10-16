@@ -17,12 +17,27 @@ device-to-host copy of the latent per step.
    [madebyollin/taehv](https://github.com/madebyollin/taehv)).
 3. Restart ComfyUI. Encoding uses PyAV (`av`), which ComfyUI already requires; no separate ffmpeg is needed.
 
-The pack adds no nodes: it wraps ComfyUI's preview callback and applies only to models whose latent
-format is MiniMax H3. Other models are untouched. A small front-end extension plays the clip on the sampler node itself while the prompt samples (drawn on the node's canvas,
-like the built-in image preview), and removes it when the prompt finishes. If the node cannot be located, for example inside a
-subgraph, a small panel at the bottom right of the window shows it instead.
+## Use
 
-It relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing the pack logs which and stays inactive.
+Add the **H3 Clip Preview** node (category `H3`) between the model loader and the sampler:
+
+    model loader -> H3 Clip Preview -> sampler
+
+| Input | Meaning |
+|---|---|
+| `model` | The H3 model. It is passed on unchanged. |
+| `scale` | `half` or `quarter` of the render resolution. `quarter` decodes about four times faster. |
+
+While the sampler runs, the clip plays on this node and updates every step. When the run ends, the last
+frame stays on the node.
+
+Without the node, every H3 sampling is still previewed and the clip is drawn on the sampler node for as long
+as it samples (a small panel at the bottom right if that node cannot be located, for example inside a subgraph).
+Set `H3_CLIP_PREVIEW=node` to preview only workflows that contain the node; bypassing the node then turns the
+preview off. Only models whose latent format is MiniMax H3 are affected; other models are untouched.
+
+The pack relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing it logs which and stays
+inactive.
 
 ## Output
 
@@ -55,6 +70,7 @@ decode follows immediately).
 | Setting | Effect |
 |---|---|
 | `H3_CLIP_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
+| `H3_CLIP_PREVIEW=node` | Preview only workflows that contain an H3 Clip Preview node |
 | `extra_data: {"h3_clip_preview": false}` on a prompt | Skip the preview for that prompt |
 | `H3_CLIP_PREVIEW_THREADS=<n>` | CPU threads for decoding |
 | `H3_CLIP_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |

@@ -127,8 +127,9 @@ def encode(model, lat, out):
     os.replace(tmp, out)
 
 
-def prepare(lat):
-    lat = F.avg_pool3d(lat.float(), (1, 2, 2))               # half resolution
+def prepare(lat, scale="half"):
+    k = 4 if scale == "quarter" else 2
+    lat = F.avg_pool3d(lat.float(), (1, k, k))                # half or quarter resolution
     h, w = lat.shape[-2] - lat.shape[-2] % 2, lat.shape[-1] - lat.shape[-1] % 2
     return lat[..., :h, :w]
 
@@ -140,9 +141,9 @@ def main():
     model = load()
     for line in sys.stdin:
         try:
-            src, out = line.rstrip("\n").split("\t")
+            src, out, *rest = line.rstrip("\n").split("\t")
             with torch.no_grad():
-                encode(model, prepare(torch.load(src)), out)
+                encode(model, prepare(torch.load(src), rest[0] if rest else "half"), out)
             print("ok", flush=True)
         except Exception as e:  # noqa: BLE001
             print("err", flush=True)

@@ -31,7 +31,11 @@ log = logging.getLogger("h3-clip-preview")
 HERE = Path(__file__).resolve().parent
 OUT_SUB = "h3_clip_preview"
 EVENT = "h3_clip_preview"
-ENABLED = os.environ.get("H3_CLIP_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")) != "0"
+# H3_CLIP_PREVIEW: "0" off; "node" only for workflows that contain an "H3 Clip Preview" node (so bypassing
+# the node turns the preview off); anything else, the default, previews every H3 sampling.
+_MODE = os.environ.get("H3_CLIP_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower()
+ENABLED = _MODE != "0"
+NODE_ONLY = _MODE == "node"
 
 
 # The decode process holds about 5 GB; below this much free RAM the step is skipped.
@@ -60,7 +64,7 @@ class _Worker:
     def __init__(self):
         self.proc = None
         self.lock = threading.Lock()
-        self.pending = None          # (prompt_id, step, total, latent)
+        self.pending = None          # (prompt_id, step, total, latent, node_id, scale)
         self.busy = False            # a decode is running; the callback skips its copy
         self.fails = 0               # consecutive failed decodes
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
@@ -83,11 +87,11 @@ class _Worker:
             text=True, encoding="utf-8", bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
         )
 
-    def submit(self, prompt_id, step, total, latent):
+    def submit(self, prompt_id, step, total, latent, node_id=None, scale="half"):
         # Only the host copy happens on the sampler thread; writing it to disk
         # waits for the worker thread.
         with self.lock:
-            self.pending = (prompt_id, step, total, latent)
+            self.pending = (prompt_id, step, total, latent, node_id, scale)
         self.wake.set()
 
     def finish(self, prompt_id):
@@ -117,7 +121,7 @@ class _Worker:
                     self.finished_id = None
                     self._stop_proc()
                 continue
-            prompt_id, step, total, latent = job
+            prompt_id, step, total, latent, node_id, scale = job
             if (self.proc is None or self.proc.poll() is not None) and _low_memory():
                 if self.low_memory_noted != prompt_id:
                     self.low_memory_noted = prompt_id
@@ -136,7 +140,7 @@ class _Worker:
                 torch.save(latent, path)
                 if self.proc is None or self.proc.poll() is not None:
                     self._start()
-                self.proc.stdin.write(f"{path}\t{out_dir / name}\n")
+                self.proc.stdin.write(f"{path}\t{out_dir / name}\t{scale}\n")
                 self.proc.stdin.flush()
                 reply = self.proc.stdout.readline().strip()
             except Exception:  # noqa: BLE001 -- a preview must never break a render
@@ -176,7 +180,7 @@ class _Worker:
                 from server import PromptServer
                 PromptServer.instance.send_sync(EVENT, {
                     "prompt_id": prompt_id, "step": step, "total": total,
-                    "filename": name, "subfolder": OUT_SUB})
+                    "filename": name, "subfolder": OUT_SUB, "node_id": node_id})
             except Exception:  # noqa: BLE001
                 pass
 
@@ -214,6 +218,12 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
     inner = _original(model, steps, x0_output_dict, *args, **kwargs)
     if not ENABLED or not _is_h3(model):
         return inner
+    # Set by the "H3 Clip Preview" node when the workflow has one; without it every H3 sampling
+    # is previewed and the front end draws the clip on the node that is sampling.
+    opts = (getattr(model, "model_options", None) or {}).get("h3_clip_preview") or {}
+    if NODE_ONLY and not opts:
+        return inner
+    node_id, scale = opts.get("node_id"), opts.get("scale", "half")
 
     def callback(step, x0, x, total_steps):
         inner(step, x0, x, total_steps)
@@ -235,7 +245,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             lat = lat[:1, :24].detach().to("cpu", torch.float16)
             if _worker is None:
                 _worker = _Worker()
-            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat)
+            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, node_id, scale)
         except Exception:  # noqa: BLE001
             log.warning("clip preview capture failed", exc_info=True)
     return callback
@@ -272,5 +282,35 @@ else:
 
 WEB_DIRECTORY = "./web"
 
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+class H3ClipPreview:
+    """Pass-through node: previews the H3 sampling that uses this model on the node itself."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "scale": (["half", "quarter"], {
+                    "default": "half",
+                    "tooltip": "Preview resolution relative to the render. Quarter decodes about four times faster."}),
+            },
+            "hidden": {"unique_id": "UNIQUE_ID"},
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("model",)
+    FUNCTION = "apply"
+    CATEGORY = "H3"
+    DESCRIPTION = "Shows the whole clip taking shape on this node while MiniMax H3 samples. Decoded on the CPU."
+
+    def apply(self, model, scale, unique_id=None):
+        patched = model.clone()
+        patched.model_options["h3_clip_preview"] = {
+            "node_id": str(unique_id) if unique_id is not None else None,
+            "scale": scale,
+        }
+        return (patched,)
+
+
+NODE_CLASS_MAPPINGS = {"H3ClipPreview": H3ClipPreview}
+NODE_DISPLAY_NAME_MAPPINGS = {"H3ClipPreview": "H3 Clip Preview"}
