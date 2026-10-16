@@ -78,7 +78,9 @@ function buildWidget(persistent) {
     serialize: false,
     options: { serialize: false },
     computeSize: (width) => [width, 180],
-    draw(ctx, n, width, y) {
+    draw(ctx, n, widgetWidth, y) {
+      // Never wider than the node itself, whatever width the layout reports.
+      const width = Math.min(widgetWidth, n.size[0]);
       const pad = 8;
       const labelH = 14;
       const boxW = width - pad * 2;
