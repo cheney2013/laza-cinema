@@ -31,11 +31,10 @@ log = logging.getLogger("h3-live-preview")
 HERE = Path(__file__).resolve().parent
 OUT_SUB = "h3_live_preview"
 EVENT = "h3_live_preview"
-# H3_LIVE_PREVIEW: "0" off; "node" only for workflows that contain an "H3 Live Preview" node (so bypassing
-# the node turns the preview off); anything else, the default, previews every H3 sampling.
-_MODE = os.environ.get("H3_LIVE_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower()
-ENABLED = _MODE != "0"
-NODE_ONLY = _MODE == "node"
+# H3_LIVE_PREVIEW=0 turns the preview off. H3_LIVE_PREVIEW_SCALE is "half" (default) or "quarter" of the
+# render resolution; quarter decodes about four times faster.
+ENABLED = os.environ.get("H3_LIVE_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower() != "0"
+SCALE = "quarter" if os.environ.get("H3_LIVE_PREVIEW_SCALE", "").strip().lower() == "quarter" else "half"
 
 
 # The decode process holds about 5 GB; below this much free RAM the step is skipped.
@@ -64,7 +63,7 @@ class _Worker:
     def __init__(self):
         self.proc = None
         self.lock = threading.Lock()
-        self.pending = None          # (prompt_id, step, total, latent, node_id, scale, exec_node)
+        self.pending = None          # (prompt_id, step, total, latent, scale, exec_node)
         self.busy = False            # a decode is running; the callback skips its copy
         self.fails = 0               # consecutive failed decodes
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
@@ -87,11 +86,11 @@ class _Worker:
             text=True, encoding="utf-8", bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
         )
 
-    def submit(self, prompt_id, step, total, latent, node_id=None, scale="half", exec_node=None):
+    def submit(self, prompt_id, step, total, latent, scale="half", exec_node=None):
         # Only the host copy happens on the sampler thread; writing it to disk
         # waits for the worker thread.
         with self.lock:
-            self.pending = (prompt_id, step, total, latent, node_id, scale, exec_node)
+            self.pending = (prompt_id, step, total, latent, scale, exec_node)
         self.wake.set()
 
     def finish(self, prompt_id):
@@ -121,7 +120,7 @@ class _Worker:
                     self.finished_id = None
                     self._stop_proc()
                 continue
-            prompt_id, step, total, latent, node_id, scale, exec_node = job
+            prompt_id, step, total, latent, scale, exec_node = job
             if (self.proc is None or self.proc.poll() is not None) and _low_memory():
                 if self.low_memory_noted != prompt_id:
                     self.low_memory_noted = prompt_id
@@ -180,7 +179,7 @@ class _Worker:
                 from server import PromptServer
                 PromptServer.instance.send_sync(EVENT, {
                     "prompt_id": prompt_id, "step": step, "total": total,
-                    "filename": name, "subfolder": OUT_SUB, "node_id": node_id,
+                    "filename": name, "subfolder": OUT_SUB,
                     "exec_node": exec_node})
             except Exception:  # noqa: BLE001
                 pass
@@ -194,58 +193,25 @@ if "aicinema-live-preview" in (getattr(_original, "__module__", "") or ""):
 _run_cache: dict = {}
 
 
-def _upstream(prompt: dict, start) -> set:
-    """Ids of every node the node `start` reads from, directly or through other nodes."""
-    seen, stack = set(), [str(start)]
-    while stack:
-        nid = stack.pop()
-        if nid in seen:
-            continue
-        seen.add(nid)
-        node = prompt.get(nid)
-        for value in ((node or {}).get("inputs") or {}).values():
-            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
-                stack.append(value[0])
-    return seen
-
-
-def _run_info(prompt_id, exec_node=None) -> dict:
-    """What the running prompt says about the preview: {"off": bool, "node_id": str|None, "scale": str}.
-
-    "off" is extra_data {"h3_live_preview": false}. node_id and scale come from the "H3 Live Preview" node whose
-    model input is something the sampling `exec_node` reads from; a bypassed or muted node is not part of the
-    prompt, so it counts as absent."""
-    key = (prompt_id, exec_node)
-    if key in _run_cache:
-        return _run_cache[key]
-    info = {"off": False, "node_id": None, "scale": "half"}
+def _opted_out(prompt_id) -> bool:
+    """The prompt was queued with extra_data {"h3_live_preview": false}."""
+    if prompt_id in _run_cache:
+        return _run_cache[prompt_id]
+    out = False
     try:
         import server
         queue = server.PromptServer.instance.prompt_queue
         with queue.mutex:
             for item in queue.currently_running.values():
-                if item[1] != prompt_id:
-                    continue
-                extra = item[3] if len(item) > 3 and isinstance(item[3], dict) else {}
-                info["off"] = extra.get("h3_live_preview") is False or extra.get("aicinema_live_preview") is False
-                prompt = item[2] if isinstance(item[2], dict) else {}
-                reads = _upstream(prompt, exec_node) if exec_node is not None else set()
-                for nid, node in prompt.items():
-                    if not (isinstance(node, dict) and node.get("class_type") == "H3LivePreview"):
-                        continue
-                    source = (node.get("inputs") or {}).get("model")
-                    if not (isinstance(source, list) and source and str(source[0]) in reads):
-                        continue
-                    info["node_id"] = str(nid)
-                    scale = (node.get("inputs") or {}).get("scale")
-                    info["scale"] = scale if scale in ("half", "quarter") else "half"
-                    break
+                if item[1] == prompt_id and len(item) > 3 and isinstance(item[3], dict):
+                    extra = item[3]
+                    out = extra.get("h3_live_preview") is False or extra.get("aicinema_live_preview") is False
     except Exception:  # noqa: BLE001
-        pass
+        out = False
     if len(_run_cache) > 64:
         _run_cache.clear()
-    _run_cache[key] = info
-    return info
+    _run_cache[prompt_id] = out
+    return out
 
 
 def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
@@ -259,12 +225,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
         try:
             from comfy_execution.utils import get_executing_context
             ctx = get_executing_context()
-            info = _run_info(ctx.prompt_id, ctx.node_id) if ctx is not None else None
-            if info is None or info["off"]:
-                return
-            # With an "H3 Live Preview" node in the workflow the clip goes there; without one every H3
-            # sampling is previewed (unless H3_LIVE_PREVIEW=node) and the front end draws it on the sampler.
-            if NODE_ONLY and info["node_id"] is None:
+            if ctx is None or _opted_out(ctx.prompt_id):
                 return
             # The last step's clip would land just as the real decode finishes.
             if step + 1 >= total_steps:
@@ -278,7 +239,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
             lat = lat[:1, :24].detach().to("cpu", torch.float16)
             if _worker is None:
                 _worker = _Worker()
-            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, info["node_id"], info["scale"],
+            _worker.submit(ctx.prompt_id, step + 1, total_steps, lat, SCALE,
                            str(ctx.node_id) if ctx.node_id is not None else None)
         except Exception:  # noqa: BLE001
             log.warning("live preview capture failed", exc_info=True)
@@ -316,29 +277,5 @@ else:
 
 WEB_DIRECTORY = "./web"
 
-class H3LivePreview:
-    """Display node: the clip of an H3 sampling that uses this model plays here. Input only, like Preview Image."""
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "model": ("MODEL",),
-                "scale": (["half", "quarter"], {
-                    "default": "half",
-                    "tooltip": "Preview resolution relative to the render. Quarter decodes about four times faster."}),
-            },
-        }
-
-    RETURN_TYPES = ()
-    FUNCTION = "noop"
-    OUTPUT_NODE = True
-    CATEGORY = "H3"
-    DESCRIPTION = "Shows the whole clip taking shape on this node while MiniMax H3 samples. Decoded on the CPU."
-
-    def noop(self, model, scale):
-        return {}
-
-
-NODE_CLASS_MAPPINGS = {"H3LivePreview": H3LivePreview}
-NODE_DISPLAY_NAME_MAPPINGS = {"H3LivePreview": "H3 Live Preview"}
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}

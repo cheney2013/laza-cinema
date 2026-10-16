@@ -19,20 +19,12 @@ device-to-host copy of the latent per step.
 
 ## Use
 
-Add the **H3 Live Preview** node (category `H3`) and connect the H3 `model` to it (the same model that feeds the sampler). It has an input and no output, like a Preview Image node.
+There is nothing to add to a workflow. Once the pack is installed, every MiniMax H3 sampler shows the clip
+taking shape on its own node while it samples: a preview area appears at the bottom of the sampler node and is
+refreshed every step. When the run ends, the preview is removed and the node returns to its size. If the sampler
+sits inside a subgraph, open the subgraph to see it.
 
-| Input | Meaning |
-|---|---|
-| `model` | The H3 model. It is only read, never changed. |
-| `scale` | `half` or `quarter` of the render resolution. `quarter` decodes about four times faster. |
-
-While an H3 sampler runs, the clip plays on this node and updates every step. The last clip keeps looping on
-the node after the run ends. Bypass or mute the node to turn the preview off for that workflow.
-
-Without the node, every H3 sampling is still previewed and the clip is drawn on the sampler node for as long as it
-samples. Set
-`H3_LIVE_PREVIEW=node` to preview only workflows that contain the node. Only models whose latent format is MiniMax H3
-are affected; other models are untouched.
+Only models whose latent format is MiniMax H3 are affected; other models are untouched.
 
 The pack relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing it logs which and stays
 inactive.
@@ -68,7 +60,7 @@ decode follows immediately).
 | Setting | Effect |
 |---|---|
 | `H3_LIVE_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
-| `H3_LIVE_PREVIEW=node` | Preview only workflows that contain an H3 Live Preview node |
+| `H3_LIVE_PREVIEW_SCALE=quarter` | Preview at a quarter of the render resolution instead of half; decodes about four times faster |
 | `extra_data: {"h3_live_preview": false}` on a prompt | Skip the preview for that prompt |
 | `H3_LIVE_PREVIEW_THREADS=<n>` | CPU threads for decoding |
 | `H3_LIVE_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |
