@@ -18,8 +18,9 @@ device-to-host copy of the latent per step.
 3. Restart ComfyUI. Encoding uses PyAV (`av`), which ComfyUI already requires; no separate ffmpeg is needed.
 
 The pack adds no nodes: it wraps ComfyUI's preview callback and applies only to models whose latent
-format is MiniMax H3. Other models are untouched. A small front-end extension plays the clip in a panel at the
-bottom right of the ComfyUI window while the prompt samples, and hides it when the prompt finishes.
+format is MiniMax H3. Other models are untouched. A small front-end extension plays the clip on the sampler node itself while the prompt samples (drawn on the node's canvas,
+like the built-in image preview), and removes it when the prompt finishes. If the node cannot be located, for example inside a
+subgraph, a small panel at the bottom right of the window shows it instead.
 
 It relies on a few ComfyUI internals (verified on ComfyUI 0.38.0). If one is missing the pack logs which and stays inactive.
 

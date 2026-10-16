@@ -12,7 +12,7 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 2. 把 `taeh3.safetensors` 放进 `ComfyUI/models/vae_approx/`（官方 taeh3 权重，来自 [madebyollin/taehv](https://github.com/madebyollin/taehv)）。
 3. 重启 ComfyUI。编码使用 PyAV（`av`），ComfyUI 本身已要求安装，不需要另装 ffmpeg。
 
-本包不添加任何节点：它包装 ComfyUI 的预览回调，只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。采样期间，一个小的前端扩展会在 ComfyUI 窗口右下角的面板里播放该片段，任务结束后自动隐藏。
+本包不添加任何节点：它包装 ComfyUI 的预览回调，只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。采样期间，一个小的前端扩展会直接在正在采样的节点上播放该片段（画在节点画布上，与内置图片预览一致），任务结束后自动移除。找不到该节点时（例如在子图里），改用窗口右下角的小面板显示。
 
 本包依赖 ComfyUI 的几个内部接口（已在 ComfyUI 0.38.0 上验证）。缺少任何一个时，会在日志里写明缺哪个并保持停用。
 
