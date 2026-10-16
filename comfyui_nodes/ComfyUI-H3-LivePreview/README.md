@@ -2,7 +2,7 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-Whole-clip sampling preview for MiniMax H3, decoded on the CPU.
+Whole-clip sampling preview for MiniMax H3, decoded on the CPU. It puts idle CPU capacity to work, and lets you catch composition problems early from the preview.
 
 While an H3 render samples, the pack takes the sampler's current latent after every step and decodes
 the **entire clip** with the `taeh3` tiny autoencoder in a separate low-priority process. The result
