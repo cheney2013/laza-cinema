@@ -967,7 +967,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                     </div>
               </>}
             >
-              <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} onCancel={handleCancel} />
+              <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} onCancel={handleCancel} />
             </NodeVideoPlayer>
           </div>
 
@@ -1346,7 +1346,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
               </div>
             </div>
 
-            <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} onCancel={handleCancel} />
+            <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} onCancel={handleCancel} />
 
             <NodeErrorBanner
               error={data.status === 'error' ? (data.error || t('视频编辑失败')) : null}
