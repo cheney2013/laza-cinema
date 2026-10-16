@@ -58,9 +58,8 @@ ComfyUI is not on 127.0.0.1:8188/8189.
 | Comfyui-MMH3-UltimateUpscale | github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale | 8d98e68 | latent upscale |
 | ComfyUI-H3-FunControl | github.com/wyzborrero/ComfyUI-H3-FunControl | 22a7ec3 | grey-box control video (needs the fused base, see §5) |
 | ComfyUI-Viggle-Animate-H3 | github.com/Saganaki22/ComfyUI-Viggle-Animate-H3 | 998d013 | character swap (engine removed 2026-10-07; unused, kept) |
-| ComfyUI-HyperFlow-H3 | this folder (`ComfyUI-HyperFlow-H3/`) | ours | HyperFlow preset (not usable at 16 GB, see §5) |
 | ComfyUI-WanAnimatePreprocess | github.com/kijai/ComfyUI-WanAnimatePreprocess | 1.0.3 | ONNX detector loader (pose) |
-| ComfyUI-SCAIL-Pose | github.com/kijai/ComfyUI-SCAIL-Pose | 1.0.2 | ViTPose → DWPose |
+| ComfyUI-SCAIL-Pose | github.com/kijai/ComfyUI-SCAIL-Pose | f10955d (1.0.2) + **patch** | ViTPose → DWPose. Upstream declares no licence, so it is cloned, never vendored |
 | ComfyUI-NLF-Minimal | (installed through the Manager; no repo metadata) | — | 3D pose (NLF) |
 
 Everything else the backend uses is ComfyUI core (MiniMax H3,
@@ -134,7 +133,6 @@ existing-video context.
 | Depth control (Fun ControlNet 2.0 through ComfyUI's own nodes) | `model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors` (8.4); any ref2va base, no fused needed | fits as far as tested: official w4a8 and Singularity w4a8 at 864x480 render normally; memory on a real 16 GB card not measured |
 | FLUX.2 dev stills | flux2_dev_fp8mixed (35.5) + mistral_3_small (35.6) | **no** |
 | Gaussian view repair (Qwen Image Edit) | qwen_image_edit_2511_fp8 (20.4) + qwen_2.5_vl_7b (16.6) | **no** |
-| HyperFlow preset | unpruned ref2va int8 (34.0) | **no**; preset refused (so are `fused`, `hybrid`, `ref2va_full`) |
 | Qwen-Image 2.1 stills | int8 (7.3) + Qwen3-VL 8B encoder (9.4); a GGUF / lighter encoder can be set with `QWEN_IMAGE_UNET` / `QWEN_IMAGE_CLIP` | should fit; **not measured** next to H3 in 32 GB RAM |
 | CrossView re-angle | `crossview` preset keeps its LoRA, checkpoint swapped to w4a8 | runs; **quality on w4a8 not measured** |
 

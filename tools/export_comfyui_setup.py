@@ -41,7 +41,7 @@ OWN_PACKS = {"aicinema-live-preview", "aicinema_audio_lock", "aicinema_chain"}
 REQUIRED_PACKS = {
     "ComfyUI-H3-Motion-Context-MultiRef", "comfyui-h3-motion-context", "comfyui-kjnodes", "ComfyUI-Sharp",
     "Comfyui-MMH3-UltimateUpscale", "ComfyUI-FL-MiniMaxH3", "ComfyUI-SCAIL-Pose", "comfyui-videohelpersuite",
-    "ComfyUI-Viggle-Animate-H3", "ComfyUI-NLF-Minimal", "ComfyUI-HyperFlow-H3", "ComfyUI-sol-attn",
+    "ComfyUI-Viggle-Animate-H3", "ComfyUI-NLF-Minimal", "ComfyUI-sol-attn",
     "ComfyUI-CrossViewWarp", "comfyui_controlnet_aux", "ComfyUI-H3-AudioRefine", "ComfyUI-WanAnimatePreprocess",
     "ComfyUI-Frame-Interpolation", "aicinema-live-preview", "aicinema_audio_lock", "aicinema_chain",
 }

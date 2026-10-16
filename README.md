@@ -37,7 +37,7 @@ On machines with 30 GB of VRAM or more, set `H3_MACHINE_PROFILE` to `workstation
 
 ## Quick start
 
-The full guide (installing ComfyUI, node packs, model files, troubleshooting) is **[docs/DEPLOY.md](docs/DEPLOY.md)**, and the model file list is [docs/H3_WEIGHTS.md](docs/H3_WEIGHTS.md). Both documents are currently **in Chinese only**. The order of steps:
+The full guide (installing ComfyUI, node packs, model files, troubleshooting) is **[docs/DEPLOY.md](docs/DEPLOY.md)**, and the model file list is [docs/H3_WEIGHTS.md](docs/H3_WEIGHTS.md). Both are also available in Chinese ([DEPLOY.zh-CN.md](docs/DEPLOY.zh-CN.md), [H3_WEIGHTS.zh-CN.md](docs/H3_WEIGHTS.zh-CN.md)). The order of steps:
 
 ```powershell
 # 1. Install ComfyUI and its custom nodes (one-shot script, DEPLOY.md sections 2 and 3)
@@ -116,7 +116,7 @@ npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writin
 ```
 frontend/        Next.js canvas and cut room
 backend/         FastAPI backend, workflow builders, canvas MCP
-comfyui_nodes/   ComfyUI nodes of this project, plus third-party packs vendored under third_party/
+comfyui_nodes/   ComfyUI nodes of this project (other packs are cloned by the installer)
 tools/           install checks, node installer, quality-check scripts
 docs/            deployment guide, weight list
 ```
@@ -125,5 +125,5 @@ docs/            deployment guide, weight list
 
 - Model weights are not distributed with the repository. Sources and file names are in [docs/H3_WEIGHTS.md](docs/H3_WEIGHTS.md) and DEPLOY.md.
 - The packs under `comfyui_nodes/third_party/` come from their own authors and keep their original files; read each pack's own notes before using it.
-- This project is for non-commercial use.
+- The code in this repository is licensed under Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). Third-party packs and model weights keep their own licences, and some weights (for example Qwen-Image 2.1's Viggle turbo LoRA) are non-commercial; check each one before commercial use.
 - A complete install on a clean machine has not been walked through yet; DEPLOY.md marks the steps that were not tested. Please open an issue if you hit a problem.

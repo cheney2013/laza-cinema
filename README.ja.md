@@ -116,7 +116,7 @@ npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writin
 ```
 frontend/        Next.js のキャンバスとカット編集室
 backend/         FastAPI バックエンド、ワークフロービルダー、キャンバス MCP
-comfyui_nodes/   このプロジェクト自作の ComfyUI ノードと、third_party/ に同梱したサードパーティのノードパック
+comfyui_nodes/   このプロジェクト自作の ComfyUI ノード（ほかのノードパックはインストーラーがクローンする）
 tools/           インストール確認、ノードインストーラー、品質チェックスクリプト
 docs/            デプロイ手順、重みファイル一覧
 ```

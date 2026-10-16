@@ -37,13 +37,13 @@ LAZA CINEMA STUDIO 是一个本地运行的影视制作工作室：在画布上�
 
 ## 快速开始
 
-完整步骤（安装 ComfyUI、节点包、模型文件、常见问题）在 **[docs/DEPLOY.md](docs/DEPLOY.md)**，模型文件清单在 [docs/H3_WEIGHTS.md](docs/H3_WEIGHTS.md)。大致顺序：
+完整步骤（安装 ComfyUI、节点包、模型文件、常见问题）在 **[docs/DEPLOY.zh-CN.md](docs/DEPLOY.zh-CN.md)**，模型文件清单在 [docs/H3_WEIGHTS.zh-CN.md](docs/H3_WEIGHTS.zh-CN.md)。大致顺序：
 
 ```powershell
-# 1. 装好 ComfyUI 和它的自定义节点（一键脚本，见 DEPLOY.md 第 2、3 节）
+# 1. 装好 ComfyUI 和它的自定义节点（一键脚本，见 DEPLOY.zh-CN.md 第 2、3 节）
 python tools\install_comfyui_nodes.py --comfyui C:\ComfyUI
 
-# 2. 把模型权重放进 ComfyUI\models（见 DEPLOY.md 第 4 节）
+# 2. 把模型权重放进 ComfyUI\models（见 DEPLOY.zh-CN.md 第 4 节）
 
 # 3. 配置并启动本项目
 copy .env.example .env
@@ -92,7 +92,7 @@ python tools\check_install.py
 - 先用 `get_canvas(summary=True)` 读；要看某个节点的全部内容，传 `node_ids=[...]`。
 - 只用 `apply_canvas_operations` 改；渲染用 `run_canvas_node`，再 `refresh_canvas_node`。不要直接把渲染提交给 ComfyUI，否则画布就不再是记录。
 - 连入一个节点的边的顺序就是它的 `<Picture N>` 编号。`get_node_catalog` 列出节点类型和字段。
-- 没设 token 时服务接受所有请求，只在别人连不到的机器上这样用。细节见 [docs/DEPLOY.md](docs/DEPLOY.md) 第 8 节。
+- 没设 token 时服务接受所有请求，只在别人连不到的机器上这样用。细节见 [docs/DEPLOY.zh-CN.md](docs/DEPLOY.zh-CN.md) 第 8 节。
 
 ## AI 助手需要的技能和参考文档
 
@@ -116,14 +116,14 @@ npx skills add https://github.com/MiniMax-AI/MiniMax-H3 --skill h3-prompt-writin
 ```
 frontend/        Next.js 画布和剪辑台
 backend/         FastAPI 后端、工作流构建器、画布 MCP
-comfyui_nodes/   本项目自带的 ComfyUI 节点，以及 third_party/ 里随仓库带的第三方节点包
+comfyui_nodes/   本项目自带的 ComfyUI 节点（其他节点包由安装脚本克隆）
 tools/           安装检查、节点安装、质检脚本
 docs/            部署说明、权重清单
 ```
 
 ## 说明
 
-- 模型权重不随仓库分发，来源和文件名见 [docs/H3_WEIGHTS.md](docs/H3_WEIGHTS.md) 和 DEPLOY.md。
+- 模型权重不随仓库分发，来源和文件名见 [docs/H3_WEIGHTS.zh-CN.md](docs/H3_WEIGHTS.zh-CN.md) 和 DEPLOY.zh-CN.md。
 - `comfyui_nodes/third_party/` 里的节点包来自各自的作者，保留了原有的文件；用到它们之前请先看各包自己的说明。
 - 本项目用于非商业用途。
-- 在干净的机器上完整装一遍的流程还没有走过，DEPLOY.md 里标注了哪些步骤没有实测，遇到问题欢迎提 issue。
+- 在干净的机器上完整装一遍的流程还没有走过，DEPLOY.zh-CN.md 里标注了哪些步骤没有实测，遇到问题欢迎提 issue。

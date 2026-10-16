@@ -65,7 +65,11 @@
       "name": "ComfyUI-Frame-Interpolation",
       "required": true,
       "size_mb": 16.9,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation",
+      "commit": "26545cc2dd95bc3d27f056016300673bdeee78f5",
+      "modified_files": []
     },
     {
       "name": "ComfyUI-GaussianPack",
@@ -91,7 +95,11 @@
       "name": "ComfyUI-H3-AudioRefine",
       "required": true,
       "size_mb": 0.2,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/Adudeguyman/ComfyUI-H3-AudioRefine",
+      "commit": "d78d34f2f1100b0422047e9d784a3bdb4e1061d3",
+      "modified_files": []
     },
     {
       "name": "ComfyUI-H3-FunControl",
@@ -135,12 +143,6 @@
       "source": "copy"
     },
     {
-      "name": "ComfyUI-HyperFlow-H3",
-      "required": true,
-      "size_mb": 0.0,
-      "source": "copy"
-    },
-    {
       "name": "comfyui-itools",
       "required": false,
       "size_mb": 5.8,
@@ -150,7 +152,11 @@
       "name": "comfyui-kjnodes",
       "required": true,
       "size_mb": 2.7,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/kijai/ComfyUI-KJNodes",
+      "commit": "def8a9c22fbfac4568bef93e87c7e1812344d569",
+      "modified_files": []
     },
     {
       "name": "ComfyUI-MiniMax-H3-Promptor",
@@ -197,8 +203,15 @@
     {
       "name": "ComfyUI-SCAIL-Pose",
       "required": true,
-      "size_mb": 0.1,
-      "source": "copy"
+      "size_mb": 0.4,
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/kijai/ComfyUI-SCAIL-Pose",
+      "commit": "f10955d1dfddc6858be5fd17b912379a46fb0ad0",
+      "modified_files": [
+        "nodes.py",
+        "render_3d/export_utils.py"
+      ]
     },
     {
       "name": "ComfyUI-Sharp",
@@ -230,7 +243,13 @@
       "name": "comfyui-videohelpersuite",
       "required": true,
       "size_mb": 0.4,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+      "commit": "3234937ff5f3ca19068aaba5042771514de2429d",
+      "modified_files": [
+        "videohelpersuite/utils.py"
+      ]
     },
     {
       "name": "ComfyUI-Viggle-Animate-H3",
@@ -246,7 +265,11 @@
       "name": "ComfyUI-WanAnimatePreprocess",
       "required": true,
       "size_mb": 0.8,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/kijai/ComfyUI-WanAnimatePreprocess",
+      "commit": "0e0b6a2a555625acf4d4aefb780e27d06937132f",
+      "modified_files": []
     },
     {
       "name": "comfyui-workflow-encrypt",
@@ -258,7 +281,11 @@
       "name": "comfyui_controlnet_aux",
       "required": true,
       "size_mb": 46.6,
-      "source": "copy"
+      "source": "git",
+      "remote_reachable": true,
+      "remote": "https://github.com/Fannovel16/comfyui_controlnet_aux",
+      "commit": "e8b689a513c3e6b63edc44066560ca5919c0576e",
+      "modified_files": []
     },
     {
       "name": "comfyui_layerstyle",

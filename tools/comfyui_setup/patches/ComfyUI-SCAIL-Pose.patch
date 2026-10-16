@@ -1,0 +1,38 @@
+diff --git a/nodes.py b/nodes.py
+index 422e9ea..b7cf160 100644
+--- a/nodes.py
++++ b/nodes.py
+@@ -396,9 +396,16 @@ class SaveNLFPosesAs3D:
+             filename = f"{filename_prefix}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.glb"
+             filepath = os.path.join(full_output_folder, filename)
+ 
++            if len(cylinder_specs_list) == 0 or len(cylinder_specs_list[0]) == 0:
++                raise ValueError("No pose detected in the input image. (0 cylinders generated)")
++
+             logging.info(f"Saving as GLB animation to {full_output_folder}")
+             logging.info(f"Starting GLB animation export. Frames: {len(cylinder_specs_list)}")
+             save_cylinder_specs_as_glb_animation(cylinder_specs_list, filepath, fps=fps, radius=cylinder_radius)
++            
++            if not os.path.exists(filepath):
++                raise RuntimeError(f"GLB file was not created by export function: {filepath}")
++                
+             logging.info(f"Saved GLB: {filepath}")
+         except Exception as e:
+             logging.error(f"Error in SaveNLFPosesAs3D: {e}")
+diff --git a/render_3d/export_utils.py b/render_3d/export_utils.py
+index 009e28b..1eed6fa 100644
+--- a/render_3d/export_utils.py
++++ b/render_3d/export_utils.py
+@@ -145,10 +145,10 @@ def save_cylinder_specs_as_glb_animation(cylinder_specs_list, filepath, radius=2
+         all_points_np = np.array(all_points)
+         min_coords = np.min(all_points_np, axis=0)
+         max_coords = np.max(all_points_np, axis=0)
+-        center = (min_coords + max_coords) / 2
++        center = np.array([0.0, 0.0, 0.0]) # (min_coords + max_coords) / 2
+         size = max_coords - min_coords
+         max_dim = np.max(size)
+-        scale_factor = 1.8 / max_dim if max_dim > 10 else 1.0
++        scale_factor = 1.0 # 1.8 / max_dim if max_dim > 10 else 1.0
+ 
+     logging.info(f"Centering at {center}, Scaling by {scale_factor}")
+ 

@@ -1,0 +1,44 @@
+LAZA CINEMA STUDIO
+Copyright 2026 LAZA CINEMA STUDIO contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components
+----------------------
+Three node packs are kept under comfyui_nodes/third_party/ as a fallback for when their repository
+is unreachable. They are the work of their own authors and stay under their own licences; each folder
+keeps its LICENSE file, and they are not covered by the Apache-2.0 licence above.
+
+  ComfyUI-Viggle-Animate-H3     Apache-2.0
+  ComfyUI-sol-attn              Apache-2.0
+  ComfyUI-NLF-Minimal           Apache-2.0 (derived from kijai/ComfyUI-WanVideoWrapper, MTV/nodes.py)
+
+Every other pack is cloned from its own repository at a recorded commit when you run
+tools/install_comfyui_nodes.py (see tools/comfyui_setup/setup.json) and is not part of this repository:
+
+  ComfyUI-Frame-Interpolation   MIT
+  ComfyUI-H3-AudioRefine        MIT
+  ComfyUI-WanAnimatePreprocess  Apache-2.0
+  comfyui_controlnet_aux        Apache-2.0
+  comfyui-kjnodes               GPL-3.0
+  comfyui-videohelpersuite      GPL-3.0 (one local patch: tools/comfyui_setup/patches/)
+  ComfyUI-SCAIL-Pose            declares no licence (one local patch: tools/comfyui_setup/patches/)
+
+The small patch files under tools/comfyui_setup/patches/ are kept here so the installer can apply them
+to those clones.
+
+Python dependencies keep their own licences (see backend/requirements.txt). Note that nudenet is
+AGPL-3.0.
+
+Other bundled files
+-------------------
+backend/mediapipe_models/holistic_landmarker.task   Google MediaPipe model, Apache-2.0.
+docs/MiniMax_H3_Singularity_Prompt_Writing_Specification_Enhanced_EN.md
+    By WarmBloodAban, published with the Singularity weights (Apache-2.0 on the model page). It is not an
+    official MiniMax document.
+
+Model weights
+-------------
+No model weights are distributed with this repository. Each weight keeps the licence of the party
+that published it (for example the MiniMax H3 licence and the Qwen Research License); some of them
+restrict commercial use. See docs/H3_WEIGHTS.md for the list and their sources.
