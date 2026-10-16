@@ -3516,6 +3516,59 @@ async def _run_mosaic_seeded(job: dict, req: MosaicRequest, source: Path) -> dic
     }
 
 
+class MosaicPreviewRequest(BaseModel):
+    video_url: str
+    frame: int = Field(0, ge=0)
+    points: list[dict]          # [{x, y}] in 0..1 of the picture
+
+
+MOSAIC_PREVIEW_DIR = UPLOAD_DIR / "mosaic_preview"
+MOSAIC_PREVIEW_DIR.mkdir(exist_ok=True)
+
+
+@app.post("/mosaic-preview")
+async def mosaic_preview_endpoint(req: MosaicPreviewRequest):
+    """What SAM 3.1 takes the pointed-at part to be on one frame, as a translucent overlay PNG.
+
+    Shown over the picture right after a click, so a point that lands on a finger or the
+    face is seen at once, not after a whole clip has been tracked."""
+    import hashlib
+    import cv2
+    import numpy as np
+    import mosaic
+    import workflow_builders as wb
+
+    if not req.points:
+        raise HTTPException(status_code=400, detail="no points")
+    source = await resolve_upload(req.video_url)
+    cap = cv2.VideoCapture(str(source))
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, req.frame)
+    ok, frame = cap.read()
+    cap.release()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"frame {req.frame} is not in the clip")
+    px = mosaic.seeds_to_pixels([{"frame": 0, **p} for p in req.points], w, h, 1)[0]
+    key = hashlib.sha1(f"{source.name}|{source.stat().st_mtime_ns}|{req.frame}|{sorted(px)}".encode()).hexdigest()[:12]
+    out = MOSAIC_PREVIEW_DIR / f"{key}.png"
+    info_path = MOSAIC_PREVIEW_DIR / f"{key}.json"
+    if not (out.is_file() and info_path.is_file()):
+        ok, buf = cv2.imencode(".png", frame)
+        name = await comfyui.upload_image(buf.tobytes(), f"mosaic_prev_{key}.png")
+        raw = await comfyui._run_image_workflow(wb.build_mask_preview_workflow(name, px))
+        mask = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)[..., 2] > 127
+        if mask.shape != (h, w):
+            mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+        edge = mask & ~cv2.erode(mask.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+        rgba = np.zeros((h, w, 4), np.uint8)
+        rgba[mask] = (255, 211, 34, 110)       # BGRA: cyan fill
+        rgba[edge] = (255, 255, 255, 235)
+        cv2.imwrite(str(out), rgba)
+        info_path.write_text(json.dumps({"area": float(mask.mean()), "pixels": int(mask.sum())}))
+    info = json.loads(info_path.read_text())
+    return {"url": f"/uploads/mosaic_preview/{out.name}", **info, "frame": req.frame}
+
+
 @app.post("/generate-mosaic")
 async def generate_mosaic_endpoint(req: MosaicRequest):
     """Mosaic the regions the detector finds in a clip (tracked between detections, sound kept)."""

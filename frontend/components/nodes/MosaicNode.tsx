@@ -113,13 +113,40 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
     if (x < 0 || x > 1 || y < 0 || y > 1) return null;
     return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
   };
+  // What SAM takes a pointed-at part to be on that frame, drawn over the picture so a point that
+  // landed on a finger or the face is seen at once. Keyed by frame + its points.
+  type Preview = { key: string; frame: number; url?: string; area?: number; error?: string; busy?: boolean };
+  const [previews, setPreviews] = useState<Preview[]>([]);
+  const keyOf = (frame: number, pts: { x: number; y: number }[]) =>
+    `${frame}|${pts.map((p) => `${p.x},${p.y}`).join(';')}`;
+  const requestPreview = useCallback(async (frame: number, pts: { x: number; y: number }[]) => {
+    if (!sourceVideoUrl || !pts.length) return;
+    const key = keyOf(frame, pts);
+    setPreviews((cur) => [...cur.filter((p) => p.frame !== frame), { key, frame, busy: true }]);
+    try {
+      const r = await api.mosaicPreview({ video_url: sourceVideoUrl, frame, points: pts });
+      setPreviews((cur) => cur.map((p) => (p.key === key ? { key, frame, url: r.url, area: r.area } : p)));
+    } catch (e: any) {
+      setPreviews((cur) => cur.map((p) => (p.key === key ? { key, frame, error: e.message || 'preview failed' } : p)));
+    }
+  }, [sourceVideoUrl]);
   const addSeed = (e: React.MouseEvent) => {
     e.stopPropagation();
     const p = pointOnVideo(e);
     if (!p) return;
     const frame = Math.max(0, Math.round((videoRef.current?.currentTime ?? 0) * FPS));
     updateNodeData(id, { mosaicSeeds: [...seeds, { frame, ...p }] });
+    void requestPreview(frame, [...seeds.filter((s) => s.frame === frame), p].map(({ x, y }) => ({ x, y })));
   };
+  const removeSeed = (i: number) => {
+    const gone = seeds[i];
+    const rest = seeds.filter((_, k) => k !== i);
+    updateNodeData(id, { mosaicSeeds: rest });
+    const left = rest.filter((s) => s.frame === gone.frame).map(({ x, y }) => ({ x, y }));
+    if (left.length) void requestPreview(gone.frame, left);
+    else setPreviews((cur) => cur.filter((p) => p.frame !== gone.frame));
+  };
+  const shownPreview = previews.find((p) => p.frame === curFrame);
 
   const isGenerating = data.status === 'generating';
   const canRun = Boolean(sourceVideoUrl) && !isGenerating;
@@ -242,6 +269,11 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 <div className="nodrag" onClick={addSeed} onMouseDown={(e) => e.stopPropagation()}
                   style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 30 }} />
               )}
+              {shownPreview?.url && (!data.generatedUrl || showSource) && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={`${API_BASE}${shownPreview.url}`} alt="" draggable={false}
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none', zIndex: 29 }} />
+              )}
               {(!data.generatedUrl || showSource) && seeds.filter((s) => Math.abs(s.frame - curFrame) <= 1).map((s, i) => (
                 <div key={`${s.frame}-${i}`} style={{
                   position: 'absolute', zIndex: 31, pointerEvents: 'none', width: 14, height: 14, borderRadius: 7,
@@ -287,9 +319,18 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
             {picking ? t('点击画面上的部位（再点一次结束）') : t('指定位置')}
           </button>
           {seeds.length > 0 && (
-            <button className="nodrag" style={smallBtn} onClick={() => updateNodeData(id, { mosaicSeeds: [] })}>{t('清空')}</button>
+            <button className="nodrag" style={smallBtn} onClick={() => { updateNodeData(id, { mosaicSeeds: [] }); setPreviews([]); }}>{t('清空')}</button>
           )}
         </div>
+        {shownPreview && (
+          <div style={{ fontSize: 10, color: shownPreview.error ? '#f87171' : (shownPreview.area ?? 0) > 0.05 || shownPreview.area === 0 ? '#fbbf24' : '#a5f3fc' }}>
+            {shownPreview.busy ? t('正在识别这一点…')
+              : shownPreview.error ? `${t('识别失败')}: ${shownPreview.error}`
+              : shownPreview.area === 0 ? t('这一点没有识别出任何东西，换个位置点')
+              : (shownPreview.area ?? 0) > 0.05 ? `${t('识别范围偏大')} ${((shownPreview.area ?? 0) * 100).toFixed(1)}% ${t('，可能点到了身体或脸')}`
+              : `${t('识别范围')} ${((shownPreview.area ?? 0) * 100).toFixed(2)}%`}
+          </div>
+        )}
         {seeds.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 10 }}>
             {seeds.map((s, i) => (
@@ -298,7 +339,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 <button className="nodrag" style={{ ...smallBtn, background: 'none', border: 'none', padding: 0, color: 'inherit' }}
                   onClick={() => { setShowSource(true); seekTo(s.frame); }}>{t('第')} {s.frame} {t('帧')}</button>
                 <button className="nodrag" style={{ ...smallBtn, background: 'none', border: 'none', padding: 0, color: '#f87171' }}
-                  onClick={() => updateNodeData(id, { mosaicSeeds: seeds.filter((_, k) => k !== i) })}>×</button>
+                  onClick={() => removeSeed(i)}>×</button>
               </span>
             ))}
           </div>

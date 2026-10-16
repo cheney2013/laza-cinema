@@ -831,6 +831,13 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  mosaicPreview: (req: { video_url: string; frame: number; points: { x: number; y: number }[] }) =>
+    request<{ url: string; area: number; pixels: number; frame: number }>('/mosaic-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
   mosaicVideo: (req: MosaicRequest) =>
     request<{ job_id: string; status: string }>('/generate-mosaic', {
       method: 'POST',

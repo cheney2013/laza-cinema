@@ -2741,6 +2741,25 @@ def build_mask_track_workflow(
     }
 
 
+def build_mask_preview_workflow(
+    image_filename: str,
+    points: list[tuple[int, int]],
+    ckpt_name: str = "sam3.1_multiplex_fp16.safetensors",
+) -> dict:
+    """The mask SAM 3.1 gives for the objects under `points` on one still (white = hit), as an image."""
+    import json as _json
+    pts = _json.dumps([{"x": int(x), "y": int(y)} for x, y in points])
+    return {
+        "mp:1": {"class_type": "LoadImage", "inputs": {"image": image_filename}},
+        "mp:4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt_name}},
+        "mp:6": {"class_type": "SAM3_Detect", "inputs": {
+            "model": ["mp:4", 0], "image": ["mp:1", 0], "threshold": 0.5, "refine_iterations": 2,
+            "individual_masks": False, "positive_coords": pts, "negative_coords": "[]"}},
+        "mp:7": {"class_type": "MaskToImage", "inputs": {"mask": ["mp:6", 0]}},
+        "mp:8": {"class_type": "SaveImage", "inputs": {"images": ["mp:7", 0], "filename_prefix": "cinema_mask_preview"}},
+    }
+
+
 # ── Gaussian Splatting model (SHARP) ──────────────────────────────────────────
 
 def build_gaussian_model_workflow(image_filename: str) -> dict:
