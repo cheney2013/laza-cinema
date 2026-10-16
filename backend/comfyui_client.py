@@ -1589,6 +1589,14 @@ class ComfyUIClient:
         await self._notify_queued(on_queued, prompt_id)
         return await self.resume_video_job(prompt_id)
 
+    async def track_mask_video(self, video_filename: str, points: list, seed_index: int,
+                               fps: float, on_queued=None) -> bytes:
+        """SAM 3.1 mask video of the objects under `points` (see build_mask_track_workflow)."""
+        workflow = wb.build_mask_track_workflow(video_filename, points, seed_index, fps=fps)
+        prompt_id = await self.queue_prompt(workflow)
+        await self._notify_queued(on_queued, prompt_id)
+        return await self.resume_video_job(prompt_id)
+
     async def reconstruct_from_panorama(
         self,
         panorama_filename: str,

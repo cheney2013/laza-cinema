@@ -34,6 +34,7 @@ import AudioRefineNode from './nodes/AudioRefineNode';
 import VideoUpscaleNode from './nodes/VideoUpscaleNode';
 import VideoInterpolateNode from './nodes/VideoInterpolateNode';
 import VideoTrimNode from './nodes/VideoTrimNode';
+import MosaicNode from './nodes/MosaicNode';
 import AudioGenNode from './nodes/AudioGenNode';
 import VideoCompareNode from './nodes/VideoCompareNode';
 import RefModNode from './nodes/RefModNode';
@@ -163,6 +164,7 @@ const nodeTypes = {
   videoUpscale: VideoUpscaleNode,
   videoInterpolate: VideoInterpolateNode,
   videoTrim: VideoTrimNode,
+  mosaic: MosaicNode,
   depthVideo: DepthVideoNode,
   audioGen: AudioGenNode,
   videoCompare: VideoCompareNode,
@@ -1569,6 +1571,7 @@ function Canvas() {
                                   (targetNode?.type === 'videoUpscale' && tgtHandle === 'in-video') ||
                                   (targetNode?.type === 'videoInterpolate' && tgtHandle === 'in-video') ||
                                   (targetNode?.type === 'videoTrim' && tgtHandle === 'in-video') ||
+                                  (targetNode?.type === 'mosaic' && tgtHandle === 'in-video') ||
                                   (targetNode?.type === 'depthVideo' && tgtHandle === 'in-video');
 
             const newEdge = {

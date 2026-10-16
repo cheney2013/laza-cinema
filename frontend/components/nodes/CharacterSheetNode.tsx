@@ -19,6 +19,7 @@ import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { CharacterSheetNode as CharacterSheetNodeType } from '@/lib/types';
 import { areNodePropsEqual } from '@/lib/utils';
+import Select from '@/components/ui/Select';
 
 /** Portrait is the house format: a landscape full body comes out too small (定妆板用竖屏). */
 const SIZES = [
@@ -264,7 +265,7 @@ function CharacterSheetNode({ id, data, selected }: NodeProps<CharacterSheetNode
           <div className="grid grid-cols-2 gap-2 text-[10px]">
             <label className="space-y-1">
               <span className="text-zinc-400">{t('画幅')}</span>
-              <select
+              <Select
                 value={size.id}
                 onChange={(e) => {
                   const s = SIZES.find((x) => x.id === e.target.value) ?? SIZES[0];
@@ -273,17 +274,17 @@ function CharacterSheetNode({ id, data, selected }: NodeProps<CharacterSheetNode
                 className="w-full rounded bg-black/30 border border-white/10 px-1.5 py-1 text-zinc-200"
               >
                 {SIZES.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
-              </select>
+              </Select>
             </label>
             <label className="space-y-1">
               <span className="text-zinc-400">{t('人物')}</span>
-              <select
+              <Select
                 value={data.subjectNoun || 'person'}
                 onChange={(e) => updateNodeData(id, { subjectNoun: e.target.value })}
                 className="w-full rounded bg-black/30 border border-white/10 px-1.5 py-1 text-zinc-200"
               >
                 {SUBJECTS.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
-              </select>
+              </Select>
             </label>
           </div>
         </div>

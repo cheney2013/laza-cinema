@@ -8,6 +8,7 @@ import {
 } from '@/lib/editor/subtitleLang';
 import { type Timeline, formatTimecode } from '@/lib/editor/types';
 import { t } from '@/lib/i18n';
+import Select from '@/components/ui/Select';
 
 /** The language an AI translation into `target` reads from: the film's first language, or the next one if that is the target. */
 function aiSource(timeline: Timeline, target: string): string {
@@ -224,15 +225,15 @@ function TranslationTable({ onClose }: { onClose: () => void }) {
           <span className="font-semibold text-zinc-100">{t('翻译对照')}</span>
           <label className="flex items-center gap-1">
             {t('参照语言')}
-            <select className={select} value={reference} onChange={(e) => setReference(e.target.value)}>
+            <Select className={select} value={reference} onChange={(e) => setReference(e.target.value)}>
               {langs.map((l) => <option key={l} value={l}>{languageName(l)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="flex items-center gap-1">
             {t('翻译成')}
-            <select className={select} value={target} onChange={(e) => setTarget(e.target.value)}>
+            <Select className={select} value={target} onChange={(e) => setTarget(e.target.value)}>
               {langs.map((l) => <option key={l} value={l}>{languageName(l)}</option>)}
-            </select>
+            </Select>
           </label>
           <span className={done < total ? 'text-amber-300' : 'text-zinc-500'}>{done}/{total}</span>
           <button

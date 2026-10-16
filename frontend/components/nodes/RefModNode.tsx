@@ -13,6 +13,7 @@ import { BACKEND_URL } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { RefModNode as RefModNodeType } from '@/lib/types';
 import { areNodePropsEqual } from '@/lib/utils';
+import Select from '@/components/ui/Select';
 
 const field = 'nodrag bg-white/5 border border-white/10 rounded px-1 py-0.5 font-mono text-[9px] text-zinc-300 w-full';
 
@@ -78,7 +79,7 @@ function RefModNode({ id, data, selected }: NodeProps<RefModNodeType>) {
         )}
         <label className="block space-y-0.5">
           <span className="text-zinc-400">{t('外观')}</span>
-          <select
+          <Select
             className={field}
             value={visual || ''}
             onChange={(e) => updateNodeData(id, { visual: e.target.value || undefined })}
@@ -86,11 +87,11 @@ function RefModNode({ id, data, selected }: NodeProps<RefModNodeType>) {
             <option value="">{t('（无外观）')}</option>
             {visual && !look && <option value={visual}>{visual}</option>}
             {looks.map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
-          </select>
+          </Select>
         </label>
         <label className="block space-y-0.5">
           <span className="text-zinc-400">{t('声音')}</span>
-          <select
+          <Select
             className={field}
             value={audio || ''}
             onChange={(e) => updateNodeData(id, { audio: e.target.value || undefined })}
@@ -102,7 +103,7 @@ function RefModNode({ id, data, selected }: NodeProps<RefModNodeType>) {
                 {e.name}{typeof e.params?.emotion === 'string' && e.params.emotion ? ` · ${e.params.emotion}` : ''}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="flex items-center gap-2">
           <span className="text-zinc-400">{t('权重')}</span>

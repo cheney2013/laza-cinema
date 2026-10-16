@@ -31,6 +31,7 @@ import TimelineView, { BIN_DRAG_TYPE } from './TimelineView';
 
 import type { Node as FlowNode } from '@xyflow/react';
 import { t } from '@/lib/i18n';
+import Select from '@/components/ui/Select';
 const EMPTY_EDGES: never[] = [];
 const EMPTY_NODES: FlowNode[] = [];
 
@@ -68,6 +69,7 @@ const NODE_TITLES: Record<string, string> = {
   videoFrames: '首尾帧补中间',
   videoInterpolate: '补帧视频',
   videoTrim: '剪切视频',
+  mosaic: '平台打码',
   depthVideo: '深度视频',
   inpaint: '局部重绘',
 };
@@ -1448,7 +1450,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
               title={t('预览画质：只影响剪辑台播放，导出始终用原片。自动按监视器大小选择，卡顿时自动降一档')}
             >
               {t('画质')}
-              <select
+              <Select
                 value={String(qualityChoice)}
                 onChange={(event) => {
                   const value = event.target.value === 'auto' ? 'auto' : Number(event.target.value);
@@ -1461,7 +1463,7 @@ function CutRoom({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
                 {QUALITY_LEVELS.map((level) => (
                   <option key={level} value={level}>{level}p</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <span className="font-mono text-xs text-emerald-300 tabular-nums">
               {formatTimecode(playhead, timeline.fps)}

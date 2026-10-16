@@ -177,6 +177,30 @@ export type VideoUpscaleNode = Node<VideoUpscaleNodeData, 'videoUpscale'>;
 export type VideoInterpolateNode = Node<VideoInterpolateNodeData, 'videoInterpolate'>;
 export type VideoTrimNode = Node<VideoTrimNodeData, 'videoTrim'>;
 
+export interface MosaicNodeData extends SizedNodeData {
+  generatedUrl: string | null;
+  status: 'idle' | 'generating' | 'done' | 'error';
+  error?: string;
+  jobId?: string;
+  /** Pixels the tracked region is grown by, at a 768 px short side. */
+  mosaicExpand: number;
+  /** Frames each side whose masks are unioned into a frame's mask. */
+  mosaicTemporal: number;
+  mosaicStyle: 'mosaic' | 'blur' | 'block';
+  /** Mosaic block size in px; 0 = by clip size. */
+  mosaicBlock: number;
+  /** Detector classes; empty = the default (genitalia, anus). */
+  mosaicClasses?: string[];
+  mosaicThreshold: number;
+  mosaicStep: number;
+  /** Where the part is, pointed at on the source clip: frame and x, y in 0..1 of the picture. */
+  mosaicSeeds?: { frame: number; x: number; y: number }[];
+  sourceUrl?: string | null;
+  mosaicInfo?: { suspect_frames: number[]; detected_frames?: number; keyframes?: number; seed_frame?: number; expand_px: number;
+    mode?: 'seeds'; seeds?: number; tracked_frames?: number; bridged_frames?: number; no_detection?: boolean };
+}
+export type MosaicNode = Node<MosaicNodeData, 'mosaic'>;
+
 export interface DepthVideoNodeData extends SizedNodeData {
   generatedUrl: string | null;
   status: 'idle' | 'generating' | 'done' | 'error';

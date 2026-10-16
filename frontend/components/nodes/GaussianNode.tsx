@@ -16,6 +16,7 @@ import GeneratingLine from './GeneratingLine';
 import { useJobResult } from '@/hooks/useJobPoller';
 import { t } from '@/lib/i18n';
 import { routeScaledData } from '@/lib/routeScale';
+import Select from '@/components/ui/Select';
 
 const HEADER_BG = 'rgba(20,20,20,0.97)';
 
@@ -382,24 +383,24 @@ function GaussianNode({ id, data, selected }: NodeProps<GaussianNodeType>) {
   // engine, trajectory and scene description: in the empty state and in the settings drawer
   const settingsControls = (
         <div className="nodrag nowheel" style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
-          <select
+          <Select
             value={engine}
             onChange={(e) => updateNodeData(id, { engine: e.target.value as 'sharp' | 'flashworld' })}
             className="w-full rounded border border-white/10 bg-black/40 px-1.5 py-1 text-zinc-200"
           >
             <option value="sharp">{t('SHARP · 只重建这张图（秒级）')}</option>
             <option value="flashworld">{t('FlashWorld · 补全整个场景（约 5 分钟）')}</option>
-          </select>
+          </Select>
           {isWorld && (
             <>
-              <select
+              <Select
                 value={data.worldTrajectory ?? 'ring'}
                 onChange={(e) => updateNodeData(id, { worldTrajectory: e.target.value as 'ring' | 'orbit' | 'pan' })}
                 title={t((TRAJECTORIES.find((x) => x.id === (data.worldTrajectory ?? 'ring')) ?? TRAJECTORIES[0]).hint)}
                 className="w-full rounded border border-white/10 bg-black/40 px-1.5 py-1 text-zinc-200"
               >
                 {TRAJECTORIES.map((x) => <option key={x.id} value={x.id}>{t(x.label)}</option>)}
-              </select>
+              </Select>
               {data.worldTrajectory === 'orbit' && (
                 <div className="flex items-center gap-2 text-zinc-300">
                   <label className="flex flex-1 items-center gap-1" title={t('轴心离画面相机多远（米）。拍近处的人物写 1.5 左右，默认 10 是给远景用的')}>

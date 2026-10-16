@@ -178,7 +178,7 @@ export function executeCanvasActions(
           if (sourceNode.type === 'prompt') targetHandle = 'in-prompt';
           else if (['image', 'inpaint', 'pose', 'gaussian'].includes(sourceNode.type as string)) {
             targetHandle = 'in-image';
-          } else if (['video', 'videoUpscale', 'videoInterpolate', 'videoTrim', 'depthVideo'].includes(sourceNode.type as string)) {
+          } else if (['video', 'videoUpscale', 'videoInterpolate', 'videoTrim', 'mosaic', 'depthVideo'].includes(sourceNode.type as string)) {
             targetHandle = 'in-video';
           } else if (sourceNode.type === 'audioGen') {
             targetHandle = ['videoEdit', 'videoContinue', 'videoFrames'].includes(targetNode.type as string) ? 'in-audio' : 'in-ref-audio';

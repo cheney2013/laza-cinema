@@ -6,6 +6,7 @@ import { api, type RefModEntry } from '@/lib/api';
 import { BACKEND_URL } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import AudioPlayer from './AudioPlayer';
+import Select from '@/components/ui/Select';
 
 /** One RefMod row as the canvas stores it (data.refMods): a look (visual), a voice (audio), and a weight. */
 export interface RefModRow {
@@ -78,19 +79,19 @@ export default function RefModPanel({ rows, busy, onChange }: Props) {
               </div>
             )}
             <div className="min-w-0 flex-1 space-y-1">
-              <select className={`${field} w-full`} value={row.visual || ''} disabled={busy}
+              <Select className={`${field} w-full`} value={row.visual || ''} disabled={busy}
                       onChange={(e) => patch(i, { visual: e.target.value || undefined })}>
                 <option value="">{t('（无外观）')}</option>
                 {row.visual && !looks.some((e) => e.name === row.visual) && <option value={row.visual}>{row.visual}</option>}
                 {looks.map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
-              </select>
-              <select className={`${field} w-full`} value={row.audio || ''} disabled={busy}
+              </Select>
+              <Select className={`${field} w-full`} value={row.audio || ''} disabled={busy}
                       title={t('声音只有潜空间，没有原音频，所以没有预览')}
                       onChange={(e) => patch(i, { audio: e.target.value || undefined })}>
                 <option value="">{t('（无声音）')}</option>
                 {row.audio && !voices.some((e) => e.name === row.audio) && <option value={row.audio}>{row.audio}</option>}
                 {voices.map((e) => <option key={e.name} value={e.name}>{e.name}{e.latent_frames ? ` · ${e.latent_frames}` : ''}</option>)}
-              </select>
+              </Select>
             </div>
             <label className="flex shrink-0 flex-col items-center gap-0.5 text-[8px] text-zinc-500">
               {t('权重')}

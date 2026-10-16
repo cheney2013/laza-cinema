@@ -8,6 +8,7 @@ import { api, type BibleEntry, type BibleFile, type BibleKind, type SceneInfo } 
 import { posterUrl, resolveAssetUrl } from '@/lib/config';
 import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
+import Select from '@/components/ui/Select';
 
 const KIND_LABEL: Record<BibleKind, string> = {
   cast: '人物定妆',
@@ -345,7 +346,7 @@ export default function ProductionBible({
 
   const entryActions = (entry: BibleEntry) => (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pb-2 pt-1 text-[10px] text-zinc-500">
-      <select
+      <Select
         value={entry.kind}
         onChange={(e) => void setKind(entry, e.target.value as BibleKind)}
         className="rounded bg-white/[0.05] px-1 py-0.5 text-zinc-300 outline-none"
@@ -353,7 +354,7 @@ export default function ProductionBible({
         {KINDS.map((k) => (
           <option key={k} value={k}>{t(KIND_LABEL[k])}</option>
         ))}
-      </select>
+      </Select>
       <button className="hover:text-zinc-200" onClick={() => void rename(entry)}>{t('改名')}</button>
       <button
         className="hover:text-zinc-200"

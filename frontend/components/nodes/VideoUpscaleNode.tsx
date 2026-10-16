@@ -27,6 +27,7 @@ import { MediaMaximizeIcon, NATIVE_VIDEO_CHROME_OFF } from './mediaChrome';
 import NodeVideoPlayer from './NodeVideoPlayer';
 import { t } from '@/lib/i18n';
 import { useLatentUpscaleDisabled } from '@/lib/useDisabledNodeTypes';
+import Select from '@/components/ui/Select';
 
 const MAX_LONG_SIDE = 3968;
 const MAX_SHORT_SIDE = 2176;
@@ -1098,7 +1099,7 @@ function SettingsPanel({
       {hasLatent && !isEsrgan && (
         <label className="nodrag mb-2 flex items-center gap-1.5 text-[11px] text-zinc-300" title={t('潜空间超分参考哪些图：沿用源视频节点当前连着的参考图、只用接到本节点参考图口的图，或不用参考（最快）')}>
           {t('参考图')}
-          <select
+          <Select
             className="nodrag rounded bg-black/40 border border-white/10 px-1 py-0.5 text-[11px]"
             value={refsMode}
             onChange={(e) => updateNodeData(id, { upscaleRefs: e.target.value })}
@@ -1106,7 +1107,7 @@ function SettingsPanel({
             <option value="inherit">{t('沿用源视频')}</option>
             <option value="wired">{t('只用连线的图')}（{wiredRefCount}）</option>
             <option value="none">{t('不用参考')}</option>
-          </select>
+          </Select>
         </label>
       )}
 

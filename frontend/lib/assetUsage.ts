@@ -126,6 +126,7 @@ const NODE_TITLES: Record<string, string> = {
   imageUpscale: '图片超清',
   titleBlock: '标题块',
   videoTrim: '剪切视频',
+  mosaic: '平台打码',
   depthVideo: '深度视频',
   audioGen: '配音',
   inpaint: '局部重绘',

@@ -9,6 +9,7 @@ import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 
 import ProductionBible from './ProductionBible';
+import Select from '@/components/ui/Select';
 
 const STATUS: Record<SceneInfo['status'], { label: string; dot: string }> = {
   todo: { label: '未开始', dot: 'bg-zinc-500' },
@@ -348,7 +349,7 @@ function FilmOverview({
                       <span className="flex-none font-mono text-[11px] text-zinc-500">{formatDuration(scene.duration_s)}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <select
+                      <Select
                         value={scene.status}
                         onChange={(e) => void patch(scene, { status: e.target.value as SceneInfo['status'] })}
                         className="rounded border border-white/10 bg-black/40 px-1.5 py-1 text-[11px] text-zinc-300"
@@ -356,8 +357,8 @@ function FilmOverview({
                         {(Object.keys(STATUS) as SceneInfo['status'][]).map((key) => (
                           <option key={key} value={key}>{t(STATUS[key].label)}</option>
                         ))}
-                      </select>
-                      <select
+                      </Select>
+                      <Select
                         value={scene.sequence_id ?? ''}
                         onChange={(e) => void patch(scene, { sequence_id: e.target.value })}
                         className="min-w-0 flex-1 truncate rounded border border-white/10 bg-black/40 px-1.5 py-1 text-[11px] text-zinc-300"
@@ -367,7 +368,7 @@ function FilmOverview({
                         {sequences.map((seq) => (
                           <option key={seq.id} value={seq.id}>{seq.name}</option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-zinc-500">
                       <span>{t('{n} 个节点', { n: scene.node_count })}</span>

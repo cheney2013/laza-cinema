@@ -28,6 +28,7 @@ import NodeVideoPlayer from './NodeVideoPlayer';
 import { NATIVE_VIDEO_CHROME_OFF } from './mediaChrome';
 import { t } from '@/lib/i18n';
 import SegmentRangePicker, { type RangeZone } from './SegmentRangePicker';
+import Select from '@/components/ui/Select';
 
 const H3_LENGTH_OPTIONS = [
   { label: '5.1s (124帧)', frames: 124, duration: 5.1 },
@@ -810,7 +811,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
             <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/5">
               <div>
                 <span className="text-[10px] text-zinc-400 block mb-1">{t('推理档位')}</span>
-                <select
+                <Select
                   value={currentSteps}
                   onChange={(e) => updateNodeData(id, { steps: Number(e.target.value) })}
                   className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-200 outline-none"
@@ -818,12 +819,12 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                   <option value={4} className="bg-[#121218]">{t('4步 Turbo 预览')}</option>
                   <option value={8} className="bg-[#121218]">{t('8步 Turbo 预览')}</option>
                   <option value={20} className="bg-[#121218]">{t('20步 基础模型（高服从）')}</option>
-                </select>
+                </Select>
               </div>
               {spec.length && (
               <div>
                 <span className="text-[10px] text-zinc-400 block mb-1">{currentMode === 'continuation' ? t('续写时长') : t('镜头时长')}</span>
-                <select
+                <Select
                   value={currentLength}
                   onChange={(e) => {
                     const frames = Number(e.target.value);
@@ -835,7 +836,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                   {H3_LENGTH_OPTIONS.map(o => (
                     <option key={o.frames} value={o.frames} className="bg-[#121218]">{o.label}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               )}
             </div>
@@ -844,7 +845,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
             {spec.resolution && (
             <div>
               <span className="text-[10px] text-zinc-400 block mb-1">{t('画幅分辨率')}</span>
-              <select
+              <Select
                 value={`${currentWidth}x${currentHeight}`}
                 onChange={(e) => {
                   const [w, h] = e.target.value.split('x').map(Number);
@@ -857,7 +858,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                     {res.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             )}
 
@@ -1163,7 +1164,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                     {currentMode === 'av_bridge' && (
                       <label className="mt-2 flex items-center justify-between gap-2 text-[10px] text-zinc-400">
                         <span>{t('选区前后各冻住')}</span>
-                        <select
+                        <Select
                           value={data.bridgeContextFrames ?? 39}
                           onChange={(e) => updateNodeData(id, { bridgeContextFrames: Number(e.target.value) })}
                           className="rounded bg-black/30 border border-white/10 px-2 py-1 text-zinc-200"
@@ -1173,7 +1174,7 @@ function H3EditNode({ id, data, selected, mode }: NodeProps<VideoEditNodeType> &
                           {[39, 90, 141, 192].map((n) => (
                             <option key={n} value={n}>{n} {t('帧')} · {(n / 24).toFixed(2)}s</option>
                           ))}
-                        </select>
+                        </Select>
                       </label>
                     )}
                   </div>

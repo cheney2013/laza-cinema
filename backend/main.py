@@ -404,6 +404,7 @@ _REPLAYABLE: dict[str, tuple[str, str]] = {
     "video_cleanup": ("VideoCleanupRequest", "_run_video_cleanup_job"),
     "video_continue_tail": ("ContinueTailRequest", "_run_continue_tail_job"),
     "video_trim": ("VideoTrimRequest", "_run_video_trim_job"),
+    "mosaic": ("MosaicRequest", "_run_mosaic_job"),
     "video_depth": ("VideoDepthRequest", "_run_video_depth_job"),
     "wardrobe_swap_h3": ("WardrobeSwapRequest", "_run_wardrobe_swap_job"),
     "character_sheet": ("CharacterSheetRequest", "_run_character_sheet_job"),
@@ -1913,6 +1914,28 @@ class VideoRequest(BaseModel):
     chunk_index: int = -1
 
 
+#: A style LoRA that was trained on a trigger word only responds when the prompt starts with it. Matched on the
+#: LoRA's file name (any folder), so a node that switches the LoRA on gets the word without anyone typing it.
+LORA_TRIGGERS = {"wushu_h3_": "wushu_action", "wushu_action_": "wushu_action"}
+
+
+def ensure_lora_triggers(prompt: str, style_loras: list | None) -> str:
+    """Put each active style LoRA's trigger word first when the prompt does not already begin with it."""
+    words: list[str] = []
+    for lora in style_loras or []:
+        name = str((lora or {}).get("name", "")).replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if float((lora or {}).get("strength", 1.0) or 0) <= 0:
+            continue
+        for stem, word in LORA_TRIGGERS.items():
+            if name.startswith(stem) and word not in words:
+                words.append(word)
+    head = prompt.lstrip()
+    missing = [w for w in words if not head.lower().startswith(w)]
+    if not missing:
+        return prompt
+    return ", ".join(missing) + ", " + head
+
+
 def _make_on_queued(job: dict):
     def on_queued(prompt_id):
         job["prompt_id"] = prompt_id
@@ -2109,6 +2132,22 @@ def _h3_motion_preset(req: VideoRequest) -> dict:
     return preset
 
 
+def _h3_attention(req: VideoRequest) -> str:
+    """The attention patch of a video request.
+
+    An explicit req.sage wins. A request that names none and runs without a speed LoRA (accel_lora
+    'none': the official 20-step res_multistep path, which has no attention patch) gets no patch:
+    the default Sol patch melted the background there (2026-10-09, same HED control, seed and
+    prompt: Sol warped, disabled and kjsage did not). A request with a control video (Fun ControlNet)
+    gets kjsage whatever its speed LoRA (Yige, 2026-10-09). The other paths keep the default.
+    """
+    if "sage" in req.model_fields_set:
+        return req.sage
+    if req.control_video_url:
+        return "kjsage"
+    if (req.accel_lora or "").strip() == "none":
+        return "disabled"
+    return req.sage
 
 
 async def _slice_ref_video(url: str, start: int, count: int) -> str:
@@ -2331,6 +2370,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         audio_strategy=req.audio_strategy or "copy_source",
         duration=effective_duration,
     ) if not req.raw_prompt else req.prompt
+    compiled_prompt = ensure_lora_triggers(compiled_prompt, req.style_loras)
     logger.info("Running H3 video job [%s mode=%s]: prompt=\n%s", job.get("id"), detected_mode, compiled_prompt)
 
     submitted_resources = {
@@ -2380,6 +2420,11 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
                              f"{req.motion_context_length}-frame context window")
         stages = 1 + -(-(frame_len - req.chunk_frames) // keep)
         pieces: list[str] = []
+        # A clip that continues another one regenerates its first context_length frames and the output
+        # drops them, so the control video leads in by that many frames (negative control_skip_frames);
+        # a chunk after the first already sits on the source frame it overlaps.
+        ctrl_context = (int(req.existing_context_length or req.motion_context_length)
+                        if (req.motion_context_latent or req.motion_context_video) else 0)
         carry = req.motion_context_latent or ""
         # How many frames of the source each chunk's own window covers: chunk 0
         # delivers its whole length, and every chunk after it re-generates the
@@ -2398,7 +2443,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
                           for u in req.ref_video_urls]
             # The control video needs no cutting: VHS_LoadVideo windows it in
             # the graph, so the chunk just says where its window starts.
-            ctrl_skip = min(c * keep, max(0, (ctrl_frames or 0) - req.chunk_frames))
+            ctrl_skip = min(c * keep - ctrl_context, max(0, (ctrl_frames or 0) - req.chunk_frames))
             sub_req = req.model_copy(update={
                 "length": req.chunk_frames,
                 "chunk_frames": 0,
@@ -2532,7 +2577,7 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         style_lora_name=req.style_lora_name,
         style_lora_strength=req.style_lora_strength,
         style_loras=list(req.style_loras or []),
-        sage=req.sage,
+        sage=_h3_attention(req),
         shift_video=req.shift_video,
         shift_audio=req.shift_audio,
         motion_context_latent=req.motion_context_latent or "",
@@ -2554,7 +2599,14 @@ async def _run_video_job(job: dict, req: VideoRequest) -> dict:
         audio_redo=redo_cfg,
         refine_latent=redo_latent,
         refine_video=redo_video,
-        control_skip_frames=int(getattr(req, 'control_skip_frames', 0) or 0),
+        # A continuation (carried latent or video) drops its context window from the output, so the control
+        # video leads in by that many frames to keep output frame t on control frame t. A chunk of a longer
+        # render (chunk_index >= 0) gets its offset from the chunk loop above and is not shifted again.
+        control_skip_frames=(int(getattr(req, 'control_skip_frames', 0) or 0)
+                             - (int(req.existing_context_length or req.motion_context_length)
+                                if (getattr(req, 'chunk_index', -1) < 0
+                                    and (req.motion_context_latent or req.motion_context_video)
+                                    and req.control_video_url) else 0)),
         control_strength=req.control_strength,
         chunk_index=getattr(req, 'chunk_index', -1),
         save_latent=req.save_latent,
@@ -3329,6 +3381,145 @@ async def generate_video_trim_endpoint(req: VideoTrimRequest):
     return await submit_job(
         "video_trim", lambda job: _run_video_trim_job(job, req), request=req,
     )
+
+
+class MosaicRequest(BaseModel):
+    """Censor a clip for platform review: detect -> SAM 3.1 track -> grow -> mosaic (backend/mosaic.py)."""
+    video_url: str
+    # Pixels the tracked region is grown by, at a 768 px short side (scaled to the clip).
+    expand: int = Field(12, ge=0, le=200)
+    # A frame's mask is the union of this many neighbours each side: the miss is the failure, not the extra.
+    temporal: int = Field(2, ge=0, le=12)
+    style: Literal["mosaic", "blur", "block"] = "mosaic"
+    block: int = Field(0, ge=0, le=200)        # mosaic block size in px; 0 = by clip size
+    feather: int = Field(4, ge=0, le=40)
+    classes: Optional[list[str]] = None        # nudenet classes; None = mosaic.DEFAULT_CLASSES
+    threshold: float = Field(0.25, ge=0.05, le=0.95)   # tiles find small parts at low scores; see mosaic.detect_frame
+    step: int = Field(8, ge=1, le=48)          # detect every N frames; the track fills the rest
+    # Where the part is, pointed at by a person: [{frame, x, y}], x and y in 0..1 of the picture.
+    # With seeds there is no automatic detection; each seed is tracked forward and backward.
+    seeds: Optional[list[dict]] = None
+
+
+async def _run_mosaic_job(job: dict, req: MosaicRequest) -> dict:
+    import hashlib
+    import mosaic
+
+    source = await resolve_upload(req.video_url)
+    classes = tuple(req.classes) if req.classes else mosaic.DEFAULT_CLASSES
+    bad = [c for c in classes if c not in mosaic.ALL_CLASSES]
+    if bad:
+        raise ValueError(f"unknown mosaic classes {bad}; choose from {list(mosaic.ALL_CLASSES)}")
+    if req.seeds:
+        return await _run_mosaic_seeded(job, req, source)
+    job["batch_info"] = "DETECTING"
+    save_state()
+    dets, total, fps = await asyncio.to_thread(
+        mosaic.detect_keyframes, source, req.step, classes, req.threshold)
+    seed, points = mosaic.seed_points(dets)
+    key = (f"{source.name}|{source.stat().st_mtime_ns}|{req.expand}|{req.temporal}|{req.style}|{req.block}"
+           f"|{req.feather}|{','.join(classes)}|{req.threshold}|{req.step}").encode()
+    out_name = f"H3_Mosaic_{hashlib.sha1(key).hexdigest()[:8]}.mp4"
+    out_path = Path(COMFYUI_OUTPUT_DIR) / out_name
+    tmp_path = out_path.with_name(f"tmp_{out_name}")
+    mask_path = None
+    if seed >= 0:
+        job["batch_info"] = "TRACKING"
+        save_state()
+        comfy_name = await comfyui.upload_video(source.read_bytes(), source.name)
+        mask_bytes = await comfyui.track_mask_video(comfy_name, points, seed, fps)
+        mask_path = UPLOAD_DIR / f"mosaic_mask_{job['id']}.mp4"
+        mask_path.write_bytes(mask_bytes)
+    job["batch_info"] = "MOSAIC"
+    save_state()
+    try:
+        info = await asyncio.to_thread(
+            mosaic.render, source, mask_path, tmp_path, dets, req.step, expand=req.expand,
+            temporal=req.temporal, style=req.style, block=req.block, feather=req.feather,
+            seed_frame=max(seed, 0))
+    finally:
+        if mask_path:
+            mask_path.unlink(missing_ok=True)
+    tmp_path.replace(out_path)
+    return {
+        "url": f"/comfy_output/{out_name}",
+        "filename": out_name,
+        "mosaic": {**info, "detected_frames": sum(1 for d in dets if d["boxes"]),
+                   "keyframes": len(dets), "seed_frame": seed, "source_frames": total,
+                   "classes": list(classes), "source_url": req.video_url,
+                   # nothing found: the clip comes out untouched, which must not read as "censored"
+                   "no_detection": seed < 0},
+    }
+
+
+async def _run_mosaic_seeded(job: dict, req: MosaicRequest, source: Path) -> dict:
+    """Mosaic from seed points a person placed: SAM 3.1 tracks each one forward and backward."""
+    import hashlib
+    import cv2
+    import mosaic
+
+    cap = cv2.VideoCapture(str(source))
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    fps = await asyncio.to_thread(_decoded_video_frames, source)
+    total, fps = fps[0], (fps[1] or 24.0)
+    by_frame = mosaic.seeds_to_pixels(req.seeds, w, h, total)
+    key = (f"{source.name}|{source.stat().st_mtime_ns}|{req.expand}|{req.temporal}|{req.style}|{req.block}"
+           f"|{req.feather}|seeds:{sorted((f, tuple(p)) for f, p in by_frame.items())}").encode()
+    tag = hashlib.sha1(key).hexdigest()[:8]
+    out_name = f"H3_Mosaic_{tag}.mp4"
+    out_path = Path(COMFYUI_OUTPUT_DIR) / out_name
+    tmp_path = out_path.with_name(f"tmp_{out_name}")
+    work = UPLOAD_DIR / f"mosaic_{job['id']}"
+    work.mkdir(exist_ok=True)
+    tracks: list[tuple[Path, int, bool, tuple[int, int]]] = []
+    try:
+        fwd_name = await comfyui.upload_video(source.read_bytes(), source.name)
+        done = 0
+        for f in sorted(by_frame):
+            pts = by_frame[f]
+            job["batch_info"] = f"TRACKING {done + 1}/{len(by_frame)}"
+            save_state()
+            data = await comfyui.track_mask_video(fwd_name, pts, f, fps)
+            p = work / f"fwd_{f}.mp4"
+            p.write_bytes(data)
+            tracks.append((p, f, False, pts[0]))
+            if f > 0:
+                rev = work / f"rev_{f}_src.mp4"
+                await asyncio.to_thread(mosaic.write_head_reversed, source, f, rev)
+                rev_name = await comfyui.upload_video(rev.read_bytes(), f"mosaic_rev_{tag}_{f}.mp4")
+                data = await comfyui.track_mask_video(rev_name, pts, 0, fps)
+                p = work / f"back_{f}.mp4"
+                p.write_bytes(data)
+                tracks.append((p, f, True, pts[0]))
+            done += 1
+        job["batch_info"] = "MOSAIC"
+        save_state()
+        union = work / "union.mp4"
+        stats = await asyncio.to_thread(mosaic.union_tracks, tracks, total, union, (w, h))
+        if stats["tracked_frames"] == 0:
+            raise ValueError("SAM could not segment anything at the seed points; place the point on the part itself")
+        info = await asyncio.to_thread(
+            mosaic.render, source, union, tmp_path, [], req.step, expand=req.expand,
+            temporal=req.temporal, style=req.style, block=req.block, feather=req.feather, seed_frame=0)
+    finally:
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
+    tmp_path.replace(out_path)
+    return {
+        "url": f"/comfy_output/{out_name}",
+        "filename": out_name,
+        "mosaic": {**info, "suspect_frames": stats["flagged_frames"][:200], "mode": "seeds",
+                   "seeds": len(req.seeds), "tracked_frames": stats["tracked_frames"],
+                   "bridged_frames": stats["bridged_frames"], "source_frames": total,
+                   "no_detection": False, "source_url": req.video_url},
+    }
+
+
+@app.post("/generate-mosaic")
+async def generate_mosaic_endpoint(req: MosaicRequest):
+    """Mosaic the regions the detector finds in a clip (tracked between detections, sound kept)."""
+    return await submit_job("mosaic", lambda job: _run_mosaic_job(job, req), request=req)
 
 
 class VideoDepthRequest(BaseModel):

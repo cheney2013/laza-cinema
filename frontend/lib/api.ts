@@ -289,6 +289,10 @@ export interface VideoRequest {
   block_sparse?: boolean;
   /** Veda learned sparse attention (replaces block_sparse). */
   veda?: boolean;
+  /** Fun ControlNet: this clip drives the camera frame for frame (the node's reference video, which is then not mounted as <Video N>). */
+  control_video_url?: string | null;
+  /** Fun ControlNet strength, 1.0 default. */
+  control_strength?: number;
   /** Recordings kept as recorded on a second of the delivered clip (see lib/audioLocks.ts). */
   audio_locks?: Array<{ url: string; at: number; strength: number; text: string; from?: number; to?: number }>;
   audio_lock_feather?: number;
@@ -480,6 +484,21 @@ export interface VideoTrimRequest {
    *  the head and ends on the 17n+5 grid the trim also gets a cut latent. */
   latent_filename?: string | null;
   context_frames?: number;
+}
+
+export interface MosaicRequest {
+  video_url: string;
+  expand: number;
+  temporal: number;
+  style: 'mosaic' | 'blur' | 'block';
+  block: number;
+  feather?: number;
+  /** nudenet classes; omitted = the backend default (genitalia, anus) */
+  classes?: string[] | null;
+  threshold: number;
+  step: number;
+  /** Pointed-at positions; given, there is no automatic detection and each is tracked both ways. */
+  seeds?: { frame: number; x: number; y: number }[] | null;
 }
 
 export interface VideoInterpolateRequest {
@@ -807,6 +826,13 @@ export const api = {
 
   generateSpeech: (req: SpeechRequest) =>
     request<{ job_id: string; status: string }>('/generate-speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }),
+
+  mosaicVideo: (req: MosaicRequest) =>
+    request<{ job_id: string; status: string }>('/generate-mosaic', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),

@@ -23,6 +23,7 @@ import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { DepthVideoNode as DepthVideoNodeType } from '@/lib/types';
 import { areNodePropsEqual, downloadFile } from '@/lib/utils';
+import Select from '@/components/ui/Select';
 
 /** The model's working size, a multiple of 14; the result is scaled back to the clip's own size. */
 const RESOLUTIONS = [
@@ -128,13 +129,13 @@ function DepthVideoNode({ id, data, selected }: NodeProps<DepthVideoNodeType>) {
           <div data-chrome-row="settings" className="node-shell-drawer nodrag nowheel p-3 space-y-2.5 text-[10px] animate-in fade-in duration-150">
             <label className="block space-y-1">
               <span className="text-zinc-400">{t('处理分辨率')}</span>
-              <select
+              <Select
                 value={resolution}
                 onChange={(e) => updateNodeData(id, { resolution: Number(e.target.value) })}
                 className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200"
               >
                 {RESOLUTIONS.map((r) => <option key={r.value} value={r.value}>{t(r.label)}</option>)}
-              </select>
+              </Select>
             </label>
             <p className="text-[9px] leading-relaxed text-zinc-500">
               {t('整段视频逐帧估计深度，输出无声视频。只要其中一段，先用「视频剪切」截出来。接到视频节点的「运镜参考」口，H3 只能学到空间和机位，抄不到人脸和画面质感。')}

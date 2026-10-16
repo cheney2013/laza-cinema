@@ -408,6 +408,16 @@ NODE_CATALOG: dict[str, dict[str, Any]] = {
         "inputs": ["in-video"],
         "outputs": ["out-video"],
     },
+    "mosaic": {
+        "label": "平台打码",
+        # The in-video clip with the detector's regions (genitalia, anus; breasts opt-in via
+        # mosaicClasses) tracked by SAM 3.1 and mosaicked: mosaicExpand px growth at a 768 px
+        # short side, mosaicTemporal frames each side unioned. Empty mosaicClasses = defaults.
+        "defaults": {"generatedUrl": None, "status": "idle", "mosaicExpand": 12, "mosaicTemporal": 2,
+                     "mosaicStyle": "mosaic", "mosaicBlock": 0, "mosaicThreshold": 0.25, "mosaicStep": 8},
+        "inputs": ["in-video"],
+        "outputs": ["out-video"],
+    },
     "depthVideo": {
         "label": "深度视频",
         # The whole in-video clip as a silent per-frame depth video (Depth Anything V2); trim it first to use a part.
@@ -758,6 +768,8 @@ def _apply_operation(canvas: dict[str, Any], operation: dict[str, Any]) -> dict[
             data = node.setdefault("data", {})
             data["prompt"] = _read_text_file(str(operation["prompt_file"]))
             data["promptFile"] = str(operation["prompt_file"])
+        if str(node.setdefault("data", {}).get("promptFile") or "").strip():
+            node["data"].pop("promptFileUnbound", None)
         if operation.get("text_file"):
             node.setdefault("data", {})["text"] = _read_text_file(str(operation["text_file"]))
         if "position" in operation:
@@ -939,7 +951,7 @@ TAKE_PARAM_KEYS = (
     "shiftVideo", "shiftAudio", "motionContextLength", "motionContextAudio",
     "refImageOrder", "useFirstFrame", "promptSource", "directorSpec",
     "audioLocks", "audioLockFeather", "seamMatch", "seamMatchAdaptive", "seamMatchGain", "seamMatchTexture",
-    "seamMatchPostGain",
+    "seamMatchPostGain", "useRefVideoAsControl", "controlStrength",
 )
 TAKE_OUTPUT_KEYS = ("latentFilename", "untrimmedUrl", "contextFrames", "compiledPrompt", "compiledPromptMode", "promptWasModified",
                     "submittedResources", "generatedSteps", "seamMatchApplied")
@@ -956,8 +968,10 @@ def _take_submit_snapshot(canvas: dict[str, Any], node_id: str, data: dict[str, 
         handle = edge.get("targetHandle") or ""
         url = (src.get("latentFilename") or src.get("generatedUrl") or src.get("url"))             if handle == "in-motion-context" else (src.get("url") or src.get("generatedUrl"))
         inputs.append({"source": edge["source"], "targetHandle": handle, "url": url or None})
-    return {"params": {k: data[k] for k in TAKE_PARAM_KEYS if data.get(k) is not None},
-            "inputs": inputs}
+    params = {k: data[k] for k in TAKE_PARAM_KEYS if data.get(k) is not None}
+    # The style LoRAs a take was rendered with are always recorded; an empty list says none was used.
+    params.setdefault("styleLoras", [])
+    return {"params": params, "inputs": inputs}
 
 
 def _node_url(node: dict[str, Any]) -> str | None:
@@ -1169,7 +1183,7 @@ def _compact_node(node: dict[str, Any]) -> dict[str, Any]:
 
 #: What a summary shows by default: enough to know what a node is, whether it has
 #: run and what it shows. Anything else is asked for with get_canvas(fields=...).
-_SUMMARY_DATA = ("label", "status", "url", "generatedUrl", "promptFile", "prompt", "text",
+_SUMMARY_DATA = ("label", "status", "url", "generatedUrl", "promptFile", "promptFileUnbound", "prompt", "text",
                  "bibleId", "error")
 
 
@@ -1184,7 +1198,10 @@ def _summary_line(node: dict[str, Any], fields: list[str] | None = None) -> str:
     output = data.pop("generatedUrl", None) or data.pop("url", None)
     data.pop("url", None)
     prompt_file = data.pop("promptFile", None)
+    unbound = data.pop("promptFileUnbound", None)
     prompt = data.pop("prompt", None)
+    if unbound and not prompt_file:
+        prompt = f"[UNBOUND by a studio take switch, was {unbound}: running it needs prompt_source] {prompt or ''}"
     if prompt_file:
         words = f" {prompt[prompt.rfind('('):]}" if isinstance(prompt, str) and prompt.endswith(")") else ""
         prompt = f"{prompt_file}{words}"
@@ -2562,6 +2579,8 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         return _run_upscale_locked(resolved, canvas, node)
     if node.get("type") == "videoTrim":
         return _run_trim_locked(resolved, canvas, node)
+    if node.get("type") == "mosaic":
+        return _run_mosaic_locked(resolved, canvas, node)
     if node.get("type") == "depthVideo":
         return _run_depth_video_locked(resolved, canvas, node)
     if node.get("type") == "charswap":
@@ -2585,7 +2604,7 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
     if node.get("type") == "audioGen":
         return _run_audio_gen_locked(resolved, canvas, node)
     if node.get("type") != "video":
-        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, depthVideo, charswap, videoReangle, videoOrbit, audioRefine, characterSheet, qwenImage, titleBlock, gaussian and audioGen "
+        raise ValueError("run_canvas_node supports video, the edit nodes, videoUpscale, videoTrim, mosaic, depthVideo, charswap, videoReangle, videoOrbit, audioRefine, characterSheet, qwenImage, titleBlock, gaussian and audioGen "
                          f"nodes, got {node.get('type')!r}.")
     data = node.setdefault("data", {})
     if data.get("status") == "generating" and data.get("jobId"):
@@ -2603,6 +2622,26 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
     # text to the file and runs that.
     prompt_synced = None
     prompt_file = str(data.get("promptFile") or "").strip()
+    # Switching to an older take in the studio unbinds the node from its prompt file (so the
+    # old text cannot be written over the file) and leaves promptFileUnbound as the trail.
+    # Without it a run asks for nothing, submits the old take's prompt and looks like a normal
+    # run (2026-10-09: two renders went out with a stale prompt). So it stops and asks.
+    unbound = str(data.get("promptFileUnbound") or "").strip()
+    if not prompt_file and unbound:
+        if prompt_source == "file":
+            prompt_file = unbound
+            data["promptFile"] = unbound
+            data.pop("promptFileUnbound", None)
+            _save_node_data(resolved["id"], node_id, {"promptFile": unbound, "promptFileUnbound": None}, canvas)
+        elif prompt_source == "node":
+            data.pop("promptFileUnbound", None)
+            _save_node_data(resolved["id"], node_id, {"promptFileUnbound": None}, canvas)
+        else:
+            raise ValueError(
+                f"Node {node_id} was switched to an older take in the studio, which unbound it from its prompt "
+                f"file {unbound}; its prompt is now that take's, not the file's. Run again with "
+                f"prompt_source=\"file\" to rebind the file and run its text, or prompt_source=\"node\" to run "
+                f"the node's current text and leave it unbound.")
     if prompt_file:
         try:
             on_disk = _read_text_file(prompt_file).strip()
@@ -2733,14 +2772,11 @@ def _run_locked(resolved: dict[str, Any], node_id: str, prompt_source: str = "",
         # node sets data.blockSparse. Bedroom c12, 313 f: 322 s -> 256 s, same
         # composition, small props re-rolled (2026-09-23).
         # Veda takes the attention over (the two cannot both act), so block sparse is not sent while Veda is on.
-        "block_sparse": bool(data.get("blockSparse")) and not (
-            data["veda"] if data.get("veda") is not None
-            else bool(urls("in-ref-video")) or int(data.get("length") or 124) >= 240),
-        # Veda learned sparse attention instead of sol-attn block sparse; sent only when on.
-        # On by default for a clip that has a reference video or is 10 s or longer (240 frames);
-        # a node that sets data.veda either way keeps its choice (2026-10-08, Yige).
-        **({"veda": True} if (data["veda"] if data.get("veda") is not None
-                              else bool(urls("in-ref-video")) or int(data.get("length") or 124) >= 240) else {}),
+        "block_sparse": bool(data.get("blockSparse")) and data.get("veda") is not True,
+        # Veda learned sparse attention instead of sol-attn block sparse; sent only when the node
+        # chooses it (data.veda true). Block sparse is the default (new nodes carry blockSparse true);
+        # the 2026-10-08 auto-on for a reference video or 240+ frames was withdrawn the same day (Yige).
+        **({"veda": True} if data.get("veda") is True else {}),
         # Audio locks ride in the payload only when the node has some, so the
         # fingerprint of every other node is unchanged by this field existing.
         **({"audio_locks": _audio_lock_entries(canvas, data),
@@ -4316,6 +4352,35 @@ def _run_trim_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: dic
             "range_seconds": [start, end]}
 
 
+def _run_mosaic_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    """Censor the in-video clip (POST /generate-mosaic); the node's mosaic* fields are the request."""
+    node_id = node["id"]
+    data = node.setdefault("data", {})
+    if data.get("status") == "generating" and data.get("jobId"):
+        return {"project_id": resolved["id"], "node_id": node_id,
+                "job_id": data["jobId"], "status": "already_generating"}
+    sources = _incoming_nodes(canvas, node_id, "in-video")
+    if len(sources) != 1:
+        raise ValueError(f"Mosaic node {node_id} needs exactly one in-video source, has {len(sources)}.")
+    video_url = _node_url(sources[0])
+    if not video_url:
+        raise ValueError(f"Mosaic node {node_id}: source {sources[0].get('id')} has no clip yet.")
+    submitted = _request("POST", "/generate-mosaic", project_id=resolved["id"], json={
+        "video_url": video_url,
+        "expand": int(data.get("mosaicExpand", 12)), "temporal": int(data.get("mosaicTemporal", 2)),
+        "style": data.get("mosaicStyle") or "mosaic", "block": int(data.get("mosaicBlock") or 0),
+        "classes": data.get("mosaicClasses") or None,
+        "threshold": float(data.get("mosaicThreshold", 0.25)), "step": int(data.get("mosaicStep", 8)),
+        # {frame, x, y} (x, y in 0..1): where the part is, pointed at; given, no automatic detection
+        "seeds": data.get("mosaicSeeds") or None})
+    revision = _save_node_data(resolved["id"], node_id, {
+        "status": "generating", "jobId": submitted["job_id"], "error": None, "sourceUrl": video_url,
+    }, canvas)
+    return {"project_id": resolved["id"], "project_name": resolved["name"], "node_id": node_id,
+            "job_id": submitted["job_id"], "status": submitted.get("status", "queued"),
+            "revision": revision, "source": sources[0].get("id")}
+
+
 def _run_depth_video_locked(resolved: dict[str, Any], canvas: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
     """The in-video clip as a silent per-frame depth video (POST /generate-video-depth)."""
     node_id = node["id"]
@@ -5216,6 +5281,8 @@ def _finish_locked(resolved: dict[str, Any], node_id: str, job_id: str, job: dic
             "continueTail": result.get("continue_tail"),
             # set by a trim: which frames of the source were kept
             **({"trimPlan": result["trim"]} if result.get("trim") else {}),
+            # set by a mosaic: tracked frames, keyframes that fell back to the box (suspect_frames)
+            **({"mosaicInfo": result["mosaic"]} if result.get("mosaic") else {}),
             # qwenImage: which graph ran ("turbo" 8 steps / "base" 25 steps) and its checkpoint file
             **({"speedUsed": result["speed"]} if result.get("speed") else {}),
             **({"modelUsed": result["model"]} if result.get("model") else {}),

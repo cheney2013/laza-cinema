@@ -538,6 +538,24 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     }),
   },
   {
+    type: 'mosaic',
+    label: '平台打码',
+    cat: '超分 & 插帧',
+    color: '#06b6d4',
+    inputs: [{ id: 'in-video', portType: 'video', label: '输入视频' }],
+    outputs: [{ id: 'out-video', portType: 'video', label: '打码后的视频' }],
+    createData: () => ({
+      generatedUrl: null,
+      status: 'idle',
+      mosaicExpand: 12,
+      mosaicTemporal: 2,
+      mosaicStyle: 'mosaic',
+      mosaicBlock: 0,
+      mosaicThreshold: 0.25,
+      mosaicStep: 8,
+    }),
+  },
+  {
     type: 'audioGen',
     label: '配音 / 换音色',
     cat: '生成引擎',
@@ -792,7 +810,7 @@ export const NODE_USAGE_ORDER = [
   'image', 'video', 'prompt', 'videoUpscale', 'characterSheet', 'audioGen',
   'videoBridge', 'videoReshot', 'videoContinue', 'videoEdit', 'wardrobeSwap',
   'charswap', 'videoReangle', 'videoOrbit', 'audioRefine', 'videoFrames',
-  'chainPreview', 'videoCompare', 'videoTrim', 'depthVideo', 'videoInterpolate', 'inpaint',
+  'chainPreview', 'videoCompare', 'videoTrim', 'mosaic', 'depthVideo', 'videoInterpolate', 'inpaint',
   'preview', 'pose', 'gaussian', 'gaussianViewer',
 ];
 

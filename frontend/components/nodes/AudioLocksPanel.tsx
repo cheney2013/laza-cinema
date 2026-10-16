@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
+import Select from '@/components/ui/Select';
 
 /** One lock as the canvas stores it (data.audioLocks): a recording put on a second of the delivered clip. */
 export interface LockRow {
@@ -113,7 +114,7 @@ export default function AudioLocksPanel({ nodeId, locks, generatedUrl, latentFil
       {rows.map((r, i) => (
         <div key={i} className="space-y-1 rounded border border-white/10 p-1.5">
           <div className="flex gap-1 items-center">
-            <select
+            <Select
               className={`${cell} flex-1 min-w-0`}
               value={source(r)}
               onChange={(e) => pick(i, e.target.value)}
@@ -122,7 +123,7 @@ export default function AudioLocksPanel({ nodeId, locks, generatedUrl, latentFil
               {source(r) === '__url__' && <option value="__url__">{t('自定义地址')}</option>}
               {generatedUrl && <option value={SELF}>{t('本节点当前这一版（垫底）')}</option>}
               {audioNodes.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-            </select>
+            </Select>
             <button
               type="button"
               className="px-1.5 text-zinc-400 hover:text-red-300"
@@ -157,11 +158,11 @@ export default function AudioLocksPanel({ nodeId, locks, generatedUrl, latentFil
 
       <div className="pt-1 border-t border-white/10 space-y-1">
         <div className="flex gap-1 items-center text-[10px] text-zinc-400">
-          <select className={cell} value={mode} onChange={(e) => setMode(e.target.value as 'polish' | 'reroll')}
+          <Select className={cell} value={mode} onChange={(e) => setMode(e.target.value as 'polish' | 'reroll')}
             title={t('润色：同样的声音清理一遍；重新生成：保持画面，围着锁定重新生成整条声音')}>
             <option value="reroll">{t('重新生成')}</option>
             <option value="polish">{t('润色')}</option>
-          </select>
+          </Select>
           <label className="flex items-center gap-1">{t('种子')}
             <input className={`${cell} w-20`} value={redoSeed} placeholder={seed !== undefined ? String(seed) : t('随机')}
               onChange={(e) => setRedoSeed(e.target.value.replace(/[^0-9-]/g, ''))} />

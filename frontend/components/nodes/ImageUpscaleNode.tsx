@@ -31,6 +31,7 @@ import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { ImageUpscaleNode as ImageUpscaleNodeType } from '@/lib/types';
 import { areNodePropsEqual, downloadFile } from '@/lib/utils';
+import Select from '@/components/ui/Select';
 
 const abs = (u: string) => (u.startsWith('http') || u.startsWith('data:') ? u : `${API_BASE}${u}`);
 
@@ -193,13 +194,13 @@ function ImageUpscaleNode({ id, data, selected }: NodeProps<ImageUpscaleNodeType
             </div>
             <label className="block space-y-1">
               <span className="text-zinc-400">{t('输出尺寸')}</span>
-              <select
+              <Select
                 value={targetLongEdge}
                 onChange={(e) => updateNodeData(id, { targetLongEdge: Number(e.target.value) })}
                 className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200"
               >
                 {EDGES.map((e) => <option key={e.value} value={e.value}>{t(e.label)}</option>)}
-              </select>
+              </Select>
             </label>
             </>)}
             {usesQwen && (

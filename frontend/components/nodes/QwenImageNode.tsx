@@ -34,6 +34,7 @@ import { t } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { QwenImageNode as QwenImageNodeType } from '@/lib/types';
 import { areNodePropsEqual, copyImageToClipboard, downloadFile } from '@/lib/utils';
+import Select from '@/components/ui/Select';
 
 /** Only used when nothing is wired in: with a reference the canvas follows it. */
 const SIZES = [
@@ -311,7 +312,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
             <div className="grid grid-cols-1 gap-2">
               <label className="space-y-1">
                 <span className="text-zinc-400">{t('画幅（只在没有参考图时生效）')}</span>
-                <select
+                <Select
                   value={size.id}
                   disabled={refs.length > 0}
                   onChange={(e) => {
@@ -321,7 +322,7 @@ function QwenImageNode({ id, data, selected }: NodeProps<QwenImageNodeType>) {
                   className="w-full rounded border border-white/10 bg-black/30 px-1.5 py-1 text-zinc-200 disabled:opacity-40"
                 >
                   {SIZES.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
-                </select>
+                </Select>
               </label>
             </div>
 

@@ -1423,6 +1423,12 @@ def build_h3_video_workflow(
     # stretch with skip_first_frames and needs no pre-cut file. Tested on pruned int8, w4a8 (official and
     # Singularity) and fused; the official nodes need no adaln_basis / adaln_mean, so fused is not required.
     if control_video_filename:
+        # A negative control_skip_frames is a lead-in: the control video's first frame is held for that many
+        # generated frames before the video starts. A continuation regenerates its first context_length
+        # frames from the previous clip and trims them from the output, so output frame t sits on generated
+        # frame t + context_length; the caller asks for -context_length to keep output frame t on control
+        # frame t (measured 2026-10-09 on C28 seg6: output t followed control t + 22).
+        control_lead = min(max(0, -int(control_skip_frames)), max(0, int(length) - 1))
         wf["90"] = {
             "class_type": "VHS_LoadVideo",
             "inputs": {
@@ -1432,11 +1438,20 @@ def build_h3_video_workflow(
                 "force_rate": 24,
                 "custom_width": width,
                 "custom_height": height,
-                "frame_load_cap": length,
-                "skip_first_frames": int(control_skip_frames),
+                "frame_load_cap": int(length) - control_lead,
+                "skip_first_frames": max(0, int(control_skip_frames)),
                 "select_every_nth": 1,
             },
         }
+        control_src = ["90", 0]
+        if control_lead:
+            wf["93"] = {"class_type": "ImageFromBatch",
+                        "inputs": {"image": ["90", 0], "batch_index": 0, "length": 1}}
+            wf["94"] = {"class_type": "RepeatImageBatch",
+                        "inputs": {"image": ["93", 0], "amount": control_lead}}
+            wf["97"] = {"class_type": "ImageBatch",
+                        "inputs": {"image1": ["94", 0], "image2": ["90", 0]}}
+            control_src = ["97", 0]
         # ComfyUI's own nodes, as in the official template (video_minimax_h3_fun_controlnet_union): they load both
         # the 1.x (5 control blocks) and the 2.0 (10 blocks) union checkpoints from models/model_patches/. The earlier
         # custom H3FunControlLoader was the 1.x path and over-sharpened 2.0 (measured 2026-10-04: 7x the high-frequency
@@ -1451,7 +1466,7 @@ def build_h3_video_workflow(
                 "model": model_src,
                 "model_patch": ["91", 0],
                 "vae": ["4", 0],
-                "control_video": ["90", 0],
+                "control_video": control_src,
                 "strength": float(control_strength),
                 "start_percent": float(control_start_percent),
                 "end_percent": float(control_end_percent),
@@ -2639,22 +2654,45 @@ def build_video_depth_workflow(
     video_filename: str,
     fps: float,
     resolution: int = 518,
-    ckpt_name: str = "depth_anything_v2_vitl.pth",
+    ckpt_name: str = "depth_anything_3_base.safetensors",
 ) -> dict:
-    """Per-frame depth of a clip, as a silent video at the clip's own size and rate.
+    """Depth of a clip, as a silent video at the clip's own size and rate.
 
     For a camera-movement reference: H3 lifts faces, costumes and look from a
     photographic reference video, but a depth pass carries only the geometry and
     how the camera moves through it.
+
+    Depth Anything 3 is the default: its multiview mode estimates all frames together, so the
+    grey levels stay put from frame to frame (background level step 3.7 against 5.2 for
+    Depth Anything V2 on the same clip, 2026-10-08). One call is one continuous camera; a clip
+    with a cut is estimated shot by shot and joined. A `depth_anything_v2_*.pth` name keeps the
+    old per-frame path.
     """
+    if ckpt_name.startswith("depth_anything_v2"):
+        depth = {"vd:3": {"class_type": "DepthAnythingV2Preprocessor",
+                          "inputs": {"image": ["vd:2", 0], "ckpt_name": ckpt_name, "resolution": resolution}}}
+        depth_out = ["vd:3", 0]
+    else:
+        # resolution is a multiple of 14 for the DA3 patch grid
+        res = max(14, round(resolution / 14) * 14)
+        depth = {
+            "vd:3a": {"class_type": "LoadDA3Model", "inputs": {"model_name": ckpt_name, "weight_dtype": "default"}},
+            "vd:3": {"class_type": "DA3Inference", "inputs": {
+                "da3_model": ["vd:3a", 0], "image": ["vd:2", 0], "resolution": res,
+                "resize_method": "upper_bound_resize", "mode": "multiview",
+                "mode.ref_view_strategy": "saddle_balanced", "mode.pose_method": "cam_dec"}},
+            "vd:3b": {"class_type": "DA3Render", "inputs": {
+                "da3_geometry": ["vd:3", 0], "output": "depth", "output.normalization": "v2_style",
+                "output.apply_sky_clip": False}},
+        }
+        depth_out = ["vd:3b", 0]
     return {
         "vd:1": {"class_type": "LoadVideo", "inputs": {"file": video_filename}},
         "vd:2": {"class_type": "GetVideoComponents", "inputs": {"video": ["vd:1", 0]}},
-        "vd:3": {"class_type": "DepthAnythingV2Preprocessor",
-                 "inputs": {"image": ["vd:2", 0], "ckpt_name": ckpt_name, "resolution": resolution}},
+        **depth,
         "vd:4": {"class_type": "GetImageSize", "inputs": {"image": ["vd:2", 0]}},
         "vd:5": {"class_type": "ImageScale", "inputs": {
-            "image": ["vd:3", 0], "upscale_method": "lanczos",
+            "image": depth_out, "upscale_method": "lanczos",
             "width": ["vd:4", 0], "height": ["vd:4", 1], "crop": "disabled",
         }},
         "vd:6": {"class_type": "CreateVideo", "inputs": {"images": ["vd:5", 0], "fps": float(fps)}},
@@ -2662,6 +2700,44 @@ def build_video_depth_workflow(
             "video": ["vd:6", 0], "filename_prefix": "cinema_depth_video",
             "format": "mp4", "codec": "h264",
         }},
+    }
+
+
+def build_mask_track_workflow(
+    video_filename: str,
+    points: list[tuple[int, int]],
+    seed_index: int = 0,
+    ckpt_name: str = "sam3.1_multiplex_fp16.safetensors",
+    fps: float = 24.0,
+) -> dict:
+    """Mask video (white = tracked) of the object(s) under `points` on frame `seed_index`.
+
+    Point-seeded SAM 3.1 track: the points only have to be right on the seed frame and
+    the track carries them from there. The clip is cut to start at `seed_index`, so the
+    mask video is `seed_index` frames shorter than the clip. detect_interval is huge on
+    purpose: re-detection would add whoever else walks through frame.
+    """
+    import json as _json
+    pts = _json.dumps([{"x": int(x), "y": int(y)} for x, y in points])
+    return {
+        "mt:1": {"class_type": "LoadVideo", "inputs": {"file": video_filename}},
+        "mt:2": {"class_type": "GetVideoComponents", "inputs": {"video": ["mt:1", 0]}},
+        "mt:4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt_name}},
+        "mt:3": {"class_type": "ImageFromBatch", "inputs": {
+            "image": ["mt:2", 0], "batch_index": max(0, int(seed_index)), "length": 4096}},
+        "mt:5": {"class_type": "ImageFromBatch", "inputs": {
+            "image": ["mt:3", 0], "batch_index": 0, "length": 1}},
+        "mt:6": {"class_type": "SAM3_Detect", "inputs": {
+            "model": ["mt:4", 0], "image": ["mt:5", 0], "threshold": 0.5, "refine_iterations": 2,
+            "individual_masks": False, "positive_coords": pts, "negative_coords": "[]"}},
+        "mt:10": {"class_type": "SAM3_VideoTrack", "inputs": {
+            "images": ["mt:3", 0], "model": ["mt:4", 0], "detection_threshold": 0.5,
+            "max_objects": 1, "detect_interval": 999, "initial_mask": ["mt:6", 0]}},
+        "mt:11": {"class_type": "SAM3_TrackToMask", "inputs": {"track_data": ["mt:10", 0], "object_indices": "0"}},
+        "mt:12": {"class_type": "MaskToImage", "inputs": {"mask": ["mt:11", 0]}},
+        "mt:20": {"class_type": "CreateVideo", "inputs": {"images": ["mt:12", 0], "fps": float(fps)}},
+        "mt:21": {"class_type": "SaveVideo", "inputs": {
+            "video": ["mt:20", 0], "filename_prefix": "cinema_mask_track", "format": "mp4", "codec": "h264"}},
     }
 
 

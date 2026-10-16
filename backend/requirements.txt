@@ -8,6 +8,8 @@ python-dotenv==1.0.1
 websockets==14.1
 pydantic==2.10.4
 opencv-python-headless>=4.8.0
+# mosaic.py: exposed-body-part detector (ONNX, CPU); its model ships in the wheel
+nudenet==3.4.2
 faster-whisper==1.2.1
 nvidia-cublas-cu12
 nvidia-cudnn-cu12==9.*

@@ -19,6 +19,7 @@ import { useConnectedInputs } from '@/hooks/useConnectedInputs';
 import { useJobResult, useActiveBatchInfo } from '@/hooks/useJobPoller';
 import { BACKEND_URL as API_BASE } from '@/lib/config';
 import { t } from '@/lib/i18n';
+import Select from '@/components/ui/Select';
 
 /**
  * 360 环绕 — one picture, circled by the camera while the scene stays frozen.
@@ -124,13 +125,13 @@ function OrbitNode({ id, data, selected }: NodeProps<OrbitNodeType>) {
     <div className="nodrag nopan flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9px] text-zinc-400">
       <label className="flex items-center gap-1" title={t('画幅：官方 Space 提供的尺寸')}>
         {t('画幅')}
-        <select className={field} value={canvasKey} disabled={busy}
+        <Select className={field} value={canvasKey} disabled={busy}
                 onChange={(e) => {
                   const [w, h] = e.target.value.split('x').map(Number);
                   updateNodeData(id, { width: w, height: h });
                 }}>
           {CANVASES.map(([w, h, tag]) => <option key={`${w}x${h}`} value={`${w}x${h}`}>{w}x{h} · {tag}</option>)}
-        </select>
+        </Select>
       </label>
       <label className="flex items-center gap-1" title={t('秒数，向上取到 17k+5 帧；官方默认 3 秒')}>
         {t('秒数')}
