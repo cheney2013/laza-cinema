@@ -47,6 +47,8 @@ interface Props {
    * itself plays, loops, seeks and times only what follows it.
    */
   headSeconds?: number;
+  /** Hide the hover overlay (transport, info, actions) entirely: the node is picking a point on the picture. */
+  hideChrome?: boolean;
 }
 
 export const fmtTime = (s: number) => {
@@ -60,7 +62,7 @@ const parkedPlayers = new Map<string, () => void>();
 
 function NodeVideoPlayer({
   nodeId, src, videoRef: externalRef, selected, info, infoRight, actions,
-  holdPlayback, paused, playToken, eager, onMediaSize, onDuration, children, headSeconds = 0,
+  holdPlayback, paused, playToken, eager, onMediaSize, onDuration, children, headSeconds = 0, hideChrome = false,
 }: Props) {
   const head = headSeconds > 0 ? headSeconds : 0;
   const ownRef = useRef<HTMLVideoElement | null>(null);
@@ -225,7 +227,7 @@ function NodeVideoPlayer({
 
       {/* Hover overlay */}
       <div
-        className={`absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/40 flex flex-col justify-between p-2.5 transition-opacity duration-200 ${isHovered || overlayFocus.typing ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/40 flex flex-col justify-between p-2.5 transition-opacity duration-200 ${(isHovered || overlayFocus.typing) && !hideChrome ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onFocus={overlayFocus.onFocus}
         onBlur={overlayFocus.onBlur}
         onClick={(e) => {

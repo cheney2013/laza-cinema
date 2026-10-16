@@ -71,6 +71,36 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
     return () => { v.removeEventListener('timeupdate', upd); v.removeEventListener('seeked', upd); };
   }, [videoSrc]);
 
+  const [totalFrames, setTotalFrames] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const meta = () => setTotalFrames(Math.round((v.duration || 0) * FPS));
+    const pl = () => setPlaying(true);
+    const pa = () => setPlaying(false);
+    v.addEventListener('loadedmetadata', meta);
+    v.addEventListener('durationchange', meta);
+    v.addEventListener('play', pl);
+    v.addEventListener('pause', pa);
+    meta();
+    return () => {
+      v.removeEventListener('loadedmetadata', meta); v.removeEventListener('durationchange', meta);
+      v.removeEventListener('play', pl); v.removeEventListener('pause', pa);
+    };
+  }, [videoSrc, picking]);
+  const stepFrames = (d: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = Math.min(Math.max(0, (Math.round(v.currentTime * FPS) + d) / FPS), v.duration || 0);
+  };
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) void v.play(); else v.pause();
+  };
+
   /** A click on the picture as {x, y} in 0..1 of the video itself (the player letterboxes it). */
   const pointOnVideo = (e: React.MouseEvent): { x: number; y: number } | null => {
     const v = videoRef.current;
@@ -198,6 +228,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
                 src={videoSrc}
                 videoRef={videoRef}
                 selected={selected}
+                hideChrome={picking}
                 onMediaSize={sizing.onMediaSize}
                 actions={<><span />{data.generatedUrl && !showSource ? (
                   <button type="button" className="nodrag" style={{ ...smallBtn, background: 'none', border: 'none' }}
@@ -209,7 +240,7 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
               <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={1} statusText={batchInfo} onCancel={handleCancel} />
               {picking && (!data.generatedUrl || showSource) && (
                 <div className="nodrag" onClick={addSeed} onMouseDown={(e) => e.stopPropagation()}
-                  style={{ position: 'absolute', inset: 0, bottom: 44, cursor: 'crosshair', zIndex: 30 }} />
+                  style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 30 }} />
               )}
               {(!data.generatedUrl || showSource) && seeds.filter((s) => Math.abs(s.frame - curFrame) <= 1).map((s, i) => (
                 <div key={`${s.frame}-${i}`} style={{
@@ -222,6 +253,18 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#555', textAlign: 'center', padding: 12 }}>
               {t('连接一个视频')}
+            </div>
+          )}
+          {picking && videoSrc && (
+            <div className="nodrag" onMouseDown={(e) => e.stopPropagation()}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: 10, color: '#ccc' }}>
+              <button className="nodrag" style={smallBtn} onClick={() => stepFrames(-1)}>‹</button>
+              <button className="nodrag" style={smallBtn} onClick={togglePlay}>{playing ? '❚❚' : '▶'}</button>
+              <button className="nodrag" style={smallBtn} onClick={() => stepFrames(1)}>›</button>
+              <input type="range" className="nodrag" style={{ flex: 1 }} min={0} max={Math.max(1, totalFrames - 1)} step={1}
+                value={Math.min(curFrame, Math.max(1, totalFrames - 1))}
+                onChange={(e) => seekTo(+e.target.value)} />
+              <span style={{ fontFamily: 'monospace' }}>{curFrame}/{Math.max(0, totalFrames - 1)}</span>
             </div>
           )}
           {data.status === 'error' && (
