@@ -772,7 +772,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
                 </div></>}
               />
             </div>
-            <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={data.steps} statusText={batchInfo} onCancel={handleCancel} />
+            <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={data.steps} statusText={batchInfo} onCancel={handleCancel} />
           </div>
 
           {showCompare && (
@@ -895,7 +895,7 @@ function VideoUpscaleNode({ id, data, selected }: NodeProps<VideoUpscaleNodeType
                 {hasLatent ? t('✦ 开始潜空间高清精炼') : t('开始增强视频')}
               </button>
             </div>
-            <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={data.steps} statusText={batchInfo} onCancel={handleCancel} />
+            <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={data.steps} statusText={batchInfo} onCancel={handleCancel} />
           </div>
 
           {showAlert && (

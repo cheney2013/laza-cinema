@@ -15,9 +15,12 @@ interface Props {
   onCancel?: () => void;
   /** The prompt being rendered: its [Shot N] cut points label the live preview. */
   prompt?: string;
+  /** This job's sampler streams a live preview clip (the H3 video nodes): from its first step the card is a
+   *  black frame in the preview's own layout, and the clip replaces the black once it has decoded. */
+  previewExpected?: boolean;
 }
 
-export default function GeneratingLine({ active, jobId, steps = 20, statusText, onCancel, prompt }: Props) {
+export default function GeneratingLine({ active, jobId, steps = 20, statusText, onCancel, prompt, previewExpected }: Props) {
   const [previewTime, setPreviewTime] = useState(0);
   const shotMarks = useMemo(() => parseShotMarks(prompt || ''), [prompt]);
   const liveProgress = useActiveProgress(jobId);
@@ -126,19 +129,28 @@ export default function GeneratingLine({ active, jobId, steps = 20, statusText, 
   const livePreview = !isQueued ? (progress as any)?.preview as { url: string; step: number } | undefined : undefined;
   // With the preview playing, the picture is the status: no dimming, and the
   // figures shrink to one strip along the foot of the card.
-  if (livePreview) {
+  // The first clip needs a decode process to start (seconds), and until it lands the card used to show the
+  // dimmed stats: from the first sampler step it is the preview's black frame instead.
+  const previewPending = !livePreview && !!previewExpected && !isQueued && hasRealProgress;
+  if (livePreview || previewPending) {
     return (
       <div className="gen-overlay gen-running absolute inset-0 z-50 rounded-2xl overflow-hidden bg-black" style={{ opacity: done ? 0 : 1, pointerEvents: 'auto' }}>
-        <video
-          key={livePreview.url}
-          src={resolveAssetUrl(livePreview.url)}
-          autoPlay loop muted playsInline
-          // the live preview is the node's status, not a clip being watched: the canvas's
-          // one-video-at-a-time rule (useSingleAudioCoordinator) must not pause it
-          data-media-ambient=""
-          onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)}
-          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-        />
+        {livePreview ? (
+          <video
+            key={livePreview.url}
+            src={resolveAssetUrl(livePreview.url)}
+            autoPlay loop muted playsInline
+            // the live preview is the node's status, not a clip being watched: the canvas's
+            // one-video-at-a-time rule (useSingleAudioCoordinator) must not pause it
+            data-media-ambient=""
+            onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)}
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-zinc-500 pointer-events-none">
+            {t('预览解码中…')}
+          </div>
+        )}
         {shotMarks.length > 0 && (
           <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 font-mono text-[11px] text-white/90">
             {t('镜')}{shotAt(shotMarks, previewTime)} / {shotMarks.length} · F {Math.floor(previewTime * 24 + 1e-3)}

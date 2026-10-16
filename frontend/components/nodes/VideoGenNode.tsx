@@ -1939,7 +1939,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                     </div>
               </>}
             >
-              <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} statusText={jobStatusText} onCancel={handleCancel} prompt={String(data.prompt || '')} />
+              <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} statusText={jobStatusText} onCancel={handleCancel} prompt={String(data.prompt || '')} />
             </NodeVideoPlayer>
           </div>
 
@@ -2118,7 +2118,7 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
               {ActionsRow}
             </div>
 
-            <GeneratingLine active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} statusText={jobStatusText} onCancel={handleCancel} prompt={String(data.prompt || '')} />
+            <GeneratingLine previewExpected active={isGenerating} jobId={data.jobId as string | undefined} steps={currentSteps} statusText={jobStatusText} onCancel={handleCancel} prompt={String(data.prompt || '')} />
 
             <NodeErrorBanner
               error={data.status === 'error' ? (data.error || t('视频生成失败')) : null}
