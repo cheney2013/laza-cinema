@@ -32,6 +32,11 @@ import websockets
 import job_scheduler as sched
 import workflow_builders as wb
 
+try:
+    import comfy_sdk_transport as sdkt
+except ImportError:  # imported as backend.comfyui_client
+    from backend import comfy_sdk_transport as sdkt
+
 
 # Building an httpx client loads the CA bundle: about 67 ms of CPU on the event loop, every time (measured
 # 2026-10-03). Every wait on a ComfyUI job polled with a new client every 2 s, so with a few dozen jobs
@@ -193,6 +198,10 @@ def _machine_profile():
     return machine_profile
 
 
+# What _wait_sdk returns when the proxy has no record of the job.
+_SDK_UNKNOWN_JOB = object()
+
+
 class ComfyUIClient:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = (base_url or _resolve_comfyui_url()).rstrip("/")
@@ -207,6 +216,8 @@ class ComfyUIClient:
         # the job (take_timings). seq orders prompts across jobs.
         self._timing: dict[str, dict] = {}
         self.timing_seq = 0
+        # COMFY_TRANSPORT=sdk: the life of a job goes through the Comfy SDK (comfy_sdk_transport.py).
+        self._sdk = sdkt.SdkTransport() if sdkt.enabled() else None
 
     def _timing_node(self, prompt_id: str, class_type: Optional[str]) -> None:
         """Close the running node's clock and, if class_type, start the next."""
@@ -423,6 +434,8 @@ class ComfyUIClient:
     async def queue_prompt(self, workflow: dict, live_preview: bool = True) -> str:
         """Submit workflow, return prompt_id. `live_preview=False` asks the aicinema-live-preview plugin to
         skip this prompt (it reads the flag from the prompt's extra_data)."""
+        if self._sdk is not None:
+            return await self._queue_prompt_sdk(workflow, live_preview)
         self._ensure_active_url()
         cid = str(uuid.uuid4())
         payload = {"prompt": workflow, "client_id": cid}
@@ -497,6 +510,10 @@ class ComfyUIClient:
         if not prompt_id:
             logger.warning("cancel_prompt called without prompt_id; not interrupting ComfyUI")
             return False
+        if self._sdk is not None:
+            done = await self._cancel_sdk(prompt_id)
+            if done is not None:
+                return done
         try:
             async with _http(timeout=5) as client:
                 r = await client.get(f"{self.base_url}/queue")
@@ -535,6 +552,11 @@ class ComfyUIClient:
 
         Returns 'interrupted' | 'dequeued' | 'absent' | 'unreachable'.
         """
+        if self._sdk is not None:
+            verdict = await self._abandon_sdk(prompt_id)
+            if verdict is not None:
+                self._cleanup(prompt_id)
+                return verdict
         try:
             async with _http(timeout=5) as client:
                 r = await client.get(f"{self.base_url}/queue")
@@ -568,6 +590,10 @@ class ComfyUIClient:
         history, outputs filled on success), 'running' | 'pending' (still queued),
         'gone' (ComfyUI knows nothing of it, e.g. it restarted) or 'unreachable'.
         """
+        if self._sdk is not None:
+            answer = await self._prompt_state_sdk(prompt_id)
+            if answer is not None:
+                return answer
         try:
             async with _http(timeout=10) as client:
                 r = await client.get(f"{self.base_url}/history/{prompt_id}")
@@ -678,6 +704,12 @@ class ComfyUIClient:
         Captures ComfyUI progress messages and stores them in _progress[prompt_id].
         """
         try:
+            if self._sdk is not None:
+                done = await self._wait_sdk(prompt_id, timeout, expect_images)
+                if done is not _SDK_UNKNOWN_JOB:
+                    return done
+                # The proxy does not know this job (it restarted, or another process submitted it):
+                # ComfyUI still does, under the same id, so the native wait below can follow it.
             return await self._wait_for_result_inner(prompt_id, timeout, expect_images)
         finally:
             # Also covers asyncio.CancelledError (a BaseException, so no `except`
@@ -1034,15 +1066,19 @@ class ComfyUIClient:
             history = r.json()
 
         outputs = history.get(prompt_id, {}).get("outputs", {})
+        return self._pick_images(outputs, history.get(prompt_id, {}).get("status", {}))
+
+    @staticmethod
+    def _pick_images(outputs: dict, status: dict) -> list[dict]:
+        """The image items of a finished prompt's outputs, durable ones first."""
         images = []
         for node_output in outputs.values():
             for img in node_output.get("images", []):
                 images.append(img)
 
         if not images:
-            prompt_data = history.get(prompt_id, {})
             outputs_dump = json.dumps(outputs)
-            status_dump = json.dumps(prompt_data.get("status", {}))
+            status_dump = json.dumps(status)
             raise ComfyUIError(f"No output images produced. History outputs: {outputs_dump}, Status: {status_dump}")
 
         # Some workflows contain preview/cache nodes before their SaveImage node.
@@ -1054,6 +1090,175 @@ class ComfyUIClient:
         # workflows which genuinely expose only temp images.
         persisted = [img for img in images if img.get("type") == "output"]
         return persisted or images
+
+    # ── Comfy SDK transport (COMFY_TRANSPORT=sdk) ────────────────────────────────────────────────
+    # The job's life -- submit, follow, cancel, outputs -- goes through comfy-sdk and a local
+    # comfy-api-proxy. The proxy uses the job id as ComfyUI's prompt_id, so every id this class keeps
+    # (progress, timings, live-preview files) stays the id ComfyUI knows. Whatever the proxy does not
+    # know falls back to the native calls above. Uploads, /free, /system_stats stay native.
+
+    async def _queue_prompt_sdk(self, workflow: dict, live_preview: bool) -> str:
+        # live_preview=False cannot travel: the v2 API closes `extra_data` to partner-node keys.
+        try:
+            prompt_id = await self._sdk.submit(workflow)
+        except Exception as e:  # noqa: BLE001 -- translate every SDK error to the client's own
+            raise ComfyUIError(self._sdk_error_text(e)) from e
+        self._workflows[prompt_id] = workflow
+        self.active_prompt_id = prompt_id
+        self.timing_seq += 1
+        self._timing[prompt_id] = {"seq": self.timing_seq, "started": None, "queued": time.time(),
+                                   "nodes": [], "steps": [], "cur": None, "cur_t": None}
+        for old in list(self._timing)[:-64]:
+            del self._timing[old]
+        self._progress[prompt_id] = {
+            "step": 0, "max": 0, "eta": None, "speed": None,
+            "phase": "已提交至渲染队列，等待启动…", "node_id": None, "node_type": None,
+            "start_time": None, "last_time": time.time(),
+        }
+        return prompt_id
+
+    @staticmethod
+    def _sdk_error_text(e: Exception) -> str:
+        details = getattr(e, "details", None)
+        if isinstance(details, dict) and details.get("node_errors"):
+            parts = []
+            for nid, errs in details["node_errors"].items():
+                for err in (errs or {}).get("errors", []):
+                    parts.append(f"Node {nid}: {err.get('message', err.get('type', ''))}")
+            if parts:
+                return "; ".join(parts)
+        name = type(e).__name__
+        if name in ("ConnectError", "ConnectTimeout", "ReadTimeout", "RemoteProtocolError"):
+            return (f"Comfy SDK transport unreachable ({e}). Start comfy-api-proxy "
+                    f"(see tools/start_comfy_api_proxy.ps1) or set COMFY_TRANSPORT=native.")
+        return f"ComfyUI validation error: {e}" if name == "InvalidWorkflow" else f"Comfy SDK error: {e}"
+
+    def _on_sdk_event(self, prompt_id: str, ev) -> None:
+        kind = type(ev).__name__
+        prev = self._progress.get(prompt_id, {})
+        now = time.time()
+        if kind == "StatusChange":
+            if ev.status == "running" and prev.get("phase", "").startswith("已提交"):
+                self._progress[prompt_id] = {**prev, "phase": "渲染引擎已启动…", "last_time": now}
+            return
+        if kind == "OutputReady":
+            return
+        if kind == "Preview":
+            self._progress.setdefault(prompt_id, prev)["preview_frames"] = prev.get("preview_frames", 0) + 1
+            return
+        if kind != "Progress":
+            return
+        node = str(ev.current_node) if ev.current_node is not None else prev.get("node_id")
+        fresh = {}
+        if node and node != prev.get("node_id"):
+            class_type = self._workflows.get(prompt_id, {}).get(node, {}).get("class_type", "")
+            self._timing_node(prompt_id, class_type)
+            fresh = {"node_started": now, "start_time": None, "step": 0, "max": 0, "eta": None, "speed": None,
+                     "node_id": node, "node_type": class_type, "phase": _describe_node_phase(class_type, node)}
+        merged = {**prev, **fresh}
+        step, steps = ev.step, ev.steps
+        if step is not None and steps:
+            started = merged.get("node_started") or merged.get("start_time") or now
+            elapsed = max(now - started, 1e-6)
+            per_step = elapsed / max(step, 1)
+            merged.update({"step": int(step), "max": int(steps), "start_time": started,
+                           "speed": round(per_step, 2), "eta": max(0, round((steps - step) * per_step)),
+                           "phase": f"扩散去噪采样中 ({int(step)}/{int(steps)})"})
+        merged["last_time"] = now
+        self._progress[prompt_id] = merged
+
+    async def _wait_sdk(self, prompt_id: str, timeout: int, expect_images: bool):
+        """Follow a job through the SDK. Returns what wait_for_result returns, or _SDK_UNKNOWN_JOB."""
+        self.active_prompt_id = prompt_id
+        if prompt_id not in self._progress:
+            self._progress[prompt_id] = {
+                "step": 0, "max": 0, "eta": None, "speed": None, "phase": "正在连接渲染引擎…",
+                "node_id": None, "node_type": None, "start_time": None, "last_time": time.time(),
+            }
+        try:
+            job = await self._sdk.job(prompt_id)
+        except Exception as e:  # noqa: BLE001
+            if type(e).__name__ == "NotFound":
+                return _SDK_UNKNOWN_JOB
+            raise ComfyUIError(self._sdk_error_text(e)) from e
+
+        async def follow():
+            async for ev in self._sdk.events(prompt_id):
+                self._on_sdk_event(prompt_id, ev)
+                if type(ev).__name__ == "StatusChange" and ev.status in sdkt.TERMINAL:
+                    return
+
+        try:
+            await asyncio.wait_for(follow(), timeout)
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:  # noqa: BLE001
+            if type(e).__name__ == "NotFound":
+                return _SDK_UNKNOWN_JOB
+            logger.warning("Comfy SDK event stream for %s ended with %r; polling the job instead", prompt_id, e)
+        try:
+            job = await self._sdk.refresh(prompt_id)
+        except Exception as e:  # noqa: BLE001
+            if type(e).__name__ == "NotFound":
+                return _SDK_UNKNOWN_JOB
+            self._cleanup(prompt_id)
+            raise ComfyUIError(self._sdk_error_text(e)) from e
+        self._cleanup(prompt_id)
+        status = job.status
+        if status == sdkt.SUCCEEDED:
+            outputs = sdkt.history_outputs(job.outputs)
+            return self._pick_images(outputs, {"status_str": "success"}) if expect_images else outputs
+        if status == "canceled":
+            raise ComfyUIError("Execution interrupted")
+        if status in ("failed", "expired"):
+            err = job.error
+            node = getattr(err, "node_id", "") or ""
+            msg = getattr(err, "message", None) or getattr(err, "code", None) or status
+            raise ComfyUIError(f"ComfyUI execution error at node {node}: {msg}")
+        raise ComfyUIError(f"Timed out after {timeout}s waiting for ComfyUI job {prompt_id}")
+
+    async def _cancel_sdk(self, prompt_id: str) -> Optional[bool]:
+        """True/False when the proxy answered; None when it does not know the job (fall back to native)."""
+        try:
+            await self._sdk.cancel(prompt_id)
+            return True
+        except Exception as e:  # noqa: BLE001
+            name = type(e).__name__
+            if name == "AlreadyCompleted":
+                return True
+            if name == "NotFound":
+                return None
+            logger.warning("Comfy SDK cancel of %s failed: %r", prompt_id, e)
+            return None if name in ("ConnectError", "ConnectTimeout") else False
+
+    async def _abandon_sdk(self, prompt_id: str) -> Optional[str]:
+        try:
+            job = await self._sdk.refresh(prompt_id)
+            status = job.status
+            if status in sdkt.TERMINAL:
+                return "absent"
+            await self._sdk.cancel(prompt_id)
+            return "interrupted" if status == "running" else "dequeued"
+        except Exception as e:  # noqa: BLE001
+            if type(e).__name__ == "AlreadyCompleted":
+                return "absent"
+            return None
+
+    async def _prompt_state_sdk(self, prompt_id: str) -> Optional[tuple[str, dict]]:
+        try:
+            job = await self._sdk.refresh(prompt_id)
+        except Exception:  # noqa: BLE001 -- unknown to the proxy or unreachable: ask ComfyUI itself
+            return None
+        status = job.status
+        if status == sdkt.SUCCEEDED:
+            return "success", sdkt.history_outputs(job.outputs)
+        if status == "failed":
+            return "error", {}
+        if status == "canceled":
+            return "interrupted", {}
+        if status == "expired":
+            return "gone", {}
+        return ("running" if status == "running" else "pending"), {}
 
     async def _get_output_videos(self, prompt_id: str) -> list[dict]:
         """Retrieve video outputs from history. Handles 'videos', 'gifs', and 'images' keys."""

@@ -20,3 +20,6 @@ torch==2.14.0
 torchaudio==2.11.0
 speechbrain==1.1.1
 scipy==1.18.1
+# COMFY_TRANSPORT=sdk: job life cycle through the Comfy SDK and a local comfy-api-proxy
+comfy-sdk==0.5.0
+comfy-api-proxy==0.1.6
