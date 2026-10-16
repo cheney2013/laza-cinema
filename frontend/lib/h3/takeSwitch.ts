@@ -18,6 +18,7 @@ export const TAKE_PARAM_KEYS = [
   'shiftVideo', 'shiftAudio', 'motionContextLength', 'motionContextAudio',
   'refImageOrder', 'useFirstFrame', 'promptSource', 'directorSpec',
   'audioLocks', 'audioLockFeather', 'seamMatch', 'seamMatchAdaptive', 'seamMatchGain', 'seamMatchTexture', 'seamMatchPostGain',
+  'useRefVideoAsControl', 'controlStrength',
 ] as const;
 
 /** Node fields that describe the rendered clip rather than the next run. */
@@ -31,6 +32,8 @@ type Data = Record<string, unknown>;
 export function snapshotParams(data: Data): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of TAKE_PARAM_KEYS) if (data[k] !== undefined) out[k] = data[k];
+  // The style LoRAs a take was rendered with are always recorded; an empty list says none was used.
+  if (out.styleLoras === undefined) out.styleLoras = [];
   return out;
 }
 
@@ -116,7 +119,10 @@ export function switchPatch(take: H3Take, data: Data): Data {
   patch.latentFilename = latent.name ?? undefined;
   if (patch.generatedSteps === undefined && take.steps) patch.generatedSteps = take.steps;
   // A prompt that no longer matches its file must not keep claiming the file.
+  // The old path stays behind as promptFileUnbound: the canvas MCP refuses to run an unbound node
+  // until it is told which text to run, instead of submitting this take's prompt unnoticed.
   if (data.promptFile && params.prompt !== undefined && params.prompt !== data.prompt) {
+    patch.promptFileUnbound = data.promptFile;
     patch.promptFile = undefined;
   }
   return patch;

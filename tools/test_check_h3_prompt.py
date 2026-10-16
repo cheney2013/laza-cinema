@@ -92,13 +92,15 @@ class Good(unittest.TestCase):
         self.assertEqual(r.stats["dialogue_lines"], 1)
         self.assertEqual(r.stats["text_chars"], [25])
 
-    def test_baseline_growth_fails(self):
+    def test_baseline_growth_is_only_a_note(self):
         with tempfile.TemporaryDirectory() as d:
             base = Path(d) / "base.txt"
             base.write_text(GOOD.replace("with a desaturated palette and fine film grain", ""),
                             encoding="utf-8")
             r = run(GOOD, baseline=base)
-        self.assertTrue(any("基线" in e for e in r.errors), joined(r.errors))
+        # no word cap any more: growth over the baseline is only recorded
+        self.assertEqual(r.errors, [], joined(r.errors))
+        self.assertTrue(any("基线" in n for n in r.notes), joined(r.notes))
 
     def test_whitelist_both_directions(self):
         wl = {"props": ["lamp", "letter", "mug"],
@@ -276,47 +278,65 @@ class Helpers(unittest.TestCase):
         self.assertEqual(chk.parse_timecode("[Shot 2] At 01:02.500, the shot cuts"), 62.5)
         self.assertIsNone(chk.parse_timecode("[Shot 1] The shot opens"))
 
-    def test_words_hard_fail(self):
-        long = GOOD.replace("The camera holds a static shot.",
-                            "The camera holds a static shot. " + "The desk is pine. " * 260)
-        r = run(long, word_cap=True)
-        self.assertTrue(any("超过硬上限" in e for e in r.errors))
-
-    def test_words_hard_cap_is_a_warning_by_default(self):
-        long = GOOD.replace("The camera holds a static shot.",
-                            "The camera holds a static shot. " + "The desk is pine. " * 260)
-        r = run(long)
-        self.assertFalse(any("超过硬上限" in e for e in r.errors), joined(r.errors))
-        self.assertTrue(any("超过硬上限" in w for w in r.warnings), joined(r.warnings))
-
-    def test_empty_room_plate_has_no_word_cap(self):
-        """A plate of an unoccupied room is exempt from the word caps: it has
-        no people to deform, and it needs the length to describe form
-        (2026-09-07, after the plates came back as cubes)."""
-        long = GOOD.replace("The camera holds a static shot.",
-                            "The camera holds a static shot. " + "The desk is pine. " * 260)
-        plate = re.sub(r"<Subject \d+> is (?:the|a) [^\n]*\n", "", long)
-        plate = re.sub(r"<d>.*?</d>", "", plate, flags=re.S)
-        r = run(plate)
-        self.assertFalse(any("超过硬上限" in e for e in r.errors), joined(r.errors))
-        self.assertTrue(any("无人场景板" in n for n in r.notes), joined(r.notes))
-
     def test_group_subject_is_matched_as_a_word(self):
         """`is the set` / `is the group` counts as scenery, `is the settled man` does not: the pattern
         needs a word boundary (it used to end in a literal backspace and never matched)."""
         self.assertTrue(chk.is_empty_room_plate("<Subject 1> is the set of the study.", "A pan across the room."))
         self.assertFalse(chk.is_empty_room_plate("<Subject 1> is the settled man at the desk.", "A pan across the room."))
 
-    def test_word_cap_returns_once_a_subject_is_back(self):
-        """The exemption is a licence for empty rooms, not a way round the rule."""
+    def test_long_prompt_has_no_word_cap(self):
         long = GOOD.replace("The camera holds a static shot.",
-                            "The camera holds a static shot. " + "The desk is pine. " * 260)
-        self.assertTrue(any("超过硬上限" in e for e in run(long, word_cap=True).errors))
+                            "The camera holds a static shot. " + "The desk is pine. " * 600)
+        r = run(long)
+        self.assertFalse(any("上限" in x or "词，超过" in x for x in r.errors + r.warnings), joined(r.errors + r.warnings))
+        self.assertGreater(r.stats["dd_words"], 1500)
 
     def test_quoted_negation_not_flagged(self):
         t = GOOD.replace('"ACCEPTANCE OF RESIGNATION"', '"I did not say it."')
         r = run(t)
         self.assertFalse(any("否定/缺席词" in w for w in r.warnings), joined(r.warnings))
+
+
+class Revisions(unittest.TestCase):
+    """Every REVIEW_EVERY edits of one file the whole file has to be read and acknowledged."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.state = Path(self.dir.name) / "rev.json"
+        self.path = Path(self.dir.name) / "p.txt"
+
+    def edit(self, n: int, reviewed: bool = False) -> dict:
+        text = GOOD + "# edit " + str(n) + chr(10)
+        self.path.write_text(text, encoding="utf-8")
+        return chk.track_revision(self.path, text, reviewed, self.state)
+
+    def test_first_sighting_only_records(self):
+        e = self.edit(0)
+        self.assertEqual((e["total"], e["rounds"]), (0, 0))
+
+    def test_same_text_is_not_a_new_round(self):
+        self.edit(0)
+        self.edit(0)
+        e = self.edit(0)
+        self.assertEqual(e["rounds"], 0)
+
+    def test_each_changed_text_is_one_round_and_five_trip_the_gate(self):
+        self.edit(0)
+        for n in range(1, chk.REVIEW_EVERY + 1):
+            e = self.edit(n)
+        self.assertEqual(e["rounds"], chk.REVIEW_EVERY)
+        self.assertGreaterEqual(e["rounds"], chk.REVIEW_EVERY)
+
+    def test_reviewed_clears_the_count_but_keeps_the_total(self):
+        self.edit(0)
+        for n in range(1, 6):
+            self.edit(n)
+        e = self.edit(5, reviewed=True)
+        self.assertEqual(e["rounds"], 0)
+        self.assertEqual(e["total"], 5)
+        e = self.edit(6)
+        self.assertEqual(e["rounds"], 1)
 
 
 if __name__ == "__main__":

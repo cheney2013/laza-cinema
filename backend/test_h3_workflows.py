@@ -496,7 +496,39 @@ def test_video_depth_keeps_size_and_rate_and_drops_audio():
     assert "audio" not in wf["vd:6"]["inputs"]
 
 
+def test_video_depth_defaults_to_depth_anything_3_multiview():
+    wf = wb.build_video_depth_workflow("ref.mp4", 24.0)
+    assert wf["vd:3"]["class_type"] == "DA3Inference"
+    assert wf["vd:3"]["inputs"]["mode"] == "multiview"
+    assert wf["vd:3"]["inputs"]["resolution"] % 14 == 0
+    assert wf["vd:5"]["inputs"]["image"] == ["vd:3b", 0]
+    # the old per-frame model is still reachable by name
+    old = wb.build_video_depth_workflow("ref.mp4", 24.0, ckpt_name="depth_anything_v2_vitl.pth")
+    assert old["vd:3"]["class_type"] == "DepthAnythingV2Preprocessor"
+    assert old["vd:5"]["inputs"]["image"] == ["vd:3", 0]
+
+
 def test_control_video_is_read_at_24_fps():
     import inspect
     src = inspect.getsource(wb.build_h3_video_workflow)
     assert '"force_rate": 24' in src.split("control_video_filename,", 1)[1].split("ModelPatchLoader", 1)[0]
+
+
+def test_control_video_lead_in_for_a_continuation():
+    # output frame t sits on generated frame t + context_length, so the caller passes control_skip_frames = -22
+    # and the control video's first frame is held for 22 frames; the video then fills the rest of the length
+    wf = wb.build_h3_video_workflow(prompt="x", length=192, control_video_filename="c.mp4", control_skip_frames=-22)
+    assert wf["90"]["inputs"]["frame_load_cap"] == 170
+    assert wf["90"]["inputs"]["skip_first_frames"] == 0
+    assert wf["93"]["inputs"] == {"image": ["90", 0], "batch_index": 0, "length": 1}
+    assert wf["94"]["inputs"] == {"image": ["93", 0], "amount": 22}
+    assert wf["97"]["inputs"] == {"image1": ["94", 0], "image2": ["90", 0]}
+    assert wf["92"]["inputs"]["control_video"] == ["97", 0]
+
+
+def test_control_video_without_lead_in_is_unchanged():
+    wf = wb.build_h3_video_workflow(prompt="x", length=192, control_video_filename="c.mp4", control_skip_frames=30)
+    assert wf["90"]["inputs"]["frame_load_cap"] == 192
+    assert wf["90"]["inputs"]["skip_first_frames"] == 30
+    assert "93" not in wf and "94" not in wf and "97" not in wf
+    assert wf["92"]["inputs"]["control_video"] == ["90", 0]

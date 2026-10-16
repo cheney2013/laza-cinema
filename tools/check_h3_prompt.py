@@ -84,26 +84,8 @@ DEFINER_WORDS = ("character turnaround", "defines only", "scene plate",
 #: Reference budget (MODEL_CARD / minimax h3 README section 2).
 MAX_PICTURES, MAX_VIDEOS, MAX_AUDIOS, MAX_REFS = 9, 3, 3, 12
 
-#: Word budget for detailed_description on generation tasks (ref-en.txt 5.2 says
-#: 350-500). Renders in this project degraded past ~700: CONTINUITY.md section 15
-#: records a 400-word growth that bought a second door and a boneless arm and no
-#: precision; an earlier 1100-word prompt lost a constraint that a 392-word
-#: rewrite landed first time.
-WORDS_SOFT, WORDS_HARD = 500, 800
-
-#: ref-en 5.2 goes on: "Dialogue-dense content prioritizes fitting the complete
-#: spoken timeline rather than mechanically reaching a word count." So both caps
-#: grow with the dialogue: every spoken word, plus the speaker/delivery clause
-#: that has to wrap each line. Trimming performance description to make room for
-#: lines is the failure this prevents (C5, 2026-09-19).
-WORDS_PER_LINE_FRAME = 15
-
-
-def dialogue_allowance(detail: str) -> tuple[int, int]:
-    """(extra words the caps allow, number of <d> lines) for this prompt."""
-    lines = re.findall(r"<d>(.*?)</d>", detail, flags=re.S)
-    spoken = sum(len(re.sub(r"\[[^\]]*\]", " ", l).split()) for l in lines)
-    return spoken + WORDS_PER_LINE_FRAME * len(lines), len(lines)
+#: There is no word cap on detailed_description (director, 2026-10-09). A long prompt is not a fault in
+#: itself; contradictions piled up by edits that never re-read the whole text are. See track_revision().
 
 #: On-screen text legibility (DOC section 7). 25-38 characters were fully legible
 #: at 8 steps; a 73-character line garbled in the middle.
@@ -438,6 +420,8 @@ def check_speakers(defs: str, detail: str, r: Report) -> None:
 def is_empty_room_plate(defs: str, detail: str) -> bool:
     """A scene plate of an unoccupied room, panning or locked off.
 
+    (2026-10-09: the word caps are gone, so nothing calls this any more; kept for its tests.)
+
     The word caps below exist because long prompts dilute the constraints that
     keep PEOPLE right: what a 400-word growth bought was a second door and a
     boneless arm (CONTINUITY.md section 15). A plate has nobody in it, so it has
@@ -458,28 +442,13 @@ def is_empty_room_plate(defs: str, detail: str) -> bool:
 
 
 def check_shots(detail: str, frames: int | None, r: Report,
-                defs: str = "", word_cap: bool = False) -> None:
+                defs: str = "") -> None:
     dd = body_of(detail)
     words = len(dd.split())
     r.stats["dd_words"] = words
-    if is_empty_room_plate(defs, detail):
-        r.note(f"detailed_description {words} 词。无人场景板不受 {WORDS_SOFT}/{WORDS_HARD} 词限制："
-               f"字数上限防的是人物段落被稀释（多一扇门、畸形肢），而板子里没有人；"
-               f"板子恰恰要靠详写形态才压得住灰模的方块轮廓（plate_bedroom_pan 1045 词，全片最好的一块）。")
-    else:
-        extra, n_lines = dialogue_allowance(dd)
-        soft, hard = WORDS_SOFT + extra, WORDS_HARD + extra
-        why = (f"（{n_lines} 句台词放宽 {extra} 词：ref-en 5.2 台词密集时先放下完整台词）"
-               if extra else "")
-        if words > hard:
-            # Only an error with --word-cap: the director lifts the cap while a
-            # shot needs its motion detail, and asks for it back when it doesn't.
-            (r.err if word_cap else r.warn)(
-                f"detailed_description {words} 词，超过硬上限 {hard}{why}。规范 350–500（ref-en 5.2）；"
-                f"超长会稀释每条约束，多出来的字换来的是多一扇门和畸形肢（CONTINUITY.md §15）。")
-        elif words > soft:
-            r.warn(f"detailed_description {words} 词，超过 {soft}{why}。"
-                   f"砍不承载信息的中间态，别删承载表演的描写（CONTINUITY.md §15）。")
+    # No word cap (director, 2026-10-09): length is not a fault in itself. What goes wrong in a long
+    # prompt is contradictions piled up by edits that never re-read the whole text, so the guard is
+    # the revision counter in track_revision(): every REVIEW_EVERY edits the file must be read in full.
 
     shots = shots_of(dd)
     r.stats["shots"] = len(shots)
@@ -673,14 +642,58 @@ def check_baseline(words: int, baseline: Path, r: Report) -> None:
     base = len(dd.split())
     r.stats["baseline_words"] = base
     if words > base:
-        r.err(f"detailed_description 从基线的 {base} 词涨到 {words} 词。改动不得超过上一个通过版的字数：加一句就要删一句（CONTINUITY.md §15）。")
+        r.note(f"detailed_description 从基线的 {base} 词到 {words} 词（只是记录，没有字数上限）。")
+
+
+# --------------------------------------------------------------------------- revision counter
+
+#: Every this many edits of one prompt file it must be fully reviewed before the next lint passes.
+REVIEW_EVERY = 5
+REV_FILE = Path(__file__).resolve().parent.parent / "backend" / "workspaces" / "prompt_revisions.json"
+
+
+def track_revision(path: Path, text: str, reviewed: bool = False, state_file: Path | None = None) -> dict:
+    """Count how many times this file's text changed since its last full review (read in full, the
+    h3-prompt-writing skill, and the Enhanced specification's checklist).
+
+    The first sighting of a file only records it. A later run on different text is one more
+    round; `reviewed=True` (the --reviewed flag, given after reading the whole file) resets the
+    count. The checker cannot see whether anyone read the file: the gate only makes the
+    obligation visible and stops submit_segment.py until it is acknowledged.
+    """
+    import hashlib
+    sf = state_file or REV_FILE
+    try:
+        state = json.loads(sf.read_text(encoding="utf-8")) if sf.is_file() else {}
+    except (OSError, ValueError):
+        state = {}
+    key = str(path.resolve())
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
+    e = state.get(key)
+    if e is None:
+        e = {"hash": digest, "rounds": 0, "total": 0}
+    elif e.get("hash") != digest:
+        e["hash"] = digest
+        e["total"] = int(e.get("total", 0)) + 1
+        e["rounds"] = int(e.get("rounds", 0)) + 1
+    if reviewed:
+        e["rounds"] = 0
+    state[key] = e
+    try:
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        tmp = sf.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(sf)
+    except OSError:
+        pass
+    return e
 
 
 # --------------------------------------------------------------------------- driver
 
 def check(path: Path, frames: int | None = None, film: bool = False,
           whitelist: Path | None = None, baseline: Path | None = None,
-          word_cap: bool = False) -> Report:
+          ) -> Report:
     r = Report()
     text = path.read_text(encoding="utf-8")
     found = sections_of(text)
@@ -698,7 +711,7 @@ def check(path: Path, frames: int | None = None, film: bool = False,
     if detail:
         check_dialogue(detail, r)
         check_speakers(defs, detail, r)
-        check_shots(detail, frames, r, defs, word_cap)
+        check_shots(detail, frames, r, defs)
         if whitelist:
             check_whitelist(detail, json.loads(whitelist.read_text(encoding="utf-8")), r)
         if baseline:
@@ -715,10 +728,11 @@ def main(argv: list[str]) -> int:
                     help="多段成片的一段：non_diegetic_music 必须 N/A")
     ap.add_argument("--whitelist", type=Path,
                     help='JSON: {"props": [...], "shots": {"1": [...], ...}}，逐镜校对画框内物件')
-    ap.add_argument("--baseline", type=Path, help="上一个通过版；正文字数不得超过它")
+    ap.add_argument("--baseline", type=Path, help="上一个通过版；只记录字数变化，不设上限")
     ap.add_argument("--strict", action="store_true", help="WARNING 也算失败")
-    ap.add_argument("--word-cap", action="store_true",
-                    help="正文超过硬上限算 ERROR（默认只是 WARNING）")
+    ap.add_argument("--reviewed", action="store_true",
+                    help="已通读全文、调用 h3-prompt-writing 技能并对照 Enhanced 规范核对完、改齐矛盾：把「距上次复查的修改轮次」清零")
+    ap.add_argument("--no-track", action="store_true", help="不记录修改轮次（临时试跑）")
     ap.add_argument("--quiet", action="store_true", help="只打印 ERROR 和统计")
     a = ap.parse_args(argv[1:])
 
@@ -728,7 +742,10 @@ def main(argv: list[str]) -> int:
             print(f"\n{p}  不存在")
             worst = 2
             continue
-        rep = check(p, a.frames, a.film, a.whitelist, a.baseline, a.word_cap)
+        rep = check(p, a.frames, a.film, a.whitelist, a.baseline)
+        rev = None if a.no_track else track_revision(p, p.read_text(encoding="utf-8"), a.reviewed)
+        if rev and rev["rounds"] >= REVIEW_EVERY:
+            rep.err(f"已改 {rev['rounds']} 轮没有做整篇复查（每 {REVIEW_EVERY} 轮必须做一次）。必须三件事都做：①用 Read 通读完整个文件，查自相矛盾：同一个人的同一只手/部位前后说法、焦点与动作、站位与姿势、前后镜的衔接；②调用 h3-prompt-writing 技能；③对照 docs/MiniMax_H3_Singularity_Prompt_Writing_Specification_Enhanced_EN.md 的最终检查清单逐条核对。改齐后用 --reviewed 重跑登记。")
         st = rep.stats
         chars = st.get("text_chars", [])
         print(f"\n{p}")
@@ -736,7 +753,8 @@ def main(argv: list[str]) -> int:
               f"台词 {st.get('dialogue_lines', 0)} 句 · 参考图 {st.get('pictures', 0)} / 视频 "
               f"{st.get('videos', 0)} / 音频 {st.get('audios', 0)}"
               + (f" · 画面文字 {len(chars)} 条，最长 {max(chars)} 字符" if chars else "")
-              + (f" · 基线 {st['baseline_words']} 词" if "baseline_words" in st else ""))
+              + (f" · 基线 {st['baseline_words']} 词" if "baseline_words" in st else "")
+              + (f" · 第 {rev['total']} 次修改，距上次整篇复查 {rev['rounds']} 轮" if rev else ""))
         for e in rep.errors:
             print(f"  ERROR  {e}")
         if not a.quiet:

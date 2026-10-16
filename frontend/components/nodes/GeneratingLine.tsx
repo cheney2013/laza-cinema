@@ -133,6 +133,9 @@ export default function GeneratingLine({ active, jobId, steps = 20, statusText, 
           key={livePreview.url}
           src={resolveAssetUrl(livePreview.url)}
           autoPlay loop muted playsInline
+          // the live preview is the node's status, not a clip being watched: the canvas's
+          // one-video-at-a-time rule (useSingleAudioCoordinator) must not pause it
+          data-media-ambient=""
           onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)}
           className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         />

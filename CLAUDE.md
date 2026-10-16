@@ -52,6 +52,7 @@ These are two separate steps. Neither replaces the other: the skill's `reference
 
 - This applies to every H3 prompt: new prompts, rewrites, changing a single sentence, and prompts a subagent writes for you (tell the subagent to read the specification too).
 - Having read it in an earlier session does not count. If this session has no read of the file, you have not read it.
+- **No word cap; a full review every 5 edits.** `tools/check_h3_prompt.py` counts the edits of each prompt file (`backend/workspaces/prompt_revisions.json`, local state). On the 5th edit since the last review it fails until you do all three: (1) Read the entire file and fix any self-contradiction (the same hand or limb described two ways, focus against action, positions against poses, one shot's last frame against the next shot's first); (2) invoke the `h3-prompt-writing` skill; (3) check the prompt against the Enhanced specification's final checklist. Then rerun with `--reviewed`. Patching a sentence at a time without ever re-reading the whole text is how contradictory prompts pile up.
 - Check the finished prompt against the specification's final checklist line by line before linting (`python tools/check_h3_prompt.py`), syncing to the canvas, or rendering.
 
 ## The canvas is the record

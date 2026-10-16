@@ -86,6 +86,11 @@ const STYLE_LORA_OPTIONS: { label: string; value: string; title: string; default
   { label: 'Mystic', value: 'h3/MysticXXX_MMH3-V4.safetensors', defaultStrength: 1.0, recommendedRange: [0.2, 1.0], title: 'MysticXXX MMH3 V4（2026-09-16 加入）' },
   // NSFW_ANIME_V7_H3 step 19500 (kohya, rank 32, trained on the fl2va pruned base at 640x360); no published range.
   { label: 'Anime', value: 'h3/NSFW_ANIME_V7_H3-step00019500.safetensors', defaultStrength: 1.0, title: 'NSFW_ANIME_V7_H3 step 19500（2026-09-19 替换 Bobby Anime）' },
+  // Jojocodex/wushu-action-v7-minimax-h3-fl2va-ref2va-lora, the r2v file (310 MB, same keys as the pruned-base
+  // build). README: v7 is the film-footage LoRA, 0.85-1.0; lower to 0.7 if people or weapons break, raise to 1.1
+  // if the action is not forceful enough. Trigger word wushu_action first in the prompt: the backend adds it
+  // when it is missing (main.ensure_lora_triggers). Tested on s5-c28-seg7-wushu 2026-10-09: more forceful than none.
+  { label: '武打', value: 'wushu_h3_r2v_v7_2000.safetensors', defaultStrength: 0.9, recommendedRange: [0.85, 1.0], title: '武打动作 LoRA（Jojocodex wushu v7 r2v）：力量感比不挂强。触发词 wushu_action 放提示词最前（缺了后端自动补）；招式写具体中文术语（格挡卸力、擒拿、推掌…）；人物或兵器崩坏降到 0.7，不够猛升到 1.1；作者提示低步数偶尔发糊' },
 ];
 
 const styleLoraDefaultStrength = (name: string) =>
@@ -653,10 +658,11 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
     .filter((n) => n.targetHandle === 'in-refmod' && (n.refVisual || n.refAudio))
     .map((n) => ({ visual: n.refVisual, audio: n.refAudio, w: n.refWeight ?? 1 }));
   const refVideoUrls = refVideoInputs.map((n) => (n.url || n.generatedUrl) as string).filter(Boolean);
-  // Veda sparse attention is on by default for a clip with a reference video or 10 s+ (240 frames);
-  // a node that set data.veda either way keeps its choice. Same rule as canvas_mcp_server.py.
-  const vedaOn = typeof data.veda === 'boolean' ? data.veda : (refVideoUrls.length > 0 || currentLength >= 240);
-  const refVideoResolution = refVideoInputs.find((n) => Number(n.width) > 0 && Number(n.height) > 0);
+  // Block sparse is the default (new nodes carry blockSparse true); Veda only when the node chose it.
+  // Same rule as canvas_mcp_server.py.
+  const vedaOn = data.veda === true;
+  const controlOn = data.useRefVideoAsControl === true && refVideoUrls.length > 0;
+  const refVideoResolution =refVideoInputs.find((n) => Number(n.width) > 0 && Number(n.height) > 0);
   const promptBinding = usePromptBinding(id);
   const connectedPromptText = (connected.filter((n) => n.type === 'prompt' || n.targetHandle === 'in-prompt').map((n) => n.text).filter(Boolean).join(' ')) || '';
   // While the console owns the prompt, it is the prompt. A prompt node wired to
@@ -729,7 +735,13 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
         pin_last_frame_of: pinnedSource(data),
         ref_image_urls: finalRefImageUrls,
         ref_audio_urls: refAudioUrls,
-        ref_video_urls: refVideoUrls,
+        // With the control switch on, the first reference video drives the camera through Fun ControlNet
+        // and is not also mounted as <Video N> (same rule as canvas_mcp_server.py).
+        ref_video_urls: controlOn ? [] : refVideoUrls,
+        ...(controlOn ? {
+          control_video_url: refVideoUrls[0],
+          control_strength: Number(data.controlStrength) || 1.0,
+        } : {}),
         ...(refMods.length ? { refmods: refMods } : {}),
         width: currentWidth,
         height: currentHeight,
@@ -1409,6 +1421,46 @@ function VideoGenNode({ id, data, selected }: NodeProps<VideoNodeType>) {
                 })}
               </div>
             </div>
+
+            {/* Reference video role: soft <Video N> reference, or the Fun ControlNet control video (frame for frame). */}
+            {refVideoUrls.length > 0 && (
+              <div>
+                <div className="text-[10px] text-zinc-400 font-medium mb-1.5 flex justify-between">
+                  <span>{t('参考视频用法')}</span>
+                  <span className="font-mono text-zinc-200">{controlOn ? t('控制视频') : t('软参考')}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: t('软参考'), value: false, tip: t('参考视频挂成 <Video N>，模型自己读镜头和走位；不逐帧锁定') },
+                    { label: t('控制视频'), value: true, tip: t('Fun ControlNet：参考视频逐帧锁定镜头和走位，不再挂成 <Video N>；只用第一个参考视频，长度要和本段帧数对得上') },
+                  ].map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      title={opt.tip}
+                      onClick={() => updateNodeData(id, { useRefVideoAsControl: opt.value })}
+                      className={`py-1 px-1.5 text-[10px] rounded-lg border transition-colors cursor-pointer ${controlOn === opt.value
+                          ? 'bg-white/20 border-white/40 text-white font-semibold shadow-xs'
+                          : 'bg-white/[0.03] border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.08]'
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {controlOn && (
+                  <div className="mt-1.5 flex items-center gap-2 text-[10px] text-zinc-400">
+                    <span>{t('控制强度')}</span>
+                    <input
+                      type="range" min={0} max={1.5} step={0.05}
+                      value={Number(data.controlStrength) || 1}
+                      onChange={(e) => updateNodeData(id, { controlStrength: Number(e.target.value) })}
+                      className="nodrag flex-1"
+                    />
+                    <span className="font-mono text-zinc-200 w-8 text-right">{(Number(data.controlStrength) || 1).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Style LoRA (the speed LoRA is chosen above, not here) */}
             <div>

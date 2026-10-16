@@ -25,6 +25,15 @@ describe('takeSwitch', () => {
     assert.equal(patch.latentFilename, 'L.safetensors');
     assert.equal(patch.compiledPrompt, undefined);
     assert.ok('promptFile' in patch && patch.promptFile === undefined);
+    // the old binding stays as a trail so the canvas MCP can tell a switched node from a never-bound one
+    assert.equal(patch.promptFileUnbound, 'x.txt');
+  });
+
+  it('leaves no trail when the take prompt matches the node (nothing was unbound)', () => {
+    const tk = take({ params: { prompt: 'same' } });
+    const patch = switchPatch(tk, { prompt: 'same', promptFile: 'x.txt' });
+    assert.equal('promptFileUnbound' in patch, false);
+    assert.equal('promptFile' in patch, false);
   });
 
   it('infers the latent of an old take from its clip name', () => {
