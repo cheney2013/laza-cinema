@@ -1,4 +1,4 @@
-"""CPU decoder for live previews. Reads "latent.pt<TAB>out.mp4" lines on stdin,
+"""CPU decoder for ComfyUI-H3-ClipPreview. Reads "latent.pt<TAB>out.mp4" lines on stdin,
 writes the clip and answers "ok" (or "err") on stdout, one line per request.
 
 Memory, not speed, is the constraint: the render beside it stages ~38 GB of

@@ -122,7 +122,7 @@ export default function GeneratingLine({ active, jobId, steps = 20, statusText, 
   const learned = countdown(remainingRef.current);
   const remaining = (learned !== null && (learned > 0 || hasRealProgress) ? learned : null) ?? etaSeconds;
   // Whole-clip preview decoded on the CPU after each sampler step
-  // (ComfyUI custom_nodes/aicinema-live-preview), shown behind the stats.
+  // (ComfyUI custom_nodes/ComfyUI-H3-ClipPreview), shown behind the stats.
   const livePreview = !isQueued ? (progress as any)?.preview as { url: string; step: number } | undefined : undefined;
   // With the preview playing, the picture is the status: no dimming, and the
   // figures shrink to one strip along the foot of the card.

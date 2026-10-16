@@ -8,7 +8,7 @@
   },
   "custom_nodes": [
     {
-      "name": "aicinema-live-preview",
+      "name": "ComfyUI-H3-ClipPreview",
       "required": true,
       "size_mb": 0.0,
       "source": "copy"

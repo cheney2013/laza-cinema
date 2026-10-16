@@ -1,18 +1,18 @@
-"""Live whole-clip preview of MiniMax H3 renders, decoded on the CPU.
+"""ComfyUI-H3-ClipPreview: whole-clip sampling preview for MiniMax H3, decoded on the CPU.
 
-ComfyUI's own latent preview shows only the first frame and decodes on the
+ComfyUI's built-in latent preview shows the first frame only and decodes on the
 GPU. This wraps latent_preview.prepare_callback: after every sampler step the
 current x0 estimate (video channels only, ~15 MB) is copied to host memory and
 handed to a low-priority worker process that decodes the whole clip with taeh3
-at half spatial resolution (~3 s for 146 frames at 768x1344 on 32 threads) and
-writes output/live_preview/<prompt_id>_s<step>.mp4. A step that arrives while
-the worker is busy replaces the queued one, so the sampler never waits.
+at half spatial resolution and writes output/h3_clip_preview/<prompt_id>_s<step>.mp4.
+A step that arrives while the worker is busy replaces the queued one, so the
+sampler never waits. The GPU cost is one device-to-host copy per step.
 
-The GPU cost is one device-to-host copy per step. Each written clip is
-announced on the websocket as "aicinema.live_preview".
+Each written clip is announced on the websocket as "h3_clip_preview"
+({prompt_id, step, total, filename, subfolder}).
 
-Kept outside core files so ComfyUI updates do not remove it. Disable by setting
-AICINEMA_LIVE_PREVIEW=0 before starting ComfyUI.
+Disable by setting H3_CLIP_PREVIEW=0 before starting ComfyUI, or per prompt with
+extra_data {"h3_clip_preview": false}.
 """
 import logging
 import os
@@ -27,10 +27,11 @@ import torch
 import folder_paths
 import latent_preview
 
-log = logging.getLogger("aicinema-live-preview")
+log = logging.getLogger("h3-clip-preview")
 HERE = Path(__file__).resolve().parent
-OUT_SUB = "live_preview"
-ENABLED = os.environ.get("AICINEMA_LIVE_PREVIEW", "1") != "0"
+OUT_SUB = "h3_clip_preview"
+EVENT = "h3_clip_preview"
+ENABLED = os.environ.get("H3_CLIP_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")) != "0"
 
 
 def _is_h3(model) -> bool:
@@ -53,9 +54,9 @@ class _Worker:
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
         self.finished_id = None      # prompt whose sampling has ended
         self.wake = threading.Event()
-        self.tmp = Path(tempfile.gettempdir()) / "aicinema_live_preview"
+        self.tmp = Path(tempfile.gettempdir()) / "h3_clip_preview"
         self.tmp.mkdir(exist_ok=True)
-        threading.Thread(target=self._loop, daemon=True, name="live-preview").start()
+        threading.Thread(target=self._loop, daemon=True, name="h3-clip-preview").start()
 
     def _start(self):
         flags = 0
@@ -119,7 +120,7 @@ class _Worker:
                 self.proc.stdin.flush()
                 reply = self.proc.stdout.readline().strip()
             except Exception:  # noqa: BLE001 -- a preview must never break a render
-                log.warning("live preview worker failed", exc_info=True)
+                log.warning("clip preview worker failed", exc_info=True)
                 reply = ""
                 self.proc = None
             path.unlink(missing_ok=True)
@@ -141,7 +142,7 @@ class _Worker:
                 self.fails += 1
                 if self.fails >= 3 and not self.disabled:
                     self.disabled = True
-                    log.warning("live preview disabled after %d failed decodes "
+                    log.warning("clip preview disabled after %d failed decodes "
                                 "(is taeh3.safetensors in models/vae_approx?)", self.fails)
                     self._stop_proc()
             if reply != "ok":
@@ -153,7 +154,7 @@ class _Worker:
                     f.unlink(missing_ok=True)
             try:
                 from server import PromptServer
-                PromptServer.instance.send_sync("aicinema.live_preview", {
+                PromptServer.instance.send_sync(EVENT, {
                     "prompt_id": prompt_id, "step": step, "total": total,
                     "filename": name, "subfolder": OUT_SUB})
             except Exception:  # noqa: BLE001
@@ -162,12 +163,14 @@ class _Worker:
 
 _worker = None
 _original = latent_preview.prepare_callback
+if "aicinema-live-preview" in (getattr(_original, "__module__", "") or ""):
+    log.warning("the earlier 'aicinema-live-preview' pack is loaded: remove it from custom_nodes, "
+                "two copies would decode every step twice")
 _opted_out_cache: dict = {}
 
 
 def _opted_out(prompt_id) -> bool:
-    """The prompt was queued with extra_data {"aicinema_live_preview": false} (a spoken line, whose picture
-    nobody looks at)."""
+    """The prompt was queued with extra_data {"h3_clip_preview": false}."""
     if prompt_id in _opted_out_cache:
         return _opted_out_cache[prompt_id]
     out = False
@@ -177,7 +180,8 @@ def _opted_out(prompt_id) -> bool:
         with queue.mutex:
             for item in queue.currently_running.values():
                 if item[1] == prompt_id and len(item) > 3 and isinstance(item[3], dict):
-                    out = item[3].get("aicinema_live_preview") is False
+                    out = (item[3].get("h3_clip_preview") is False
+                           or item[3].get("h3_clip_preview") is False)
     except Exception:  # noqa: BLE001
         out = False
     if len(_opted_out_cache) > 64:
@@ -213,7 +217,7 @@ def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
                 _worker = _Worker()
             _worker.submit(ctx.prompt_id, step + 1, total_steps, lat)
         except Exception:  # noqa: BLE001
-            log.warning("live preview capture failed", exc_info=True)
+            log.warning("clip preview capture failed", exc_info=True)
     return callback
 
 

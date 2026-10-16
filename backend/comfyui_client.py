@@ -250,8 +250,9 @@ class ComfyUIClient:
         self._timing_node(prompt_id, None)
         # Live previews are only for watching a render; the finished clip replaces them.
         try:
-            for f in (Path(COMFYUI_OUTPUT_DIR) / "live_preview").glob(f"{prompt_id}_s*.mp4"):
-                f.unlink(missing_ok=True)
+            for sub in ("h3_clip_preview", "live_preview"):
+                for f in (Path(COMFYUI_OUTPUT_DIR) / sub).glob(f"{prompt_id}_s*.mp4"):
+                    f.unlink(missing_ok=True)
         except OSError:
             pass
         self._progress.pop(prompt_id, None)
@@ -432,7 +433,7 @@ class ComfyUIClient:
             return r.json().get("name", filename)
 
     async def queue_prompt(self, workflow: dict, live_preview: bool = True) -> str:
-        """Submit workflow, return prompt_id. `live_preview=False` asks the aicinema-live-preview plugin to
+        """Submit workflow, return prompt_id. `live_preview=False` asks the ComfyUI-H3-ClipPreview pack to
         skip this prompt (it reads the flag from the prompt's extra_data)."""
         if self._sdk is not None:
             return await self._queue_prompt_sdk(workflow, live_preview)
@@ -440,7 +441,7 @@ class ComfyUIClient:
         cid = str(uuid.uuid4())
         payload = {"prompt": workflow, "client_id": cid}
         if not live_preview:
-            payload["extra_data"] = {"aicinema_live_preview": False}
+            payload["extra_data"] = {"h3_clip_preview": False}
         async with _http(timeout=30) as client:
             r = await client.post(f"{self.base_url}/prompt", json=payload)
             if r.status_code != 200:
@@ -808,14 +809,14 @@ class ComfyUIClient:
                         msg = json.loads(raw)
                         msg_type = msg.get("type")
 
-                        if msg_type == "aicinema.live_preview":
-                            # The live-preview plugin (custom_nodes/aicinema-live-preview)
+                        if msg_type in ("h3_clip_preview", "aicinema.live_preview"):
+                            # The ComfyUI-H3-ClipPreview pack (custom_nodes/ComfyUI-H3-ClipPreview)
                             # decoded the whole clip on the CPU after a sampler step.
                             d = msg.get("data", {})
                             target = d.get("prompt_id")
                             if target in self._progress:
                                 self._progress[target]["preview"] = {
-                                    "url": f"/comfy_output/{d.get('subfolder', 'live_preview')}/{d.get('filename')}",
+                                    "url": f"/comfy_output/{d.get('subfolder', 'h3_clip_preview')}/{d.get('filename')}",
                                     "step": d.get("step"),
                                 }
                             continue
