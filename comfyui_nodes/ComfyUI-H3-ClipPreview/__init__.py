@@ -34,6 +34,18 @@ EVENT = "h3_clip_preview"
 ENABLED = os.environ.get("H3_CLIP_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")) != "0"
 
 
+# The decode process holds about 5 GB; below this much free RAM the step is skipped.
+MIN_FREE_GB = float(os.environ.get("H3_CLIP_PREVIEW_MIN_FREE_GB", "8"))
+
+
+def _low_memory() -> bool:
+    try:
+        import psutil
+        return psutil.virtual_memory().available < MIN_FREE_GB * 2**30
+    except Exception:  # noqa: BLE001 -- without psutil there is no check
+        return False
+
+
 def _is_h3(model) -> bool:
     try:
         fmt = model.model.latent_format
@@ -53,20 +65,22 @@ class _Worker:
         self.fails = 0               # consecutive failed decodes
         self.disabled = False        # taeh3 missing or ffmpeg broken: stop trying
         self.finished_id = None      # prompt whose sampling has ended
+        self.low_memory_noted = None # prompt the low-RAM warning was logged for
         self.wake = threading.Event()
         self.tmp = Path(tempfile.gettempdir()) / "h3_clip_preview"
         self.tmp.mkdir(exist_ok=True)
         threading.Thread(target=self._loop, daemon=True, name="h3-clip-preview").start()
 
     def _start(self):
-        flags = 0
+        extra = {}
         if sys.platform == "win32":
-            flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW
+            extra["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW
+        else:
+            extra["preexec_fn"] = lambda: os.nice(10)
         self.proc = subprocess.Popen(
             [sys.executable, str(HERE / "worker.py")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, bufsize=1, creationflags=flags,
-            cwd=str(Path(folder_paths.base_path)),
+            text=True, bufsize=1, cwd=str(Path(folder_paths.base_path)), **extra,
         )
 
     def submit(self, prompt_id, step, total, latent):
@@ -104,6 +118,12 @@ class _Worker:
                     self._stop_proc()
                 continue
             prompt_id, step, total, latent = job
+            if (self.proc is None or self.proc.poll() is not None) and _low_memory():
+                if self.low_memory_noted != prompt_id:
+                    self.low_memory_noted = prompt_id
+                    log.warning("clip preview skipped: less than %.0f GB of RAM free "
+                                "(H3_CLIP_PREVIEW_MIN_FREE_GB)", MIN_FREE_GB)
+                continue
             self.busy = True
             path = self.tmp / f"{prompt_id}_{step}.pt"
             out_dir = Path(folder_paths.get_output_directory()) / OUT_SUB

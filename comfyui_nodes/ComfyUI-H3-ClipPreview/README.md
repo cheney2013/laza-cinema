@@ -15,8 +15,7 @@ device-to-host copy of the latent per step.
 1. Copy this folder to `ComfyUI/custom_nodes/`.
 2. Place `taeh3.safetensors` in `ComfyUI/models/vae_approx/` (the official taeh3 weights from
    [madebyollin/taehv](https://github.com/madebyollin/taehv)).
-3. Make sure `ffmpeg` is on `PATH`.
-4. Restart ComfyUI.
+3. Restart ComfyUI. Encoding uses PyAV (`av`), which ComfyUI already requires; no separate ffmpeg is needed.
 
 The pack adds no nodes: it wraps ComfyUI's preview callback and applies only to models whose latent
 format is MiniMax H3. Other models are untouched.
@@ -41,10 +40,11 @@ decode follows immediately).
 
 - One decode at a time. A step that arrives while the worker is busy replaces the queued one, so the
   sampler never waits.
-- Half spatial resolution, 24 fps, H.264 `ultrafast` CRF 28, 8 CPU threads, below-normal priority.
-- Frames stream to ffmpeg one at a time; peak memory stays low even for long clips.
+- Half spatial resolution, 24 fps, H.264 `ultrafast` CRF 28 (MPEG-4 if the PyAV build has no x264), lowered process priority on every platform.
+- CPU threads: half the cores, at most 8.
+- Frames stream to the encoder one at a time; peak memory stays low even for long clips.
 - The worker process exits once the prompt's sampling ends, returning its memory before the next model loads.
-- After three consecutive failed decodes (missing `taeh3`, ffmpeg broken) the pack stops trying.
+- After three consecutive failed decodes (for example a missing `taeh3`) the pack stops trying.
 
 ## Settings
 
@@ -52,6 +52,8 @@ decode follows immediately).
 |---|---|
 | `H3_CLIP_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
 | `extra_data: {"h3_clip_preview": false}` on a prompt | Skip the preview for that prompt |
+| `H3_CLIP_PREVIEW_THREADS=<n>` | CPU threads for decoding |
+| `H3_CLIP_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |
 
 ## License
 

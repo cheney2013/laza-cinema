@@ -10,8 +10,7 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 
 1. 把本文件夹复制到 `ComfyUI/custom_nodes/`。
 2. 把 `taeh3.safetensors` 放进 `ComfyUI/models/vae_approx/`（官方 taeh3 权重，来自 [madebyollin/taehv](https://github.com/madebyollin/taehv)）。
-3. 确认 `ffmpeg` 在 `PATH` 中。
-4. 重启 ComfyUI。
+3. 重启 ComfyUI。编码使用 PyAV（`av`），ComfyUI 本身已要求安装，不需要另装 ffmpeg。
 
 本包不添加任何节点：它包装 ComfyUI 的预览回调，只对潜空间格式为 MiniMax H3 的模型生效，其他模型不受影响。
 
@@ -33,10 +32,11 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 ## 行为
 
 - 同一时刻只解一个。解码进行时到达的新步骤会替换排队中的旧步骤，采样器从不等待。
-- 半分辨率，24 fps，H.264 `ultrafast` CRF 28，8 个 CPU 线程，低于正常优先级。
-- 帧逐帧流式送入 ffmpeg，长片段的峰值内存也很低。
+- 半分辨率，24 fps，H.264 `ultrafast` CRF 28（PyAV 构建不带 x264 时改用 MPEG-4），各平台都降低进程优先级。
+- CPU 线程数：核数的一半，最多 8。
+- 帧逐帧流式送入编码器，长片段的峰值内存也很低。
 - 任务采样结束后解码进程退出，在下一个模型载入前归还内存。
-- 连续三次解码失败（缺少 `taeh3`、ffmpeg 不可用）后，本包不再尝试。
+- 连续三次解码失败（例如缺少 `taeh3`）后，本包不再尝试。
 
 ## 设置
 
@@ -44,6 +44,8 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 |---|---|
 | `H3_CLIP_PREVIEW=0`（环境变量，启动 ComfyUI 前设置） | 关闭本包 |
 | 任务的 `extra_data: {"h3_clip_preview": false}` | 对该任务不做预览 |
+| `H3_CLIP_PREVIEW_THREADS=<n>` | 解码使用的 CPU 线程数 |
+| `H3_CLIP_PREVIEW_MIN_FREE_GB=<n>`（默认 8） | 可用内存低于该值时跳过该步；解码进程约占 5 GB |
 
 ## 许可证
 

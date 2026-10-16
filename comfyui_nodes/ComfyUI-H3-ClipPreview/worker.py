@@ -4,12 +4,12 @@ writes the clip and answers "ok" (or "err") on stdout, one line per request.
 Memory, not speed, is the constraint: the render beside it stages ~38 GB of
 weights in RAM. taeh3's own decode keeps every output frame in float32 and
 then copies the clip several times for clamping and trimming (5 GB peak for
-362 frames). Here the same frame-by-frame loop streams each kept frame to
-ffmpeg as uint8 the moment it exists, so only a few frames are ever held.
-The output is identical to TAEHV.decode (checked frame for frame).
+362 frames). Here the same frame-by-frame loop streams each kept frame to the
+H.264 encoder (PyAV, which ComfyUI already requires) as uint8 the moment it
+exists, so only a few frames are ever held. The decoded frames are identical
+to TAEHV.decode (checked frame for frame).
 """
 import os
-import subprocess
 import sys
 from collections import deque
 
@@ -17,6 +17,7 @@ sys.path.insert(0, os.getcwd())
 sys.argv = [sys.argv[0], "--cpu"]
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+import av  # noqa: E402
 import torch  # noqa: E402
 import torch.nn.functional as F  # noqa: E402
 
@@ -25,8 +26,10 @@ import comfy.utils  # noqa: E402
 import folder_paths  # noqa: E402
 from comfy.taesd.taehv import MemBlock, TGrow, TPool, TWorkItem  # noqa: E402
 
-# Few threads: slower, but the render and the rest of the machine come first.
-torch.set_num_threads(8)
+# Few threads: slower, but the render and the rest of the machine come first. Half the cores, at
+# most 8; H3_CLIP_PREVIEW_THREADS overrides.
+THREADS = int(os.environ.get("H3_CLIP_PREVIEW_THREADS") or min(8, max(1, (os.cpu_count() or 2) // 2)))
+torch.set_num_threads(THREADS)
 FPS = 24
 
 
@@ -94,18 +97,33 @@ def h3_frames(model, lat):
 def encode(model, lat, out):
     h, w = lat.shape[-2] * 16, lat.shape[-1] * 16
     tmp = out + ".part.mp4"
-    p = subprocess.Popen(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-         "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "ultrafast",
-         "-crf", "28", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-threads", "2", tmp],
-        stdin=subprocess.PIPE, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    codecs = av.codecs_available
+    if "libx264" in codecs:
+        codec, options = "libx264", {"preset": "ultrafast", "crf": "28"}
+    else:
+        # A PyAV build without x264: MPEG-4 part 2 plays everywhere a browser's <video> does not
+        # always reach, but is better than no preview.
+        codec, options = "mpeg4", {"q:v": "6"}
+    container = av.open(tmp, "w", format="mp4", options={"movflags": "+faststart"})
     try:
+        stream = container.add_stream(codec, rate=FPS)
+        stream.width, stream.height, stream.pix_fmt = w, h, "yuv420p"
+        stream.options = options
+        stream.thread_count = 2
         for f in h3_frames(model, lat):
-            p.stdin.write(f.contiguous().numpy().tobytes())
-    finally:
-        p.stdin.close()
-    if p.wait() != 0:
-        raise RuntimeError("ffmpeg failed")
+            frame = av.VideoFrame.from_ndarray(f.contiguous().numpy(), format="rgb24")
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    except BaseException:
+        container.close()
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    container.close()
     os.replace(tmp, out)
 
 

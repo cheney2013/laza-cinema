@@ -1,0 +1,2 @@
+# av is also a ComfyUI core requirement; listed so the pack states what it uses.
+av>=17.0.0
