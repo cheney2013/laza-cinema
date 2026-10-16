@@ -147,6 +147,18 @@ function MosaicNode({ id, data, selected }: NodeProps<MosaicNodeType>) {
     else setPreviews((cur) => cur.filter((p) => p.frame !== gone.frame));
   };
   const shownPreview = previews.find((p) => p.frame === curFrame);
+  // Points already on the node (saved, or placed before a reload) get their preview as soon as the
+  // picture is on their frame, not only right after a click. The backend caches it per clip/frame/points.
+  const previewsRef = useRef<Preview[]>([]);
+  previewsRef.current = previews;
+  useEffect(() => {
+    if (!sourceVideoUrl || (data.generatedUrl && !showSource)) return;
+    const here = seeds.filter((s) => s.frame === curFrame).map(({ x, y }) => ({ x, y }));
+    if (!here.length) return;
+    const key = keyOf(curFrame, here);
+    if (previewsRef.current.some((p) => p.key === key)) return;
+    void requestPreview(curFrame, here);
+  }, [curFrame, seeds, sourceVideoUrl, showSource, data.generatedUrl, requestPreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Picking is on AND the source is the picture on screen (the click layer is live). */
   const pickingActive = picking && (!data.generatedUrl || showSource);
