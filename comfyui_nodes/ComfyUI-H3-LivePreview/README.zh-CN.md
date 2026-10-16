@@ -46,13 +46,7 @@ H3 渲染采样时，本包在每一步取出采样器当前的潜变量，交�
 
 ## 设置
 
-| 设置 | 作用 |
-|---|---|
-| `H3_LIVE_PREVIEW=0`（环境变量，启动 ComfyUI 前设置） | 关闭本包 |
-| `H3_LIVE_PREVIEW_SCALE=quarter` | 预览分辨率取渲染的四分之一（默认二分之一），解码约快四倍 |
-| 任务的 `extra_data: {"h3_live_preview": false}` | 对该任务不做预览 |
-| `H3_LIVE_PREVIEW_THREADS=<n>` | 解码使用的 CPU 线程数 |
-| `H3_LIVE_PREVIEW_MIN_FREE_GB=<n>`（默认 8） | 可用内存低于该值时跳过该步；解码进程约占 5 GB |
+无需配置。要对某个任务跳过预览，提交时带上 `extra_data: {"h3_live_preview": false}`；要完全关闭，停用或移除本包即可。
 
 ## 许可证
 

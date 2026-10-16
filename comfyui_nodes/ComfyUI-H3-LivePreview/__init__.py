@@ -11,8 +11,7 @@ sampler never waits. The GPU cost is one device-to-host copy per step.
 Each written clip is announced on the websocket as "h3_live_preview"
 ({prompt_id, step, total, filename, subfolder}).
 
-Disable by setting H3_LIVE_PREVIEW=0 before starting ComfyUI, or per prompt with
-extra_data {"h3_live_preview": false}.
+Turn it off by disabling the pack, or per prompt with extra_data {"h3_live_preview": false}.
 """
 import logging
 import os
@@ -31,14 +30,11 @@ log = logging.getLogger("h3-live-preview")
 HERE = Path(__file__).resolve().parent
 OUT_SUB = "h3_live_preview"
 EVENT = "h3_live_preview"
-# H3_LIVE_PREVIEW=0 turns the preview off. H3_LIVE_PREVIEW_SCALE is "half" (default) or "quarter" of the
-# render resolution; quarter decodes about four times faster.
-ENABLED = os.environ.get("H3_LIVE_PREVIEW", os.environ.get("AICINEMA_LIVE_PREVIEW", "1")).strip().lower() != "0"
-SCALE = "quarter" if os.environ.get("H3_LIVE_PREVIEW_SCALE", "").strip().lower() == "quarter" else "half"
-
+# The preview is decoded at half the render resolution.
+SCALE = "half"
 
 # The decode process holds about 5 GB; below this much free RAM the step is skipped.
-MIN_FREE_GB = float(os.environ.get("H3_LIVE_PREVIEW_MIN_FREE_GB", "8"))
+MIN_FREE_GB = 8.0
 
 
 def _low_memory() -> bool:
@@ -124,8 +120,7 @@ class _Worker:
             if (self.proc is None or self.proc.poll() is not None) and _low_memory():
                 if self.low_memory_noted != prompt_id:
                     self.low_memory_noted = prompt_id
-                    log.warning("live preview skipped: less than %.0f GB of RAM free "
-                                "(H3_LIVE_PREVIEW_MIN_FREE_GB)", MIN_FREE_GB)
+                    log.warning("live preview skipped: less than %.0f GB of RAM free", MIN_FREE_GB)
                 continue
             self.busy = True
             path = self.tmp / f"{prompt_id}_{step}.pt"
@@ -216,7 +211,7 @@ def _opted_out(prompt_id) -> bool:
 
 def prepare_callback(model, steps, x0_output_dict=None, *args, **kwargs):
     inner = _original(model, steps, x0_output_dict, *args, **kwargs)
-    if not ENABLED or not _is_h3(model):
+    if not _is_h3(model):
         return inner
 
     def callback(step, x0, x, total_steps):

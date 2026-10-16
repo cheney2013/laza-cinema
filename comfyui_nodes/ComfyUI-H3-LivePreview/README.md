@@ -57,13 +57,7 @@ decode follows immediately).
 
 ## Settings
 
-| Setting | Effect |
-|---|---|
-| `H3_LIVE_PREVIEW=0` (environment, before starting ComfyUI) | Disable the pack |
-| `H3_LIVE_PREVIEW_SCALE=quarter` | Preview at a quarter of the render resolution instead of half; decodes about four times faster |
-| `extra_data: {"h3_live_preview": false}` on a prompt | Skip the preview for that prompt |
-| `H3_LIVE_PREVIEW_THREADS=<n>` | CPU threads for decoding |
-| `H3_LIVE_PREVIEW_MIN_FREE_GB=<n>` (default 8) | Skip a step when less RAM than this is free; the decode process holds about 5 GB |
+There is nothing to configure. To skip the preview for one prompt, queue it with `extra_data: {"h3_live_preview": false}`; to turn it off altogether, disable or remove the pack.
 
 ## License
 
